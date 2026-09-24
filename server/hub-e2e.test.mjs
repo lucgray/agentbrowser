@@ -338,7 +338,7 @@ test('a second command on a live chatId is refused', async (t) => {
 // COST HONESTY (check 3) — end to end through the hub, not through pricing.mjs
 // -----------------------------------------------------------------------
 
-const SUBSCRIPTION = ['claude-cli', 'codex', 'copilot', 'grok', 'agy', 'claude-agent-sdk', 'gemini', 'opencode'];
+const SUBSCRIPTION = ['claude-cli', 'codex', 'copilot', 'grok', 'agy', 'claude-agent-sdk', 'gemini', 'opencode', 'devin'];
 const METERED = ['anthropic-api', 'openai-api'];
 
 test('costUsd is null for every subscription-backed adapter and a number for the metered API adapters', async (t) => {

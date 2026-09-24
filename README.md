@@ -226,7 +226,7 @@ Selected per chat or via `server/config.json`:
 | `openai-api` | OpenAI API | per chat | needs an API key, no CLI required |
 
 <details>
-<summary><b>Six more CLIs</b> — wrapped by <code>server/adapters/generic-cli.mjs</code>: one process per turn, the CLI's own session resumed between turns, browser tools attached through <code>mcp-proxy.mjs</code></summary>
+<summary><b>Seven more CLIs</b> — wrapped by <code>server/adapters/generic-cli.mjs</code>: one process per turn, the CLI's own session resumed between turns, browser tools attached through <code>mcp-proxy.mjs</code></summary>
 
 | adapter | spawn | resume | MCP wiring |
 |---|---|---|---|
@@ -236,6 +236,7 @@ Selected per chat or via `server/config.json`:
 | `grok` | `grok -p ... --output-format json` | `--resume <sessionId>` | generated `.grok/config.toml` in a temp cwd |
 | `agy` | `agy -p ...` | `--conversation <id>` (id found by diffing the conversations dir after turn 1, `-c` fallback) | registered once in global `~/.gemini/config/mcp_config.json` (merge-only) |
 | `gemini` | `gemini -p ... -o stream-json` | `-r <session_id>` | generated `.gemini/settings.json` in a temp cwd; other servers excluded via `--allowed-mcp-server-names browser` |
+| `devin` | `devin -p <prompt> --respect-workspace-trust false --permission-mode dangerous` | `-c` in the per-chat temp cwd (sessions are cwd-scoped) | generated `.devin/mcp_config.json` in the temp cwd |
 
 Each CLI is looked up on your `PATH`. If yours lives somewhere unusual, set
 `AGENTCHAT_BIN_<NAME>` to an absolute path, e.g.

@@ -343,8 +343,8 @@ test('copilot and agy report nulls — their output has no usage to parse', () =
   assert.deepEqual(runBuffered('agy', 'Here is the answer.\n'), NO_USAGE);
 });
 
-test('exactly four of the six generic CLIs report usage', () => {
+test('exactly four of the seven generic CLIs report usage', () => {
   const reporting = ['codex', 'opencode', 'grok', 'gemini'];
-  const silent = ['copilot', 'agy'];
+  const silent = ['copilot', 'agy', 'devin'];
   assert.deepEqual([...reporting, ...silent].sort(), [...GENERIC_CLI_NAMES].sort());
 });

@@ -14,7 +14,7 @@ Guidance for AI agents (and humans) working in this repository.
   - `*.test.mjs` — `node:test` suites; DOM and `chrome.*` are stubbed.
 - `server/` — local hub and agent adapters.
   - `hub.mjs` — WebSocket broker on `127.0.0.1:9010`, adapter registry, prompt composition (page context + selection). `log()` writes `[hub]`-tagged stderr with secret scrubbing.
-  - `adapters/` — one module per backend: `claude-cli.mjs`, `generic-cli.mjs` (preconfigured presets incl. codex/opencode/gemini), `claude-agent-sdk.mjs`, `api-anthropic.mjs`, `api-openai.mjs`. Shared plumbing in `base.mjs`; credentials via `keystore.mjs` (macOS Keychain / file fallback).
+  - `adapters/` — one module per backend: `claude-cli.mjs`, `generic-cli.mjs` (preconfigured presets incl. codex/opencode/gemini/devin), `claude-agent-sdk.mjs`, `api-anthropic.mjs`, `api-openai.mjs`. Shared plumbing in `base.mjs`; credentials via `keystore.mjs` (macOS Keychain / file fallback).
   - `mcp-proxy.mjs` — stdio MCP server exposing browser tools to external harnesses. **stderr only** — stdout is the protocol channel.
   - `tools.mjs` — tool schema definitions shared with the extension.
 - `docs/index.html` — static landing page.
