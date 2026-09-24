@@ -136,7 +136,10 @@ compact chips in the transcript.
 
 - **Floating Ask** — highlight any text on a page and an **Ask** button
   appears at the caret. Click it: the side panel opens with the selection
-  staged as a removable chip in the composer.
+  staged as a removable chip in the composer. It can clash with other
+  overlays: uncheck **Floating Ask button on selection** in the right-click
+  menu to turn it off (persisted in `chrome.storage.local`, applies
+  instantly, Esc also dismisses it per selection).
 - **Context menu** — right-click a selection and pick **Ask AgentBrowser**.
 - **Rich context, automatically** — the next message carries
   `context.selection` (protocol v1.4): the selected text plus the semantic

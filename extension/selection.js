@@ -12,11 +12,33 @@
 // side panel handoff) is ours.
 
 const BTN_ID = "agentbrowser-ask-btn";
+const FLOAT_ASK_KEY = "floatingAskEnabled"; // chrome.storage.local, set by sw
 
 let floatBtn = null;
 let currentSelectionContext = null; // compiled on selection mouseup
 let lastRightClickContext = null; // compiled on contextmenu
 let lastRightClickElement = null;
+let floatingAskEnabled = true; // cached; kept in sync below
+
+// The floating button can clash with other overlays, so it obeys a
+// persistent user setting flipped from the right-click menu. Read it once
+// at startup and live via storage.onChanged; turning it off hides the
+// button immediately.
+if (isContextValid()) {
+  chrome.storage.local
+    .get({ [FLOAT_ASK_KEY]: true })
+    .then((r) => {
+      floatingAskEnabled = r[FLOAT_ASK_KEY] !== false;
+    })
+    .catch((err) => {
+      logWarn("floating-ask setting read failed", err);
+    });
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== "local" || !(FLOAT_ASK_KEY in changes)) return;
+    floatingAskEnabled = changes[FLOAT_ASK_KEY].newValue !== false;
+    if (!floatingAskEnabled) hideButton();
+  });
+}
 
 function isContextValid() {
   return (
@@ -451,7 +473,7 @@ function handleMouseUp(e) {
     if (!selection) return;
     const selectedText = selection.toString().trim();
 
-    if (selectedText.length === 0) {
+    if (selectedText.length === 0 || !floatingAskEnabled) {
       hideButton();
       return;
     }
