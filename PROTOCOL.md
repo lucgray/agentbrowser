@@ -652,10 +652,15 @@ the ability to revert (the mutations stay applied).
 user confirmation:
 
 ```
-{ "requireConsent": ["click", ...],   // default: the write-tool set
+{ "allowAll": true,                   // explicit opt-out: every tool passes
+  "requireConsent": ["click", ...],   // default: the write-tool set
   "trustedDomains":  ["localhost"],     // never ask on these hosts
   "sensitiveDomains": ["bank.example"]  // always ask; session grants ignored }
 ```
+
+`allowAll` is the explicit "trust the agent" switch: the block is present
+but nothing is gated — use it for unattended automation, or leave the block
+out entirely (same effect, but `allowAll` records the intent).
 
 The hub attaches the object to every forwarded `tool_call` (absent = gate
 off). sw.js checks the call against the *target* tab's URL — for `navigate`,
@@ -665,8 +670,9 @@ the same card styling as annotation comments). The card shows the tool name
 plus a concrete summary — click targets name the element via a bounded
 `elementFromPoint`/`querySelector` evaluate, `navigate` shows the destination
 URL, `type_text` previews the text. Three choices: Allow once, Always on this
-domain (remembered for the service worker's lifetime, keyed origin+tool),
-Deny. A second request replaces a pending card and denies it; a 30s timeout
+domain (keyed origin+tool, persisted in `chrome.storage.session` so it
+survives service-worker suspension and lasts the browser session), Deny. A
+second request replaces a pending card and denies it; a 30s timeout
 denies.
 
 Pages where the content script cannot run (chrome://, the Web Store, PDFs)

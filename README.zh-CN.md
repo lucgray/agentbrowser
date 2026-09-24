@@ -272,12 +272,16 @@ API 适配器拿到的浏览器工具与 CLI 适配器完全相同，所以「�
 名单里的工具每次执行前都会弹确认：目标页右上角出现确认卡，把动
 作写具体（`click 'button.buy' → button "Buy now"`、`navigate →
 github.com/settings`），你选 **Allow once**（仅本次）、**Always on
-this domain**（本会话内该域放行）或 **Deny**（拒绝）。卡片注入不
-了的页面（chrome://、PDF）退回系统通知。纯读类工具（`read_page`、
-`dom_inspect`、截图……）永不拦截；不配这个块则完全不拦。
-`sensitiveDomains` 每次必问且无视会话记忆，`trustedDomains` 永不
-问。`eval_js` 默认在写操作名单里——它能跑任意代码，想把它移出名单
-需要你显式指定 `requireConsent`。
+this domain**（本浏览器会话内该域放行）或 **Deny**（拒绝）。卡片
+注入不了的页面（chrome://、PDF）退回系统通知。纯读类工具
+（`read_page`、`dom_inspect`、截图……）永不拦截；不配这个块则完
+全不拦。`sensitiveDomains` 每次必问且无视会话记忆，
+`trustedDomains` 永不问。`eval_js` 默认在写操作名单里——它能跑任
+意代码，想把它移出名单需要你显式指定 `requireConsent`。
+
+无人值守场景下，`permissions` 里加 `"allowAll": true` 即显式关门——
+所有工具直接放行，决策完全交给 Agent。不配 `permissions` 效果相同，
+但 `allowAll` 能在配置里留下「这是你故意放开的」记录。
 
 ## 适配器
 

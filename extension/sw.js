@@ -421,8 +421,8 @@ async function handleToolCall({ id, tool, args, permissions }) {
   try {
     // Consent gate (PROTOCOL v1.7): the hub attaches config.json's
     // `permissions` object to each forwarded call. Only gated tools pay the
-    // tab lookup; an absent policy means the gate is off.
-    if (permissions && consent.requiredTools(permissions).includes(tool)) {
+    // tab lookup; an absent policy or allowAll:true means the gate is off.
+    if (consent.shouldCheck(tool, permissions)) {
       const tabId = await resolveTabId(args && args.tabId);
       const tab = await chrome.tabs.get(tabId).catch((err) => {
         console.warn('[agentbrowser] consent tab lookup failed', err);

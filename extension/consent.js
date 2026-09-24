@@ -15,12 +15,42 @@ import * as cdp from './cdp.js';
 import {
   needsConsent,
   rememberSessionAllow,
+  hydrateSessionAllows,
+  sessionAllowsKeys,
   summarizeArgs,
   hostOf,
   originOf,
 } from './consent-core.js';
 
-export { requiredTools } from './consent-core.js';
+export { requiredTools, shouldCheck } from './consent-core.js';
+
+// "Always on this domain" grants persist in chrome.storage.session so a
+// suspended service worker does not lose them; the in-memory set in
+// consent-core is hydrated lazily on the first gated call after wakeup.
+const GRANTS_KEY = 'consentSessionAllows';
+let grantsPromise = null;
+
+function grantsReady() {
+  if (!grantsPromise) {
+    grantsPromise = chrome.storage.session
+      .get(GRANTS_KEY)
+      .then((r) => {
+        hydrateSessionAllows(Array.isArray(r && r[GRANTS_KEY]) ? r[GRANTS_KEY] : []);
+      })
+      .catch((err) => {
+        console.warn('[agentbrowser] consent grants read failed', err);
+      });
+  }
+  return grantsPromise;
+}
+
+function persistGrants() {
+  chrome.storage.session
+    .set({ [GRANTS_KEY]: sessionAllowsKeys() })
+    .catch((err) => {
+      console.warn('[agentbrowser] consent grants write failed', err);
+    });
+}
 
 export const CONSENT_TIMEOUT_MS = 30000;
 const NOTIFICATION_TIMEOUT_MS = 15000;
@@ -143,6 +173,7 @@ function askViaNotification(request) {
 // times out. Otherwise returns; 'domain' decisions are remembered for the
 // session (never for sensitiveDomains — needsConsent re-asks there anyway).
 export async function authorize(tool, args, tabId, tabUrl, policy) {
+  await grantsReady();
   if (!needsConsent(tool, tabUrl, policy)) return;
   const summary = await describeTarget(tabId, tool, args);
   const request = { tool, summary, domain: hostOf(tabUrl) };
@@ -165,6 +196,7 @@ export async function authorize(tool, args, tabId, tabUrl, policy) {
 
   if (decision === 'domain') {
     rememberSessionAllow(originOf(tabUrl), tool);
+    persistGrants();
   }
   if (decision !== 'once' && decision !== 'domain') {
     throw new Error(`denied by user: ${tool}`);

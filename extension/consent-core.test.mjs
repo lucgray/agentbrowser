@@ -7,6 +7,7 @@ import {
   rememberSessionAllow,
   resetSessionAllows,
   requiredTools,
+  shouldCheck,
   summarizeArgs,
 } from './consent-core.js';
 
@@ -28,6 +29,21 @@ test('requireConsent defaults to WRITE_TOOLS when policy exists', () => {
   assert.deepEqual(requiredTools({}), WRITE_TOOLS);
   assert.deepEqual(requiredTools({ requireConsent: ['navigate'] }), ['navigate']);
   assert.equal(needsConsent('eval_js', 'https://a.com/', {}), true);
+});
+
+test('allowAll:true disables the gate entirely, even on sensitive domains', () => {
+  const p = { allowAll: true, requireConsent: ['click'], sensitiveDomains: ['bank.com'] };
+  assert.equal(shouldCheck('click', p), false);
+  assert.equal(needsConsent('click', 'https://bank.com/x', p), false);
+  assert.equal(needsConsent('eval_js', 'https://a.com/', p), false);
+});
+
+test('shouldCheck pre-filters absent policies, allowAll, and non-listed tools', () => {
+  assert.equal(shouldCheck('click', null), false);
+  assert.equal(shouldCheck('click', 'x'), false);
+  assert.equal(shouldCheck('read_page', { requireConsent: ['click'] }), false);
+  assert.equal(shouldCheck('click', { requireConsent: ['click'] }), true);
+  assert.equal(shouldCheck('click', {}), true); // default write set
 });
 
 test('hostless URLs never gate; chrome:// gates via notification fallback', () => {

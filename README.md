@@ -297,13 +297,18 @@ Add a `permissions` block to `server/config.json`:
 Every listed tool then asks before it runs: a card pops up on the target
 page naming the action concretely (`click 'button.buy' → button "Buy now"`,
 `navigate → github.com/settings`), and you pick **Allow once**, **Always on
-this domain** (this session), or **Deny**. Pages where a card can't be
-injected (chrome://, PDFs) fall back to a system notification. Reads
+this domain** (this browser session), or **Deny**. Pages where a card can't
+be injected (chrome://, PDFs) fall back to a system notification. Reads
 (`read_page`, `dom_inspect`, screenshots, …) never gate; omit the block
 entirely and nothing is gated. `sensitiveDomains` always ask and ignore
 session grants; `trustedDomains` never ask. `eval_js` is in the default
 write set — it's arbitrary code, so leaving it out of `requireConsent`
 requires an explicit choice on your part.
+
+For unattended automation, `"allowAll": true` inside `permissions` turns
+the gate off explicitly — every tool passes, the decision to allow is left
+to the agent. Omitting the block does the same thing, but `allowAll`
+records the intent in config.
 
 ## Adapters
 

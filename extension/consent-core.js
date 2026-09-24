@@ -5,6 +5,7 @@
 // Policy shape (all fields optional; an absent `permissions` object means the
 // gate is off entirely):
 //   {
+//     allowAll: true,                      // explicit opt-out: trust the agent
 //     requireConsent: [...tool names...]   // default: WRITE_TOOLS
 //     trustedDomains:  ["localhost", ...]  // never ask on these hosts
 //     sensitiveDomains: ["bank.com", ...]  // always ask; session memory ignored
@@ -56,13 +57,22 @@ export function requiredTools(policy) {
     : WRITE_TOOLS;
 }
 
+// Fast pre-check: does this tool fall under the gate at all? False skips the
+// tab lookup entirely. `allowAll: true` is the explicit "trust the agent"
+// switch — it turns the whole gate off while keeping the block present.
+export function shouldCheck(tool, policy) {
+  if (!policy || typeof policy !== 'object' || policy.allowAll === true) {
+    return false;
+  }
+  return requiredTools(policy).includes(tool);
+}
+
 // Pure decision, unit-testable: is this call on this tab subject to a user
 // prompt? False means "execute immediately".
 export function needsConsent(tool, tabUrl, policy) {
-  if (!policy || typeof policy !== 'object') return false;
+  if (!shouldCheck(tool, policy)) return false;
   const host = hostOf(tabUrl);
   if (!host) return false; // no card surface and no domain to attribute
-  if (!requiredTools(policy).includes(tool)) return false;
   if (domainMatches(host, policy.sensitiveDomains)) {
     return true; // always ask; memory and trusted lists skipped
   }
@@ -73,6 +83,16 @@ export function needsConsent(tool, tabUrl, policy) {
 
 export function rememberSessionAllow(origin, tool) {
   sessionAllows.add(`${origin}|${tool}`);
+}
+
+// Grants are persisted to chrome.storage.session by consent.js so they
+// survive service-worker suspension; hydrate restores them on wakeup.
+export function hydrateSessionAllows(entries) {
+  for (const e of entries || []) sessionAllows.add(String(e));
+}
+
+export function sessionAllowsKeys() {
+  return [...sessionAllows];
 }
 
 // Test hook: a fresh worker must not inherit earlier grants.
