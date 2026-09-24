@@ -2449,6 +2449,12 @@ function init() {
   // ----- Actions -----
 
   function autoGrow() {
+    if (!inputEl.value) {
+      // Chrome counts the wrapped placeholder in scrollHeight, which would
+      // grow the empty textarea by several lines.
+      inputEl.style.height = "";
+      return;
+    }
     inputEl.style.height = "auto";
     inputEl.style.height = Math.min(inputEl.scrollHeight, 180) + "px";
   }

@@ -165,12 +165,12 @@ img {
 }
 
 /* The centered chat dropdown: current conversation, archives, and New chat.
-   A soft-filled pill so it reads as the one interactive element up top. */
+   Pure white pill — a tinted fill reads as a color smudge on the light bar. */
 #chat-switcher {
   min-width: 0;
   max-width: 200px;
   margin: 0 auto;
-  background: var(--ac-bg-2);
+  background: #ffffff;
   color: var(--ac-text);
   border: 1px solid var(--ac-border);
   border-radius: var(--ac-radius-pill);
