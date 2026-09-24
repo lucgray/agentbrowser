@@ -59,6 +59,12 @@ error-handling standard.
 > Upstream credit: the entire side-panel ↔ hub ↔ adapter architecture, the
 > ten browser tools, and all adapters are the work of the upstream project.
 > This fork adds the selection-interaction layer and the conventions doc.
+>
+> Third-party credit: the selection-extraction code in
+> `extension/selection.js` (heading/table/code-block capture, semantic path,
+> floating Ask button) is adapted from
+> [cola-sk/context-lens](https://github.com/cola-sk/context-lens) (MIT), noted
+> in that file's header.
 
 ## Why CDP
 

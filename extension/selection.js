@@ -4,6 +4,12 @@
 // opens the side panel. Also answers GET_SELECTION_CONTEXT for the
 // "Ask AgentBrowser" context-menu item and pre-caches the right-clicked
 // element's context so the menu path is fast.
+//
+// Derived from cola-sk/context-lens (MIT) `content.js`:
+// findPrecedingHeading, findEnclosingCodeBlock, findEnclosingTable,
+// getSurroundingText, buildSemanticPath, and the floating-button pattern are
+// adapted from that implementation; Chrome-API glue (storage, messaging,
+// side panel handoff) is ours.
 
 const BTN_ID = "agentbrowser-ask-btn";
 
