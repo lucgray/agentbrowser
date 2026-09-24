@@ -899,6 +899,35 @@ function init() {
     return adapter + "::" + (model || "");
   }
 
+  // Canvas text measure: sizes the merged picker to the selected label's
+  // real width instead of the widest option's, so no dead space opens up
+  // between the text and the arrow. Lazily built — environments without a
+  // canvas implementation just keep the select's natural width.
+  let backendMeasure = null;
+  let backendMeasureTried = false;
+  function fitBackendWidth() {
+    const opt = backendSelect.selectedOptions && backendSelect.selectedOptions[0];
+    if (!opt) {
+      backendSelect.style.width = "";
+      return;
+    }
+    if (!backendMeasureTried) {
+      backendMeasureTried = true;
+      const canvas = document.createElement("canvas");
+      if (canvas && typeof canvas.getContext === "function") {
+        backendMeasure = canvas.getContext("2d");
+      }
+    }
+    if (!backendMeasure) {
+      backendSelect.style.width = "";
+      return;
+    }
+    backendMeasure.font = getComputedStyle(backendSelect).font;
+    const w = Math.ceil(backendMeasure.measureText(opt.textContent).width);
+    // 8px left padding + 22px right padding for the chevron, capped.
+    backendSelect.style.width = Math.min(w + 30, 200) + "px";
+  }
+
   function renderBackendSelect(preferredModel) {
     backendSelect.replaceChildren();
     const flat = [];
@@ -931,6 +960,7 @@ function init() {
     // full "adapter · model" identity.
     const selA = adapterEntry(adapters, selAdapter);
     backendSelect.title = (selA && (selA.label || selA.name) || selAdapter) + (selModel ? " · " + selModel : "");
+    fitBackendWidth();
   }
 
   // The model that rides on the next chat message, or undefined for "adapter
