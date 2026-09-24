@@ -650,7 +650,12 @@ export function buildSetKeyMessage(provider, key) {
 
 function init() {
   const statusDot = document.getElementById("status-dot");
-  const backendSelect = document.getElementById("backend");
+  const backendEl = document.getElementById("backend");
+  const backendBtn = document.getElementById("backend-btn");
+  const backendLabel = document.getElementById("backend-label");
+  const backendPop = document.getElementById("backend-pop");
+  const backendAdaptersEl = document.getElementById("backend-adapters");
+  const backendModelsEl = document.getElementById("backend-models");
   const settingsBtn = document.getElementById("settings-btn");
   const settingsView = document.getElementById("settings-view");
   const settingsClose = document.getElementById("settings-close");
@@ -850,7 +855,7 @@ function init() {
     if (msg.adapter && adapters.some((a) => a.name === msg.adapter)) {
       selAdapter = msg.adapter;
     }
-    renderBackendSelect(msg.model || undefined);
+    renderBackend(msg.model || undefined);
     renderSwitcher();
     inputEl.focus();
   }
@@ -887,68 +892,105 @@ function init() {
     adapters = list;
     commands = normalizeCommands(commandList);
     if (palette) updatePalette();
-    renderBackendSelect();
+    renderBackend();
     keyState = keyStateFromCapabilities(adapters);
     renderKeyState();
   }
 
-  // The merged backend picker encodes "adapter::model" in each option value
-  // ("adapter::" when the adapter has no model switch). Adapters with models
-  // render as an optgroup of their models; adapters without render flat.
-  function backendValue(adapter, model) {
-    return adapter + "::" + (model || "");
+  // The merged backend picker: one ghost button opens a two-pane menu —
+  // adapters on the left, the hovered adapter's models fly out on the right,
+  // nothing expanded unless asked. State lives in selAdapter/selModel, not
+  // in the DOM; menuAdapter is the adapter whose models the flyout shows.
+  let menuAdapter = "";
+
+  function backendTitle() {
+    const a = adapterEntry(adapters, selAdapter);
+    const name = a ? a.label || a.name : selAdapter;
+    return name + (selModel ? " · " + selModel : "");
   }
 
-  // Canvas text measure: sizes the merged picker to the selected label's
-  // real width instead of the widest option's, so no dead space opens up
-  // between the text and the arrow. Lazily built — environments without a
-  // canvas implementation just keep the select's natural width.
-  let backendMeasure = null;
-  let backendMeasureTried = false;
-  function fitBackendWidth() {
-    const opt = backendSelect.selectedOptions && backendSelect.selectedOptions[0];
-    if (!opt) {
-      backendSelect.style.width = "";
-      return;
+  // The collapsed text is the short label: the model name when one is picked,
+  // otherwise the adapter's own label.
+  function shortBackendLabel() {
+    const a = adapterEntry(adapters, selAdapter);
+    if (!a) return "No adapters";
+    if (selModel) {
+      const { models } = modelsFor(adapters, selAdapter);
+      const m = models.find((mm) => mm.id === selModel);
+      return (m && (m.label || m.id)) || selModel;
     }
-    if (!backendMeasureTried) {
-      backendMeasureTried = true;
-      const canvas = document.createElement("canvas");
-      if (canvas && typeof canvas.getContext === "function") {
-        backendMeasure = canvas.getContext("2d");
-      }
-    }
-    if (!backendMeasure) {
-      backendSelect.style.width = "";
-      return;
-    }
-    backendMeasure.font = getComputedStyle(backendSelect).font;
-    const w = Math.ceil(backendMeasure.measureText(opt.textContent).width);
-    // 8px left padding + 22px right padding for the chevron, capped.
-    backendSelect.style.width = Math.min(w + 30, 200) + "px";
+    return a.label || a.name;
   }
 
-  function renderBackendSelect(preferredModel) {
-    backendSelect.replaceChildren();
+  function setBackendOpen(open) {
+    if (backendBtn.disabled) open = false;
+    backendPop.hidden = !open;
+    backendBtn.setAttribute("aria-expanded", open ? "true" : "false");
+    if (open) {
+      menuAdapter = selAdapter;
+      buildAdapterRows();
+      renderBackendMenu();
+    }
+  }
+
+  function makeBackendRow(adapter, model) {
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = "backend-row";
+    row.setAttribute("role", "menuitem");
+    row.dataset.adapter = adapter;
+    if (model !== null && model !== undefined) row.dataset.model = model;
+    const label = document.createElement("span");
+    label.className = "backend-row-label";
+    row.appendChild(label);
+    return row;
+  }
+
+  // The left column is built once per open; hover/focus then only refreshes
+  // classes and the right column, so the row under the cursor or the focus
+  // ring never gets yanked out of the DOM.
+  function buildAdapterRows() {
+    backendAdaptersEl.replaceChildren();
+    for (const a of adapters) {
+      const { models } = modelsFor(adapters, a.name);
+      const row = makeBackendRow(a.name, null);
+      if (models.length) row.classList.add("has-models");
+      row.firstChild.textContent = a.label || a.name;
+      backendAdaptersEl.appendChild(row);
+    }
+  }
+
+  function renderBackendMenu() {
+    for (const row of backendAdaptersEl.children) {
+      row.classList.toggle("is-active", row.dataset.adapter === selAdapter);
+      row.classList.toggle("is-open", row.dataset.adapter === menuAdapter);
+    }
+    backendModelsEl.replaceChildren();
+    for (const m of modelsFor(adapters, menuAdapter).models) {
+      const row = makeBackendRow(menuAdapter, m.id);
+      row.classList.toggle("is-active", menuAdapter === selAdapter && m.id === selModel);
+      row.firstChild.textContent = m.label || m.id;
+      backendModelsEl.appendChild(row);
+    }
+  }
+
+  function commitBackend(adapter, model) {
+    selAdapter = adapter;
+    selModel = model;
+    renderBackend();
+    setBackendOpen(false);
+    savePrefs();
+  }
+
+  function renderBackend(preferredModel) {
     const flat = [];
     for (const a of adapters) {
       const { models } = modelsFor(adapters, a.name);
-      if (models.length === 0) {
-        backendSelect.appendChild(makeOption(backendValue(a.name), a.label || a.name));
-        flat.push({ adapter: a.name, model: null });
-      } else {
-        const group = document.createElement("optgroup");
-        group.label = a.label || a.name;
-        for (const m of models) {
-          group.appendChild(makeOption(backendValue(a.name, m.id), m.label || m.id));
-        }
-        backendSelect.appendChild(group);
-        for (const m of models) flat.push({ adapter: a.name, model: m.id });
-      }
+      if (models.length === 0) flat.push({ adapter: a.name, model: null });
+      else for (const m of models) flat.push({ adapter: a.name, model: m.id });
     }
     // Keep the current adapter when it still exists; otherwise the remembered
-    // one, otherwise the first entry. A select silently keeps "" when the
-    // value matches no option, so the fallback has to be explicit.
+    // one, otherwise the first entry.
     const have = (n) => adapters.some((a) => a && a.name === n);
     selAdapter = have(selAdapter) ? selAdapter : have(prefAdapter) ? prefAdapter : (flat[0] ? flat[0].adapter : "");
     selModel = pickModel(adapters, selAdapter, preferredModel || selModel || prefModel);
@@ -956,22 +998,16 @@ function init() {
       // No capabilities yet (or a hub that lists none): keep the control
       // visible but disabled so the composer row does not jump when the
       // real list lands.
-      backendSelect.appendChild(makeOption("", "No adapters"));
-      backendSelect.value = "";
-      backendSelect.disabled = true;
-      backendSelect.title = "No adapters — waiting for capabilities";
-      fitBackendWidth();
+      backendBtn.disabled = true;
+      backendLabel.textContent = "No adapters";
+      backendBtn.title = "No adapters — waiting for capabilities";
+      setBackendOpen(false);
       return;
     }
-    backendSelect.disabled = false;
-    const want = backendValue(selAdapter, selModel);
-    backendSelect.value = want;
-    if (backendSelect.value !== want) backendSelect.value = flat[0] ? backendValue(flat[0].adapter, flat[0].model) : "";
-    // The collapsed text shows only the short label; the tooltip carries the
-    // full "adapter · model" identity.
-    const selA = adapterEntry(adapters, selAdapter);
-    backendSelect.title = (selA && (selA.label || selA.name) || selAdapter) + (selModel ? " · " + selModel : "");
-    fitBackendWidth();
+    backendBtn.disabled = false;
+    backendLabel.textContent = shortBackendLabel();
+    backendBtn.title = backendTitle();
+    if (!backendPop.hidden) renderBackendMenu();
   }
 
   // The model that rides on the next chat message, or undefined for "adapter
@@ -999,8 +1035,8 @@ function init() {
         if (!v || typeof v !== "object") return;
         if (typeof v.adapter === "string" && v.adapter) prefAdapter = v.adapter;
         if (typeof v.model === "string" && v.model) prefModel = v.model;
-        // renderBackendSelect restores only choices the list can still hold.
-        renderBackendSelect(prefModel);
+        // renderBackend restores only choices the list can still hold.
+        renderBackend(prefModel);
       })
       .catch((err) => console.warn("[agentbrowser] prefs restore failed", err));
   }
@@ -2512,7 +2548,8 @@ function init() {
     const want = String(args || "").trim();
     if (!want) {
       addLine("info", what + ": " + current + " (" + options.join(", ") + ")");
-      backendSelect.focus();
+      backendBtn.focus();
+      setBackendOpen(true);
       return;
     }
     const lower = want.toLowerCase();
@@ -2524,7 +2561,7 @@ function init() {
       return;
     }
     apply(hit);
-    renderBackendSelect();
+    renderBackend();
     savePrefs();
     addLine("info", what + " set to " + hit);
   }
@@ -2799,15 +2836,48 @@ function init() {
   chatSwitcher.addEventListener("mousedown", requestChatList);
   chatSwitcher.addEventListener("focus", requestChatList);
 
-  backendSelect.addEventListener("change", () => {
-    const v = String(backendSelect.value);
-    const sep = v.indexOf("::");
-    if (sep > 0) {
-      selAdapter = v.slice(0, sep);
-      selModel = v.slice(sep + 2) || null;
+  backendBtn.addEventListener("click", () => setBackendOpen(backendPop.hidden));
+  document.addEventListener("mousedown", (e) => {
+    if (!backendPop.hidden && !backendEl.contains(e.target)) setBackendOpen(false);
+  });
+  backendEl.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      setBackendOpen(false);
+      backendBtn.focus();
     }
-    renderBackendSelect(); // refreshes the tooltip and normalizes the value
-    savePrefs();
+  });
+  // Hover or keyboard focus on an adapter flies its models out in the right
+  // column; the adapter list itself is never rebuilt under the cursor.
+  backendAdaptersEl.addEventListener("mouseover", (e) => {
+    const row = e.target.closest(".backend-row");
+    if (row && row.dataset.adapter !== menuAdapter) {
+      menuAdapter = row.dataset.adapter;
+      renderBackendMenu();
+    }
+  });
+  backendAdaptersEl.addEventListener("focusin", (e) => {
+    const row = e.target.closest(".backend-row");
+    if (row && row.dataset.adapter !== menuAdapter) {
+      menuAdapter = row.dataset.adapter;
+      renderBackendMenu();
+    }
+  });
+  backendAdaptersEl.addEventListener("click", (e) => {
+    const row = e.target.closest(".backend-row");
+    if (!row || !row.dataset.adapter) return;
+    const name = row.dataset.adapter;
+    if (modelsFor(adapters, name).models.length === 0) {
+      commitBackend(name, null); // a model-less adapter commits on click
+    } else {
+      menuAdapter = name;
+      renderBackendMenu();
+    }
+  });
+  backendModelsEl.addEventListener("click", (e) => {
+    const row = e.target.closest(".backend-row");
+    if (!row || !row.dataset.adapter) return;
+    commitBackend(row.dataset.adapter, row.dataset.model || null);
   });
 
   settingsBtn.addEventListener("click", () => setSettingsOpen(settingsView.hidden));

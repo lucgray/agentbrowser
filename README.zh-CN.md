@@ -56,7 +56,7 @@
 | **选中文字 → 光标处浮出「Ask」按钮** | — | ✓ |
 | **右键菜单 → "Ask AgentBrowser"** | — | ✓ |
 | **选中内容自动补上下文** — 语义化 DOM 路径、最近章节标题、±800 字符上下文、所在 `<pre>`/代码块（含语言识别）、表格表头+当前行渲染为 markdown → `context.selection`（协议 v1.4） | — | ✓ |
-| **页面标注** — `annotate`/`annotations_list`/`annotate_reply`/`annotate_clear` 工具；下划线、荧光笔、圈选引用文本；每条标注的评论卡片跑自己的会话（协议 v1.5） | — | ✓ |
+| **页面标注** — `annotate`/`annotate_batch`/`annotations_list`/`annotate_reply`/`annotate_clear` 工具；下划线、荧光笔、圈选引用文本；每条标注的评论卡片跑自己的会话（协议 v1.5） | — | ✓ |
 | **主动共读标注** — 可选 `proactiveAnnotation` 配置：每页跑一轮后台 pass，标记疑难段落并附原因 | — | ✓ |
 | **先观察再驱动** — BBX 式结构化读取（`dom_inspect`、`console_log`、`network_log` + 脱敏 HAR、`a11y_tree`、弹窗处理）与可逆实时补丁（`patch_apply`/`patch_revert`）（协议 v1.6） | — | ✓ |
 | **免 MCP 的 Skill + CLI 接入** — `agentbrowser <tool> '<json>'` 命令行 + SKILL.md 安装器，给不支持 MCP 的 Agent 用 | — | ✓ |
@@ -182,9 +182,10 @@ Agent 能完整看到这些信息，所以「解释一下这个」「这个正�
 }
 ```
 
-`annotations_list` 返回某个标签页上所有标注与评论串——方便让它生成
-「我们在这页留下的所有批注」摘要；`annotate_clear` 删除单条或全部
-标注。
+`annotate_batch` 一次调用标注多处——某条引用没找到只影响该条，不会
+拖垮整批。`annotations_list` 返回某个标签页上所有标注与评论串——
+方便让它生成「我们在这页留下的所有批注」摘要；`annotate_clear`
+删除单条或全部标注。
 
 ## 检查页面
 

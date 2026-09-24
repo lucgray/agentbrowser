@@ -214,39 +214,146 @@ img {
   50% { opacity: 0.4; }
 }
 
-/* The merged backend picker (adapter + model in one). Ghost style keeps it
-   quiet next to the icon buttons; it only darkens on hover. The native arrow
-   is replaced by a background chevron (vertically centered, 6px from the
-   right edge) and JS sizes the box to the selected label's real width, so
-   there is no dead space before the arrow. */
+/* The merged backend picker (adapter + model in one). Ghost button opens a
+   two-pane menu: adapters on the left, the hovered adapter's models fly out
+   on the right — nothing is expanded unless asked. */
 #backend {
-  appearance: none;
-  -webkit-appearance: none;
+  position: relative;
+  margin-left: -4px; /* hugs the attach button: row gap + padding ≈ 4px */
+}
+
+#backend-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   min-width: 0;
   max-width: 200px;
   background: transparent;
   color: var(--ac-text-muted);
   border: 1px solid transparent;
   border-radius: var(--ac-radius-control);
-  padding: var(--ac-space-4) 20px var(--ac-space-4) 4px;
-  margin-left: -4px; /* hugs the attach button: row gap + padding ≈ 4px */
+  padding: var(--ac-space-4) 6px var(--ac-space-4) 4px;
   font: var(--ac-type-secondary);
-  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='9' height='5' viewBox='0 0 9 5'><path d='M1 1l3.5 3L8 1' fill='none' stroke='%2377867d' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/></svg>");
-  background-repeat: no-repeat;
-  background-position: right 6px center;
   transition: color var(--ac-dur-fast) var(--ac-ease),
     border-color var(--ac-dur-fast) var(--ac-ease);
 }
 
-#backend:hover,
-#backend:focus-visible {
+#backend-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#backend-btn:hover:not(:disabled),
+#backend-btn:focus-visible,
+#backend-btn[aria-expanded="true"] {
   color: var(--ac-text-secondary);
   border-color: var(--ac-border);
 }
 
-#backend:disabled {
+#backend-btn:disabled {
   opacity: 0.45;
   cursor: default;
+}
+
+/* The menu rises above the composer. Two columns sit side by side; the
+   models pane collapses entirely for adapters without a model switch. */
+#backend-pop {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: -6px;
+  z-index: 60;
+  display: flex;
+  background: var(--ac-bg-1);
+  border: 1px solid var(--ac-border);
+  border-radius: var(--ac-radius-card);
+  box-shadow: var(--ac-shadow-card);
+  padding: var(--ac-space-4);
+  max-height: 280px;
+}
+
+#backend-pop[hidden] {
+  display: none;
+}
+
+.backend-col {
+  overflow-y: auto;
+  min-width: 148px;
+}
+
+.backend-col + .backend-col {
+  border-left: 1px solid var(--ac-border-soft, var(--ac-border));
+  margin-left: var(--ac-space-4);
+  padding-left: var(--ac-space-4);
+  min-width: 128px;
+}
+
+#backend-models:empty {
+  display: none;
+}
+
+.backend-row {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  color: var(--ac-text-secondary);
+  border: none;
+  border-radius: var(--ac-radius-control);
+  padding: var(--ac-space-4) var(--ac-space-8) var(--ac-space-4) 16px;
+  font: var(--ac-type-secondary);
+  cursor: pointer;
+}
+
+.backend-row:hover,
+.backend-row:focus-visible {
+  background: var(--ac-bg-2);
+  color: var(--ac-text);
+}
+
+/* is-open marks the adapter whose models the right column shows; is-active
+   is the committed selection. */
+.backend-row.is-open {
+  background: var(--ac-bg-2);
+  color: var(--ac-text);
+}
+
+.backend-row.is-active {
+  color: var(--ac-text);
+  font-weight: 600;
+}
+
+.backend-row.is-active::before {
+  content: "";
+  flex: none;
+  width: 4px;
+  height: 8px;
+  margin-right: 6px;
+  border-right: 1.6px solid currentColor;
+  border-bottom: 1.6px solid currentColor;
+  transform: rotate(45deg) translateY(-1px);
+}
+
+.backend-row-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A right-pointing chevron on adapters that carry a model list. */
+.backend-row.has-models::after {
+  content: "";
+  flex: none;
+  width: 6px;
+  height: 6px;
+  margin-left: var(--ac-space-8);
+  border-top: 1.4px solid currentColor;
+  border-right: 1.4px solid currentColor;
+  transform: rotate(45deg);
+  opacity: 0.6;
 }
 
 /* ----- buttons: ghost text is the default variant ----- */

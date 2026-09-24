@@ -1,4 +1,4 @@
-# AgentBrowser protocol v1.8
+# AgentBrowser protocol v1.9
 
 AgentBrowser is a Chrome MV3 extension with a side-panel chat UI, plus a local hub
 server. The chat is backed by a pluggable "harness" (Claude Agent SDK, Claude
@@ -568,9 +568,9 @@ annotation.js <-> sw (v1.5), regular `sendMessage`:
   (same mark, same thread) on the adapter the panel last used
   (`lastPanelAdapter`, falling back to config.adapter), with
   `context.currentTab` pointing at the page.
-- sw -> content: `{target:"annotation", cmd:"annotate"|"list"|"reply"|
-  "clear", ...}` — the annotate* tools; sw injects annotation.js/css and
-  retries once when the frame has no listener.
+- sw -> content: `{target:"annotation", cmd:"annotate"|"batch"|"list"|
+  "reply"|"clear", ...}` — the annotate* tools; sw injects annotation.js/css
+  and retries once when the frame has no listener.
 - sw -> content: `{target:"annotation", cmd:"event", annId, event}` — every
   chat_event for an `ann-*` chatId is routed to the tab that owns it instead
   of the panel; `token` events accumulate into the reply bubble, `done` ends
@@ -604,6 +604,7 @@ executor, in the SDK adapter's MCP server, and in mcp-proxy.mjs.
 | `press_key` | `{key, tabId?}` | `{pressed:key}` — e.g. "Enter", "Tab", "Escape", "Backspace", "ArrowDown", "Meta+A", "Meta+C", "Meta+V" |
 | `eval_js` | `{expression, tabId?}` | `{value}` — `Runtime.evaluate` returnByValue+awaitPromise; errors -> ok:false |
 | `annotate` | `{quote, style, comment?, color?, tabId?}` | `{id, style, quote}` — v1.5; style is `underline`/`highlight`/`circle`; error when the quote is not on the page |
+| `annotate_batch` | `{annotations:[{quote, style, comment?, color?}], tabId?}` | `{results:[{ok,id,style,quote} | {ok:false,quote,error}]}` — v1.9; per-item results so one bad quote does not fail the batch |
 | `annotations_list` | `{tabId?}` | `{annotations:[{id,style,quote,comment,author,replies}]}` — v1.5 |
 | `annotate_reply` | `{id, text, tabId?}` | `{id, replied:true}` — v1.5, appends an agent reply to the mark's comment thread |
 | `annotate_clear` | `{id?, tabId?}` | `{cleared:<n>}` — v1.5; no id clears all marks on the tab |
