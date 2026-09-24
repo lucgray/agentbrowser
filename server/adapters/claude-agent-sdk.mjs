@@ -12,6 +12,10 @@ import { TOOL_NAMES } from '../tools.mjs';
 const MCP_SERVER_NAME = 'browser';
 const TOOL_PREFIX = `mcp__${MCP_SERVER_NAME}__`;
 
+function logWarn(context, err) {
+  console.error('[claude-agent-sdk]', context + ':', (err && err.message) || err);
+}
+
 const SYSTEM_PROMPT = [
   "You are a browser operator. You control the user's real, logged-in browser",
   'through trusted CDP input using the browser tools (tabs_list, tab_new,',
@@ -48,6 +52,7 @@ function buildMcpServer(ctx) {
     try {
       return textResult(await ctx.callBrowserTool(name, args));
     } catch (err) {
+      logWarn('browser tool failed', err);
       return errorResult(err);
     }
   };
@@ -80,6 +85,7 @@ function buildMcpServer(ctx) {
             }]
           };
         } catch (err) {
+          logWarn('browser tool failed', err);
           return errorResult(err);
         }
       }),
@@ -335,7 +341,11 @@ export function createClaudeAgentSdkSession(ctx) {
     },
 
     abort() {
-      if (activeQuery) activeQuery.interrupt().catch(() => {});
+      if (activeQuery) {
+        activeQuery.interrupt().catch((err) => {
+          logWarn('interrupt failed', err);
+        });
+      }
     },
 
     dispose() {
@@ -344,8 +354,8 @@ export function createClaudeAgentSdkSession(ctx) {
       endTurn('session disposed');
       try {
         abortController.abort();
-      } catch {
-        // ignore
+      } catch (err) {
+        logWarn('dispose abort failed', err);
       }
       activeQuery = null;
     }

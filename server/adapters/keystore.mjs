@@ -23,6 +23,11 @@ const FILE = path.join(DIR, 'keys.json');
 const DIR_MODE = 0o700;
 const FILE_MODE = 0o600;
 
+// Error messages only — never the store's contents.
+function logWarn(context, err) {
+  console.error('[keystore]', context + ':', (err && err.message) || err);
+}
+
 function isProvider(provider) {
   return PROVIDERS.includes(provider);
 }
@@ -33,13 +38,15 @@ export function readStore() {
   let raw;
   try {
     raw = readFileSync(FILE, 'utf8');
-  } catch {
+  } catch (err) {
+    logWarn('key file unreadable, treating as empty', err);
     return {};
   }
   let parsed;
   try {
     parsed = JSON.parse(raw);
-  } catch {
+  } catch (err) {
+    logWarn('key file malformed, treating as empty', err);
     return {};
   }
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
@@ -55,8 +62,9 @@ function ensureDir() {
   mkdirSync(DIR, { recursive: true, mode: DIR_MODE });
   try {
     chmodSync(DIR, DIR_MODE);
-  } catch {
+  } catch (err) {
     // best effort: a pre-existing dir we cannot chmod still works
+    logWarn('dir chmod failed (continuing)', err);
   }
 }
 
@@ -70,20 +78,22 @@ function writeStore(store) {
     writeFileSync(tmp, `${JSON.stringify(store, null, 2)}\n`, { mode: FILE_MODE });
     try {
       chmodSync(tmp, FILE_MODE);
-    } catch {
+    } catch (err) {
       // best effort
+      logWarn('tmp file chmod failed (continuing)', err);
     }
     renameSync(tmp, FILE);
     try {
       chmodSync(FILE, FILE_MODE);
-    } catch {
+    } catch (err) {
       // best effort
+      logWarn('key file chmod failed (continuing)', err);
     }
   } catch (err) {
     try {
       if (existsSync(tmp)) unlinkSync(tmp);
-    } catch {
-      // ignore
+    } catch (cleanupErr) {
+      logWarn('temp file cleanup failed', cleanupErr);
     }
     // Re-thrown with a generic message: the original may embed the path but
     // never the key, and we keep it that way.

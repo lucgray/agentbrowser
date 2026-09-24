@@ -22,6 +22,10 @@ const API_VERSION = '2023-06-01';
 const MAX_TOOL_ITERATIONS = 40;
 const MAX_TOKENS = 32000;
 
+function logWarn(context, err) {
+  console.error('[api-anthropic]', context + ':', (err && err.message) || err);
+}
+
 // PROTOCOL v1.3 D1: several tool_use blocks in one assistant turn run
 // concurrently, at most this many in flight.
 export const MAX_TOOL_CONCURRENCY = 6;
@@ -104,7 +108,8 @@ function summarize(value) {
   if (typeof value === 'string') return truncate(value) || 'ok';
   try {
     return truncate(JSON.stringify(value));
-  } catch {
+  } catch (err) {
+    logWarn('summarize fell back for unserializable value', err);
     return 'ok';
   }
 }
@@ -142,6 +147,7 @@ export async function mapConcurrent(items, limit, fn, onError) {
       try {
         results[index] = await fn(list[index], index);
       } catch (err) {
+        logWarn('concurrent task failed', err);
         results[index] = typeof onError === 'function'
           ? onError(err, list[index], index)
           : undefined;
@@ -206,7 +212,8 @@ function parseSseRecord(record) {
   if (data === '[DONE]') return undefined;
   try {
     return JSON.parse(data);
-  } catch {
+  } catch (err) {
+    logWarn('malformed SSE data, skipping', err);
     return undefined;
   }
 }
@@ -284,7 +291,8 @@ export function createAnthropicApiSession(ctx = {}) {
       let detail = '';
       try {
         detail = truncate(await res.text(), 300);
-      } catch {
+      } catch (err) {
+        logWarn('error body unread, using status only', err);
         detail = '';
       }
       // The key is only ever in the request headers; the body we echo here is
@@ -398,7 +406,8 @@ export function createAnthropicApiSession(ctx = {}) {
     try {
       const value = JSON.parse(text);
       return value && typeof value === 'object' ? value : {};
-    } catch {
+    } catch (err) {
+      logWarn('malformed JSON in stream, skipping', err);
       return {};
     }
   }
@@ -425,6 +434,7 @@ export function createAnthropicApiSession(ctx = {}) {
       }
       return { ok: true, summary: summarize(result), content: JSON.stringify(result ?? null) };
     } catch (err) {
+      logWarn('tool call failed', err);
       return { ok: false, summary: truncate(errText(err)), content: errText(err), isError: true };
     }
   }
@@ -550,6 +560,7 @@ export function createAnthropicApiSession(ctx = {}) {
       emitDone(`tool loop hit the ${MAX_TOOL_ITERATIONS}-iteration cap`);
     } catch (err) {
       if (isAbort(err) || closed) {
+        logWarn('turn aborted', err);
         // aborted turns end cleanly: the conversation so far is still valid
         emitMeta(startedAt, usage);
         emitDone(null);
@@ -577,6 +588,7 @@ export function createAnthropicApiSession(ctx = {}) {
       await new Promise((resolve) => {
         turn = { emit, done: resolve };
         runTurn(text).catch((err) => {
+          logWarn('turn failed', err);
           emitDone(errText(err));
         });
       });
@@ -586,8 +598,8 @@ export function createAnthropicApiSession(ctx = {}) {
       if (controller) {
         try {
           controller.abort();
-        } catch {
-          // ignore
+        } catch (err) {
+          logWarn('abort failed', err);
         }
       }
     },
@@ -597,8 +609,8 @@ export function createAnthropicApiSession(ctx = {}) {
       if (controller) {
         try {
           controller.abort();
-        } catch {
-          // ignore
+        } catch (err) {
+          logWarn('dispose abort failed', err);
         }
       }
       emitDone('session disposed');

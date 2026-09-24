@@ -65,7 +65,10 @@ function stringify(value) {
   if (typeof value === "object") {
     try {
       return JSON.stringify(value);
-    } catch {
+    } catch (err) {
+      // Direct console.error: stringify sits on the log() path, and log()
+      // would just hit this same branch again.
+      console.error("[hub] stringify fell back for unserializable value:", err && err.message);
       return "[object]";
     }
   }
@@ -112,8 +115,9 @@ async function loadKeystore() {
       keystoreModule = mod;
       return mod;
     }
-  } catch {
+  } catch (err) {
     // not written yet; the fallback below is used
+    log("keystore module unavailable, using fallback:", err && err.message);
   }
   return null;
 }
@@ -122,7 +126,8 @@ function fallbackRead() {
   try {
     const parsed = JSON.parse(readFileSync(keysFile(), "utf8"));
     return parsed && typeof parsed === "object" ? parsed : {};
-  } catch {
+  } catch (err) {
+    log("fallback key file unreadable, treating as empty:", err && err.message);
     return {};
   }
 }
@@ -131,14 +136,16 @@ function fallbackWrite(data) {
   mkdirSync(keysDir(), { recursive: true, mode: 0o700 });
   try {
     chmodSync(keysDir(), 0o700);
-  } catch {
+  } catch (err) {
     // best effort: an existing dir may be owned differently
+    log("keys dir chmod failed (continuing):", err && err.message);
   }
   writeFileSync(keysFile(), JSON.stringify(data, null, 2), { mode: 0o600 });
   try {
     chmodSync(keysFile(), 0o600);
-  } catch {
+  } catch (err) {
     // mode already applied at creation
+    log("keys file chmod failed (continuing):", err && err.message);
   }
 }
 
@@ -516,7 +523,8 @@ function costEstimatedFor(adapterName, model) {
   if (!pricing || typeof pricing.isEstimatedCost !== "function") return false;
   try {
     return pricing.isEstimatedCost(model, adapterName) === true;
-  } catch {
+  } catch (err) {
+    log("isEstimatedCost failed, treating as not estimated:", err && err.message);
     return false;
   }
 }
@@ -1185,8 +1193,9 @@ function handleHello(ws, msg) {
       failPendingExtensionCalls("displaced");
       try {
         extensionSocket.close();
-      } catch {
+      } catch (err) {
         // already closing
+        log("closing displaced extension socket failed:", err && err.message);
       }
     }
     extensionSocket = ws;
@@ -1310,7 +1319,8 @@ wss.on("connection", (ws) => {
     let msg;
     try {
       msg = JSON.parse(data.toString());
-    } catch {
+    } catch (err) {
+      log("dropping non-JSON client message:", err && err.message);
       return; // not JSON, ignore
     }
     if (!msg || typeof msg.type !== "string") return;

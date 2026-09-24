@@ -34,7 +34,8 @@ const CONFIG = (() => {
   try {
     const dir = path.dirname(fileURLToPath(import.meta.url));
     return JSON.parse(readFileSync(path.join(dir, '..', 'config.json'), 'utf8'));
-  } catch {
+  } catch (err) {
+    console.error('[base]', 'config.json unreadable, using defaults:', (err && err.message) || err);
     return {};
   }
 })();

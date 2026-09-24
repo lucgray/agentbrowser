@@ -34,6 +34,10 @@ import {
 } from './api-anthropic.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+function logWarn(context, err) {
+  console.error('[api-openai]', context + ':', (err && err.message) || err);
+}
 const CONFIG_PATH = path.resolve(__dirname, '..', 'config.json');
 
 const DEFAULT_BASE_URL = 'https://api.openai.com/v1';
@@ -53,7 +57,8 @@ export function loadOpenAiConfig() {
   try {
     const parsed = JSON.parse(readFileSync(CONFIG_PATH, 'utf8'));
     return parsed && typeof parsed === 'object' ? parsed : {};
-  } catch {
+  } catch (err) {
+    logWarn('config.json unreadable, using defaults', err);
     return {};
   }
 }
@@ -110,7 +115,8 @@ function summarize(value) {
   if (typeof value === 'string') return truncate(value) || 'ok';
   try {
     return truncate(JSON.stringify(value));
-  } catch {
+  } catch (err) {
+    logWarn('summarize fell back for unserializable value', err);
     return 'ok';
   }
 }
@@ -128,7 +134,8 @@ function safeJson(text) {
   try {
     const value = JSON.parse(text);
     return value && typeof value === 'object' ? value : {};
-  } catch {
+  } catch (err) {
+    logWarn('malformed JSON in stream, skipping', err);
     return {};
   }
 }
@@ -209,7 +216,8 @@ export function createOpenAiApiSession(ctx = {}) {
       let detail = '';
       try {
         detail = truncate(await res.text(), 300);
-      } catch {
+      } catch (err) {
+        logWarn('error body unread, using status only', err);
         detail = '';
       }
       throw new Error(`OpenAI API ${res.status}${detail ? `: ${detail}` : ''}`);
@@ -324,6 +332,7 @@ export function createOpenAiApiSession(ctx = {}) {
       }
       return { ok: true, summary: summarize(result), content: JSON.stringify(result ?? null) };
     } catch (err) {
+      logWarn('tool call failed', err);
       return { ok: false, summary: truncate(errText(err)), content: `Error: ${errText(err)}` };
     }
   }
@@ -444,6 +453,7 @@ export function createOpenAiApiSession(ctx = {}) {
       emitDone(`tool loop hit the ${MAX_TOOL_ITERATIONS}-iteration cap`);
     } catch (err) {
       if (isAbort(err) || closed) {
+        logWarn('turn aborted', err);
         emitMeta(startedAt, usage);
         emitDone(null);
         return;
@@ -470,6 +480,7 @@ export function createOpenAiApiSession(ctx = {}) {
       await new Promise((resolve) => {
         turn = { emit, done: resolve };
         runTurn(text).catch((err) => {
+          logWarn('turn failed', err);
           emitDone(errText(err));
         });
       });
@@ -479,8 +490,8 @@ export function createOpenAiApiSession(ctx = {}) {
       if (controller) {
         try {
           controller.abort();
-        } catch {
-          // ignore
+        } catch (err) {
+          logWarn('abort failed', err);
         }
       }
     },
@@ -490,8 +501,8 @@ export function createOpenAiApiSession(ctx = {}) {
       if (controller) {
         try {
           controller.abort();
-        } catch {
-          // ignore
+        } catch (err) {
+          logWarn('dispose abort failed', err);
         }
       }
       emitDone('session disposed');
