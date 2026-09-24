@@ -59,6 +59,11 @@
 > 致谢上游：侧边栏 ↔ hub ↔ 适配器的整体架构、十个浏览器工具、以及
 > 全部适配器均为上游项目的工作成果。本分支只新增了选中交互层和约定
 > 文档。
+>
+> 第三方致谢：`extension/selection.js` 中的选中内容提取代码（标题/表
+> 格/代码块捕获、语义化路径、浮窗 Ask 按钮）改编自
+> [cola-sk/context-lens](https://github.com/cola-sk/context-lens)（MIT），
+> 文件头部亦有标注。
 
 ## 为什么用 CDP
 
