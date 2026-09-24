@@ -26,6 +26,8 @@ chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch((err) 
 // panel reads on open and watches live via storage.onChanged.
 
 const CONTEXT_MENU_ID = 'ask-agentbrowser';
+const FLOAT_ASK_TOGGLE_ID = 'ask-floating-toggle';
+const FLOAT_ASK_KEY = 'floatingAskEnabled'; // chrome.storage.local, default true
 const SELECTION_CACHE_MS = 5000;
 const rightClickContexts = new Map(); // tabId -> {selection, timestamp}
 
@@ -38,6 +40,27 @@ function registerContextMenu() {
     },
     () => void chrome.runtime.lastError
   );
+  // The floating Ask button can clash with other overlays, so it is a
+  // persistent user setting toggled from the context menu. The checkbox
+  // state mirrors chrome.storage.local; the content script reads the same
+  // key and reacts via storage.onChanged.
+  chrome.storage.local
+    .get({ [FLOAT_ASK_KEY]: true })
+    .then((r) => {
+      chrome.contextMenus.create(
+        {
+          id: FLOAT_ASK_TOGGLE_ID,
+          title: 'Floating Ask button on selection',
+          contexts: ['all'],
+          type: 'checkbox',
+          checked: r[FLOAT_ASK_KEY],
+        },
+        () => void chrome.runtime.lastError
+      );
+    })
+    .catch((err) => {
+      console.warn('[agentbrowser] floating-ask setting read failed', err);
+    });
 }
 
 registerContextMenu();
@@ -128,6 +151,14 @@ async function resolveMenuSelection(info, tab) {
 }
 
 chrome.contextMenus.onClicked.addListener((info, tab) => {
+  if (info.menuItemId === FLOAT_ASK_TOGGLE_ID) {
+    chrome.storage.local
+      .set({ [FLOAT_ASK_KEY]: info.checked === true })
+      .catch((err) => {
+        console.warn('[agentbrowser] floating-ask setting write failed', err);
+      });
+    return;
+  }
   if (info.menuItemId !== CONTEXT_MENU_ID || !tab || tab.id == null) return;
   // Open synchronously: sidePanel.open only works inside the user gesture.
   chrome.sidePanel.open({ tabId: tab.id }).catch((err) => {

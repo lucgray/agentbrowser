@@ -132,6 +132,9 @@ npm start          # 监听 ws://127.0.0.1:9010
 
 - **浮窗 Ask** — 在页面上划选任意文字，光标处会出现 **Ask** 按钮。
   点击后侧边栏打开，选中内容以可移除的 chip 暂存在输入框里。
+  浮窗可能和其他悬浮 UI 冲突：在右键菜单里取消勾选
+  **Floating Ask button on selection** 即可关闭（持久化在
+  `chrome.storage.local`，立即生效；Esc 也可临时关闭当前这一次）。
 - **右键菜单** — 右键点击选中区域，选择 **Ask AgentBrowser**。
 - **自动补富上下文** — 下一条消息携带 `context.selection`（协议
   v1.4）：选中文本 + 语义化 DOM 路径（如 `article > section > pre`）、
