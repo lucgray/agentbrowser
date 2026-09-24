@@ -1,17 +1,17 @@
 <div align="center">
 
-# AgentBrowser
+![AgentBrowser — Select it. Ask it. Let a coding agent drive your real browser.](docs/assets/hero.webp)
 
-**Select it. Ask it. Let a coding agent drive your real browser.**
+**Select it. Ask it.**
 
 A Chrome side panel where an agent chats with you *and* controls your
 logged-in browser through trusted CDP input — now with point-and-ask
 on any page selection.
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Chrome MV3](https://img.shields.io/badge/Chrome-MV3-green.svg)](extension/manifest.json)
-[![Node ≥ 20.11](https://img.shields.io/badge/Node-%E2%89%A5%2020.11-339933.svg)](server/package.json)
-[![Protocol v1.4](https://img.shields.io/badge/Protocol-v1.4-orange.svg)](PROTOCOL.md)
+[![License: MIT](https://img.shields.io/badge/License-MIT-6C5CE7.svg)](LICENSE)
+[![Chrome MV3](https://img.shields.io/badge/Chrome-MV3-6C5CE7.svg)](extension/manifest.json)
+[![Node ≥ 20.11](https://img.shields.io/badge/Node-%E2%89%A5%2020.11-6C5CE7.svg)](server/package.json)
+[![Protocol v1.5](https://img.shields.io/badge/Protocol-v1.5-6C5CE7.svg)](PROTOCOL.md)
 
 **English** · [简体中文](README.zh-CN.md)
 

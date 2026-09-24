@@ -1,16 +1,16 @@
 <div align="center">
 
-# AgentBrowser
+![AgentBrowser — 选中它，问它：让编码 Agent 驱动你真实的浏览器](docs/assets/hero.webp)
 
-**选中它，问它——让编码 Agent 驱动你真实的浏览器。**
+**选中它，问它。**
 
 一个 Chrome 侧边栏：Agent 既能和你对话，又能通过可信 CDP 输入控制你
 **真实登录态**的浏览器——现在更支持对页面选中文本直接提问。
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Chrome MV3](https://img.shields.io/badge/Chrome-MV3-green.svg)](extension/manifest.json)
-[![Node ≥ 20.11](https://img.shields.io/badge/Node-%E2%89%A5%2020.11-339933.svg)](server/package.json)
-[![Protocol v1.4](https://img.shields.io/badge/Protocol-v1.4-orange.svg)](PROTOCOL.md)
+[![License: MIT](https://img.shields.io/badge/License-MIT-6C5CE7.svg)](LICENSE)
+[![Chrome MV3](https://img.shields.io/badge/Chrome-MV3-6C5CE7.svg)](extension/manifest.json)
+[![Node ≥ 20.11](https://img.shields.io/badge/Node-%E2%89%A5%2020.11-6C5CE7.svg)](server/package.json)
+[![Protocol v1.5](https://img.shields.io/badge/Protocol-v1.5-6C5CE7.svg)](PROTOCOL.md)
 
 [English](README.md) · **简体中文**
 
