@@ -58,6 +58,12 @@ A `catch` that also takes a fallback branch still logs first — logged fallback
 
 Add a `## protocol vX.Y` section to `PROTOCOL.md` whenever the wire shape changes (e.g. v1.4 added `context.selection`).
 
+### Branch management (adopted 2026-09)
+
+- One branch per PR, named `devin/<unix-ts>-<slug>` for agent sessions (the timestamp sorts chronologically; the slug names the change). Human work uses short `<topic>` names.
+- Delete the branch right after its PR merges — locally and on the remote. Turn on GitHub's "Automatically delete head branches" repo setting so the remote side is automatic.
+- Periodic sweep: `git fetch -p && git branch --merged origin/main` — delete anything listed that isn't the current branch.
+
 ## Working style
 
 - Minimal focused edits; match the surrounding terse comment style (default: no comments).
