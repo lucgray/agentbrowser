@@ -901,6 +901,65 @@ async function providerKeyReady(chatId, adapterName, emit) {
   return true;
 }
 
+// ---------------------------------------------------------------------------
+// Proactive annotation (config.proactiveAnnotation)
+//
+// When enabled, the first chat that carries a given tabId+url runs a second,
+// independent turn on the configured adapter: read the page, mark the
+// passages worth flagging with the annotate tool. The turn's events go to
+// chatId "pro-<tabId>-<ts>", which no panel or annotation card claims, so it
+// runs silently in the background. Off by default.
+
+const proactiveAnnotated = new Set(); // `${tabId}|${url}` — once per page load
+
+const PROACTIVE_DEFAULT_PROMPT =
+  "You are co-reading this page with the user. Read it with read_page on the " +
+  "given tabId, pick the 3-5 passages most likely to be confusing or worth " +
+  "attention, and mark each with the annotate tool: quote the exact text, use " +
+  "underline for key terms, highlight for important sentences, circle for " +
+  "whole blocks. Always fill comment with WHY you marked it. Finish with a " +
+  "one-paragraph summary of what you marked.";
+
+function maybeRunProactiveAnnotation(context) {
+  const cfg = config.proactiveAnnotation;
+  if (!cfg || cfg.enabled !== true) return;
+  const tab = context && context.currentTab;
+  if (!tab || tab.tabId == null || !tab.url) return;
+  const key = `${tab.tabId}|${tab.url}`;
+  if (proactiveAnnotated.has(key)) return;
+  proactiveAnnotated.add(key);
+  runProactiveTurn(tab).catch((err) => {
+    log("proactive annotation turn failed:", err && err.message ? err.message : String(err));
+  });
+}
+
+async function runProactiveTurn(tab) {
+  const cfg = config.proactiveAnnotation || {};
+  const adapterName = cfg.adapter || config.adapter;
+  const chatId = `pro-${tab.tabId}-${Date.now()}`;
+  const state = { model: null };
+  const turn = createTurnEmitter(chatId, adapterName, state);
+  const emit = turn.emit;
+  log("proactive annotation pass on tab", tab.tabId, "adapter=" + adapterName);
+  activeChats.add(chatId);
+  try {
+    if (!(await providerKeyReady(chatId, adapterName, emit))) return;
+    const entry = await getSessionEntry(chatId, adapterName, null, emit);
+    state.model = entry.model;
+    const prompt = composePrompt(
+      typeof cfg.prompt === "string" && cfg.prompt ? cfg.prompt : PROACTIVE_DEFAULT_PROMPT,
+      { currentTab: tab },
+      []
+    );
+    await entry.session.send(prompt, emit);
+  } catch (err) {
+    emit({ kind: "error", message: scrub(String((err && err.message) || err)) });
+  } finally {
+    activeChats.delete(chatId);
+    if (!turn.isDone()) emit({ kind: "done" });
+  }
+}
+
 async function handleChat(msg) {
   const chatId = msg.chatId;
   const text = typeof msg.text === "string" ? msg.text : "";
@@ -929,6 +988,10 @@ async function handleChat(msg) {
     emit({ kind: "done" });
     return;
   }
+
+  // A new tab context kicks off the co-read pass when enabled; it runs on its
+  // own chatId so it never blocks this turn.
+  maybeRunProactiveAnnotation(msg.context);
 
   // Reserve the chat before the first await. Two frames can arrive in one read
   // and be dispatched synchronously; a guard that reads state written after an

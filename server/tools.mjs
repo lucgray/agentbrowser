@@ -117,6 +117,57 @@ export const TOOLS = [
       },
       required: ["expression"]
     }
+  },
+  {
+    name: "annotate",
+    description: "Mark text on the page for the user: 'underline' (dashed underline, key terms), 'highlight' (background mark, important sentences) or 'circle' (ellipse around the passage). Use it to point at things while co-reading, e.g. proactively flagging confusing spots. quote must be exact text as it appears on the page (from read_page). comment is the note shown when the user clicks the mark — always explain WHY it was marked. Returns {id, style, quote} or an error when the quote is not found.",
+    args: {
+      type: "object",
+      properties: {
+        quote: { type: "string", description: "Exact text to mark, copied from the page" },
+        style: { type: "string", description: "underline | highlight | circle" },
+        comment: { type: "string", description: "Why this passage is marked — required for proactive marks" },
+        color: { type: "string", description: "Optional CSS color override" },
+        tabId: { type: "number", description: "Target tab id; omit for the active tab" }
+      },
+      required: ["quote", "style"]
+    }
+  },
+  {
+    name: "annotations_list",
+    description: "List the annotations on a tab, including their comment threads. Returns {annotations:[{id, style, quote, comment, author, replies:[{who,text}]}]}.",
+    args: {
+      type: "object",
+      properties: {
+        tabId: { type: "number", description: "Target tab id; omit for the active tab" }
+      },
+      required: []
+    }
+  },
+  {
+    name: "annotate_reply",
+    description: "Post a reply on an annotation's comment thread — e.g. answering a comment the user left on a mark. Returns {id, replied:true}.",
+    args: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "Annotation id from annotate/annotations_list" },
+        text: { type: "string", description: "Reply text" },
+        tabId: { type: "number", description: "Target tab id; omit for the active tab" }
+      },
+      required: ["id", "text"]
+    }
+  },
+  {
+    name: "annotate_clear",
+    description: "Remove one annotation by id, or every annotation on the tab when id is omitted. Returns {cleared:<n>}.",
+    args: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "Annotation id; omit to clear all" },
+        tabId: { type: "number", description: "Target tab id; omit for the active tab" }
+      },
+      required: []
+    }
   }
 ];
 

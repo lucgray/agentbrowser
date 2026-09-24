@@ -1,0 +1,127 @@
+/* AgentBrowser page annotations: underline / highlight / circle + comment card. */
+
+#agentbrowser-ann-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  pointer-events: none;
+  z-index: 2147483645;
+}
+
+#agentbrowser-ann-layer svg {
+  position: absolute;
+  top: 0;
+  left: 0;
+  overflow: visible;
+}
+
+.ab-ann {
+  cursor: pointer;
+}
+
+.ab-ann-underline {
+  border-bottom: 2px solid var(--ab-ann-color, #7c3aed);
+  text-decoration: underline wavy var(--ab-ann-color, #7c3aed) 1.5px;
+  text-underline-offset: 3px;
+}
+
+.ab-ann-highlight {
+  background: color-mix(in srgb, var(--ab-ann-color, #7c3aed) 24%, transparent);
+  border-radius: 2px;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
+.ab-ann-circle {
+  /* mark drawn by the SVG ellipse; keep the text slightly emphasized */
+  background: color-mix(in srgb, var(--ab-ann-color, #7c3aed) 8%, transparent);
+}
+
+.ab-ann-ellipse {
+  fill: none;
+  stroke-width: 2.5;
+}
+
+.ab-ann-card {
+  position: absolute;
+  z-index: 2147483647;
+  width: 320px;
+  max-width: calc(100vw - 16px);
+  background: #ffffff;
+  border: 1px solid #d0d7de;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(31, 35, 40, 0.18);
+  padding: 10px 12px;
+  font: 13px/1.45 -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial,
+    sans-serif;
+  color: #1f2328;
+}
+
+.ab-ann-card-head {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #6e7781;
+  margin-bottom: 6px;
+}
+
+.ab-ann-card-quote {
+  border-left: 3px solid #7c3aed;
+  padding-left: 8px;
+  color: #59636e;
+  font-style: italic;
+  margin-bottom: 8px;
+  word-break: break-word;
+}
+
+.ab-ann-card-note {
+  background: #f6f8fa;
+  border-radius: 6px;
+  padding: 6px 8px;
+  margin-bottom: 8px;
+}
+
+.ab-ann-card-replies {
+  max-height: 180px;
+  overflow-y: auto;
+  margin-bottom: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ab-ann-reply {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+}
+
+.ab-ann-reply-who {
+  flex: none;
+  font-size: 11px;
+  font-weight: 600;
+  color: #6e7781;
+}
+
+.ab-ann-reply-agent .ab-ann-reply-who {
+  color: #7c3aed;
+}
+
+.ab-ann-card-input {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  border: 1px solid #d0d7de;
+  border-radius: 6px;
+  padding: 6px 8px;
+  font: inherit;
+  color: inherit;
+  background: #ffffff;
+}
+
+.ab-ann-card-input:focus {
+  outline: 2px solid #7c3aed;
+  outline-offset: -1px;
+}

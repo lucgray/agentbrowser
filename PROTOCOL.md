@@ -1,4 +1,4 @@
-# AgentBrowser protocol v1.3
+# AgentBrowser protocol v1.5
 
 AgentBrowser is a Chrome MV3 extension with a side-panel chat UI, plus a local hub
 server. The chat is backed by a pluggable "harness" (Claude Agent SDK, Claude
@@ -28,6 +28,9 @@ agentchat/
     sidepanel.html         (ext-ui agent)
     sidepanel.css          (ext-ui)
     sidepanel.js           (ext-ui)
+    overlay.js/css         (ext-core)  in-page read/highlight overlay (v1.2 F)
+    selection.js/css       (ext-core)  content script: selection Ask + right-click context (v1.4)
+    annotation.js/css      (ext-core)  content script: underline/highlight/circle marks + comment card (v1.5)
   server/
     package.json           (pre-written; deps already installed)
     hub.mjs                (server-hub agent)  WebSocket hub on 127.0.0.1:9010
@@ -530,6 +533,23 @@ sidepanel <-> sw via a long-lived `chrome.runtime.connect({name:"sidepanel"})` P
   verbatim from hub, every field)
 - sw -> panel: `{type:"status", connected:<bool>}` (sent on connect and on change)
 
+annotation.js <-> sw (v1.5), regular `sendMessage`:
+
+- content -> sw: `{target:"sw", cmd:"annotation_comment", annId, text,
+  annotation:{style,quote,comment,author}}` — a comment the user left on a
+  mark. sw turns it into a `chat` message with chatId `ann-<annId>-<tabId>`
+  (same mark, same thread) on the adapter the panel last used
+  (`lastPanelAdapter`, falling back to config.adapter), with
+  `context.currentTab` pointing at the page.
+- sw -> content: `{target:"annotation", cmd:"annotate"|"list"|"reply"|
+  "clear", ...}` — the annotate* tools; sw injects annotation.js/css and
+  retries once when the frame has no listener.
+- sw -> content: `{target:"annotation", cmd:"event", annId, event}` — every
+  chat_event for an `ann-*` chatId is routed to the tab that owns it instead
+  of the panel; `token` events accumulate into the reply bubble, `done` ends
+  it. An `ann-*` chatId is therefore a page-bound thread: the panel never
+  sees it and never claims it.
+
 sw.js relays chat/command/chat_abort/set_key/get_capabilities to the hub and
 chat_event/capabilities/status back. The chat object goes over VERBATIM, every
 field: sw.js must not pick fields out of it or it will drop `model`, `context`
@@ -555,9 +575,39 @@ executor, in the SDK adapter's MCP server, and in mcp-proxy.mjs.
 | `type_text` | `{text, tabId?}` | `{typed:<charcount>}` — CDP `Input.insertText` into the focused element |
 | `press_key` | `{key, tabId?}` | `{pressed:key}` — e.g. "Enter", "Tab", "Escape", "Backspace", "ArrowDown", "Meta+A", "Meta+C", "Meta+V" |
 | `eval_js` | `{expression, tabId?}` | `{value}` — `Runtime.evaluate` returnByValue+awaitPromise; errors -> ok:false |
+| `annotate` | `{quote, style, comment?, color?, tabId?}` | `{id, style, quote}` — v1.5; style is `underline`/`highlight`/`circle`; error when the quote is not on the page |
+| `annotations_list` | `{tabId?}` | `{annotations:[{id,style,quote,comment,author,replies}]}` — v1.5 |
+| `annotate_reply` | `{id, text, tabId?}` | `{id, replied:true}` — v1.5, appends an agent reply to the mark's comment thread |
+| `annotate_clear` | `{id?, tabId?}` | `{cleared:<n>}` — v1.5; no id clears all marks on the tab |
 
 `tabId` omitted = active tab of the current window. All tools run in the SW;
 CDP tools attach `chrome.debugger` (version "1.3") on demand, keep a set of
+
+annotate* tools do not use the debugger: they message annotation.js, which
+locates `quote` over the page's text nodes (literal match first, then a
+whitespace-normalized one) and wraps the range segment by segment. Underline
+and highlight render as styled spans; circle draws an ellipse on a full-page
+SVG overlay (recomputed on resize). Each mark is clickable: it opens a
+comment card whose submissions become `ann-*` chat turns, and its replies —
+streamed tokens or explicit `annotate_reply` calls — render in the same card.
+Agent marks default to a distinct color and carry a mandatory `comment`
+saying why the passage was flagged.
+
+## Proactive annotation, v1.5
+
+`config.proactiveAnnotation` in server/config.json:
+
+```
+{ "enabled": false, "adapter": "<adapter name>", "prompt": "<override>" }
+```
+
+When `enabled` is true, the first chat message that carries a new
+`context.currentTab` (tabId + url pair) spawns one background turn with
+chatId `pro-<tabId>-<ts>` on `adapter` (default: `config.adapter`) whose
+prompt — default or `prompt` override — instructs the model to read the page
+and mark confusing passages with `annotate`. The pass runs once per tab+url
+for the life of the hub process; its chat_events are claimed by no page or
+panel and are dropped in the SW. A failed pass logs to the hub console only.
 attached tabs, serialize commands per tab, detach on tab close, and survive
 `chrome.debugger.onDetach` (drop from set; next call re-attaches).
 
@@ -660,9 +710,12 @@ their MCP config.
 - Plain ES modules everywhere. No TypeScript, no bundler, no framework, no
   external CDN/network fetches in extension pages (MV3 CSP).
 - Node >= 20. `ws` for WebSockets server-side. 2-space indent.
-- Extension manifest permissions: exactly `debugger, tabs, storage, offscreen,
-  sidePanel`. No host_permissions, no content scripts: everything reaches the
-  page through the debugger. `action` click opens the side panel
+- Extension manifest permissions: `debugger, tabs, storage, offscreen,
+  sidePanel, contextMenus, scripting` plus `host_permissions: <all_urls>` for
+  the two declared content scripts (selection.js, annotation.js — v1.4/v1.5).
+  Page reads and input still go through the debugger; the content scripts
+  only handle selection context, annotation marks, and their comment cards.
+  `action` click opens the side panel
   (`chrome.sidePanel.setPanelBehavior({openPanelOnActionClick:true})`).
 - Side panel UI: dark, compact, readable. Status dot (hub connected), adapter
   dropdown (one option per entry in the `capabilities` message, not a
