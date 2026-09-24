@@ -357,6 +357,8 @@ export function composePrompt(text, context, attachmentPaths) {
   const current = ctx.currentTab && typeof ctx.currentTab === "object" ? ctx.currentTab : null;
   const tabs = Array.isArray(ctx.tabs) ? ctx.tabs.filter((t) => t && typeof t === "object") : [];
   const files = Array.isArray(attachmentPaths) ? attachmentPaths : [];
+  const sel =
+    ctx.selection && typeof ctx.selection === "object" ? ctx.selection : null;
 
   const lines = [];
   if (current) {
@@ -366,12 +368,83 @@ export function composePrompt(text, context, attachmentPaths) {
     lines.push("Tagged tabs:");
     for (const tab of tabs) lines.push(`- ${describeTab(tab)}`);
   }
+  if (sel) {
+    for (const line of describeSelection(sel)) lines.push(line);
+  }
   if (files.length > 0) {
     lines.push("Attached files (saved on this machine; read them with your file tools):");
     for (const file of files) lines.push(`- ${file}`);
   }
   if (lines.length === 0) return userText;
   return `<context>\n${lines.join("\n")}\n</context>\n\n${userText}`;
+}
+
+// The page text the user highlighted and asked about: the clip itself plus the
+// structural context the content script captured around it (enclosing code
+// block or table, heading, DOM path, surrounding paragraphs). Fields are
+// bounded here as well as in the panel, so a hand-crafted context cannot push
+// an unbounded page into the prompt.
+const SELECTION_LIMITS = {
+  text: 4000,
+  surrounding: 800,
+  heading: 200,
+  path: 300,
+  code: 8000,
+  table: 4000,
+};
+
+function selClip(value, max) {
+  const s = String(value == null ? "" : value).trim();
+  return s.length > max ? s.slice(0, max) : s;
+}
+
+function describeSelection(sel) {
+  const text = selClip(sel.text, SELECTION_LIMITS.text);
+  if (!text) return [];
+  const kind = ["text", "code", "table"].includes(sel.contentType)
+    ? sel.contentType
+    : "text";
+
+  const lines = [];
+  const pageBits = [];
+  if (sel.pageTitle) pageBits.push(`"${selClip(sel.pageTitle, 300)}"`);
+  if (sel.pageUrl) pageBits.push(selClip(sel.pageUrl, 2000));
+  lines.push(
+    `Text selected on the page${pageBits.length ? " — " + pageBits.join(" ") : ""} (type: ${kind}):`
+  );
+  lines.push('"""');
+  lines.push(text);
+  lines.push('"""');
+
+  const heading = selClip(sel.parentHeading, SELECTION_LIMITS.heading);
+  if (heading) lines.push(`Section heading: ${heading}`);
+  const path = selClip(sel.semanticPath, SELECTION_LIMITS.path);
+  if (path) lines.push(`DOM path: ${path}`);
+
+  const before = selClip(sel.surroundingBefore, SELECTION_LIMITS.surrounding);
+  const after = selClip(sel.surroundingAfter, SELECTION_LIMITS.surrounding);
+  if (before || after) {
+    lines.push("Surrounding text:");
+    lines.push(`... ${before} [SELECTED TEXT] ${after} ...`);
+  }
+
+  if (kind === "code" && sel.codeBlock && typeof sel.codeBlock === "object") {
+    const code = selClip(sel.codeBlock.fullCode, SELECTION_LIMITS.code);
+    if (code) {
+      const lang = selClip(sel.codeBlock.language, 40) || "code";
+      lines.push(`Enclosing code block (${lang}):`);
+      lines.push("```" + lang);
+      lines.push(code);
+      lines.push("```");
+    }
+  }
+
+  if (kind === "table" && typeof sel.tableBlock === "string" && sel.tableBlock) {
+    lines.push("Enclosing table (markdown):");
+    lines.push(selClip(sel.tableBlock, SELECTION_LIMITS.table));
+  }
+
+  return lines;
 }
 
 function describeTab(tab) {

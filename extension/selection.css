@@ -1,0 +1,42 @@
+/* Floating "Ask" button shown next to a text selection. Colours mirror the
+   side panel's theme; everything is !important because pages style divs. */
+
+#agentbrowser-ask-btn.agentbrowser-reset {
+  all: initial;
+  position: absolute;
+  z-index: 2147483647;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  background: #141c18;
+  color: #dbe5df;
+  border: 1px solid #22c55e;
+  border-radius: 8px;
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  transition: background 0.12s ease, transform 0.08s ease;
+}
+
+#agentbrowser-ask-btn.agentbrowser-reset:hover {
+  background: #1f2b25;
+  color: #ffffff;
+}
+
+#agentbrowser-ask-btn.agentbrowser-reset:active {
+  transform: scale(0.96);
+}
+
+#agentbrowser-ask-btn.agentbrowser-reset svg {
+  color: #22c55e;
+  flex: none;
+}
+
+#agentbrowser-ask-btn.agentbrowser-hidden {
+  display: none !important;
+}

@@ -15,7 +15,7 @@
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="AgentBrowser">
 <meta property="og:title" content="AgentBrowser — chat with a coding agent that drives your real Chrome">
-<meta property="og:description" content="A Chrome side panel wired to a local hub. Your coding agent clicks, types and reads in the browser you are already logged into. Trusted CDP input, no content scripts, no host permissions.">
+<meta property="og:description" content="A Chrome side panel wired to a local hub. Your coding agent clicks, types and reads in the browser you are already logged into. Trusted CDP input, and a floating Ask button on any text selection.">
 <meta property="og:url" content="https://vasihemanth.github.io/agentbrowser/">
 <meta property="og:image" content="https://opengraph.githubassets.com/1/VasiHemanth/agentbrowser">
 <meta property="og:image:alt" content="AgentBrowser on GitHub">
@@ -162,7 +162,7 @@
     <p class="lede">
       AgentBrowser is a Chrome side panel wired to a local hub. You talk to a coding
       agent; it clicks, types, reads and navigates in the browser you are already
-      logged into. No automation profile, no re-login, no content scripts.
+      logged into. No automation profile, no re-login. Highlight anything, click Ask.
     </p>
     <div class="cta">
       <a class="btn" href="https://github.com/VasiHemanth/agentbrowser">View on GitHub</a>
@@ -196,8 +196,9 @@
         AgentBrowser dispatches through <code>chrome.debugger</code> instead. CDP clicks and
         <code>Input.insertText</code> arrive exactly as a human's do. Because it attaches to
         your existing profile, the manifest asks for
-        <code>debugger, tabs, storage, offscreen, sidePanel</code> and nothing else:
-        no host permissions, no content scripts.
+        <code>debugger, tabs, storage, offscreen, sidePanel</code> for the agent loop —
+        plus one small selection watcher (content script) that powers the Ask button
+        and the right-click menu. It never drives the page.
       </p>
     </div>
   </div>

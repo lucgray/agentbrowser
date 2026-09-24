@@ -98,7 +98,18 @@ Chat (extension -> hub, streamed events back):
    model:"<id>" | undefined,               // v1.2, see "Capabilities, keys, models"
    context: {
      currentTab: {tabId:<number>, url:<string>, title:<string>} | null,
-     tabs: [{tabId, url, title}, ...]        // tabs the user @-tagged, may be empty
+     tabs: [{tabId, url, title}, ...],       // tabs the user @-tagged, may be empty
+     selection: {                             // v1.4, page text the user asked about
+       text:<string>,                         //   the highlighted text (<=4000 chars)
+       contentType:"text"|"code"|"table",     //   what the selection sits inside
+       surroundingBefore:<string>,            //   <=800 chars before it
+       surroundingAfter:<string>,             //   <=800 chars after it
+       parentHeading:<string>,                //   "H2: Intro" — nearest preceding heading
+       semanticPath:<string>,                 //   "main > article > section"
+       codeBlock:{language:<string>, fullCode:<string>} | undefined,  // contentType code
+       tableBlock:<string> | undefined,       //   markdown of headers + row (contentType table)
+       pageUrl:<string>, pageTitle:<string>
+     } | undefined
    } | undefined,
    attachments: [{name:<string>, mimeType:<string>, base64:<string>}, ...] | undefined}
   ```
@@ -180,6 +191,18 @@ Composed prompt: the hub builds the string it passes to `session.send` as
 Current tab: "<title>" <url> (tabId <id>)
 Tagged tabs:
 - "<title>" <url> (tabId <id>)
+Text selected on the page — "<title>" <url> (type: code):
+"""
+<selected text>
+"""
+Section heading: H2: Intro
+DOM path: main > article > section
+Surrounding text:
+... <before> [SELECTED TEXT] <after> ...
+Enclosing code block (<lang>):     // or: Enclosing table (markdown):
+```<lang>
+<full block text>
+```
 Attached files (saved on this machine; read them with your file tools):
 - /abs/path/name
 </context>
@@ -188,13 +211,16 @@ Attached files (saved on this machine; read them with your file tools):
 ```
 
 One line per tagged tab, one per attachment, in the order they were sent.
-Sections that are absent are omitted entirely: no `currentTab` drops the
-"Current tab" line, an empty `tabs` drops the "Tagged tabs" block, no
-attachments drops the "Attached files" block. If none of the three are present
-the prompt is exactly the user text with no `<context>` wrapper, which is what
-keeps v1 clients working. The composer is exported from hub.mjs as
-`composePrompt(text, context, attachmentPaths)` so it can be unit-tested
-without a socket.
+The selection block is emitted only when `context.selection` carries a
+non-empty `text`; its subsections follow the same omit-when-empty rule
+(no codeBlock drops the code block, empty surrounding text drops the
+"Surrounding text" pair, and so on). Sections that are absent are omitted
+entirely: no `currentTab` drops the "Current tab" line, an empty `tabs` drops
+the "Tagged tabs" block, no attachments drops the "Attached files" block. If
+none are present the prompt is exactly the user text with no `<context>`
+wrapper, which is what keeps v1 clients working. The composer is exported
+from hub.mjs as `composePrompt(text, context, attachmentPaths)` so it can be
+unit-tested without a socket.
 
 ## Capabilities, keys, and models, v1.2
 
