@@ -39,6 +39,9 @@ agentchat/
     hub.mjs                (server-hub agent)  WebSocket hub on 127.0.0.1:9010
     tools.mjs              (server-hub)        tool name/schema/description table
     mcp-proxy.mjs          (server-adapters)   stdio MCP server for external harnesses
+    agentbrowser-cli.mjs   (server-hub)        MCP-free CLI: one WS harness call per invocation (v1.6)
+    install-skill.mjs      (server-hub)        installs the agentbrowser shim + SKILL.md for skill agents
+    skill/SKILL.md         (server-hub)        the skill doc the installer copies (v1.6)
     config.json            (server-hub)        {"adapter":"claude-agent-sdk","model":"claude-opus-5"}
     commands.mjs           (server-hub)        v1.3 slash command registry + dispatch
     adapters/
@@ -748,6 +751,19 @@ to MCP content (JSON text; screenshot -> image content). Reconnect if the hub
 drops. This file is what makes ANY MCP-capable harness (Codex, Gemini CLI,
 Cursor, another Claude Code) able to drive the browser: they just add it to
 their MCP config.
+
+## agentbrowser-cli.mjs + skill (v1.6)
+
+MCP-free access path, for agents that can't (or shouldn't) load an MCP
+server. `agentbrowser-cli.mjs` is a thin WS client: `agentbrowser <tool>
+'<json-args>'` registers as `role:"harness", name:"agentbrowser-cli"`, sends
+one tool_call, prints tool_result JSON, exits non-zero on tool errors.
+`tools` lists the TOOLS table; `<tool> --help` shows one schema.
+`AGENTBROWSER_HUB`/`--hub` overrides the default ws://127.0.0.1:9010;
+`--timeout` the 30s call cap. Stateless by design: console/network/patch
+state lives in the extension, so a fresh process per call loses nothing.
+`install-skill.mjs` writes an `agentbrowser` shim (~/.local/bin) and copies
+skill/SKILL.md to ~/.claude/skills and ~/.agents/skills (or --target dirs).
 
 ## Conventions
 

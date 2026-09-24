@@ -59,6 +59,7 @@
 | **页面标注** — `annotate`/`annotations_list`/`annotate_reply`/`annotate_clear` 工具；下划线、荧光笔、圈选引用文本；每条标注的评论卡片跑自己的会话（协议 v1.5） | — | ✓ |
 | **主动共读标注** — 可选 `proactiveAnnotation` 配置：每页跑一轮后台 pass，标记疑难段落并附原因 | — | ✓ |
 | **先观察再驱动** — BBX 式结构化读取（`dom_inspect`、`console_log`、`network_log` + 脱敏 HAR、`a11y_tree`、弹窗处理）与可逆实时补丁（`patch_apply`/`patch_revert`）（协议 v1.6） | — | ✓ |
+| **免 MCP 的 Skill + CLI 接入** — `agentbrowser <tool> '<json>'` 命令行 + SKILL.md 安装器，给不支持 MCP 的 Agent 用 | — | ✓ |
 | **禁止静默 catch** — 每个 catch 必须按影响分级记日志或向上抛出 | — | ✓ |
 
 > 致谢上游：侧边栏 ↔ hub ↔ 适配器的整体架构、最初的十个浏览器工具、
@@ -237,7 +238,7 @@ Agent 能完整看到这些信息，所以「解释一下这个」「这个正�
 绝不离开本机，不会回传给面板（面板只能知道 key 有没有设置过），也
 不会出现在 hub 日志、聊天消息或报错里。清空输入框即删除 key。
 
-API 适配器拿到的十四个浏览器工具与 CLI 适配器相同，所以「总结页面」
+API 适配器拿到的浏览器工具与 CLI 适配器完全相同，所以「总结页面」
 「填表单」行为一致。但它们没有 CLI 的文件和 shell 工具，附件对它们
 来说只是打不开的路径——需要读本地文件的轮次请用 CLI 适配器。
 
@@ -299,8 +300,7 @@ WebSocket 转发给 hub。任何支持 MCP 的 harness 只要在 MCP 配置里�
 }
 ```
 
-启动 hub、保持扩展加载，harness 就拿到与内置适配器相同的十四个工
-具，无需专属适配器。Cursor、Cline、Qwen CLI、Codex、Gemini CLI、
+启动 hub、保持扩展加载，harness 就拿到与内置适配器相同的工具，无需专属适配器。Cursor、Cline、Qwen CLI、Codex、Gemini CLI、
 Claude Code 都接受这种形态的配置，只是文件名不同（Codex 用
 `config.toml`，Gemini 用 `settings.json`，Claude Code 用 `.mcp.json`）。
 
@@ -317,6 +317,26 @@ Claude Code 都接受这种形态的配置，只是文件名不同（Codex 用
 
 唯一硬性要求是 **stdio** transport——`mcp-proxy.mjs` 就是 stdio
 server。只会走 HTTP 的 MCP 客户端暂时接不上。
+
+## 免 MCP 接入：Skill + CLI
+
+对不支持 MCP server、或不想改配置文件的 Agent，
+`server/agentbrowser-cli.mjs` 把全部浏览器工具暴露为命令行——同一套
+工具、同一个 hub、无常驻进程：
+
+```bash
+node server/agentbrowser-cli.mjs read_page '{}'
+node server/agentbrowser-cli.mjs dom_inspect '{"selector":"h1"}'
+node server/agentbrowser-cli.mjs tools              # 列出工具
+```
+
+`npm run install-skill`（或 `node server/install-skill.mjs`）会在
+`~/.local/bin` 写入 `agentbrowser` 启动脚本，并把
+`server/skill/SKILL.md` 铺到 `~/.claude/skills` 与 `~/.agents/skills`
+（其他目录用 `--target <dir>`）。读 skill 的 Agent（Claude Code、
+任意 `.agents` 布局）由此获得浏览器控制，**完全不需要 MCP 配置**。
+CLI 无状态——缓冲区与 debugger 附着都在扩展侧，一次调用一个进程不
+丢任何东西。
 
 <details>
 <summary><b>Python agent 框架</b> — LangGraph / DeepAgents，经 <code>langchain-mcp-adapters</code> 加载</summary>
