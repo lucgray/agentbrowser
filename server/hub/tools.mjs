@@ -149,6 +149,31 @@ export const TOOLS = [
     }
   },
   {
+    name: "annotate_batch",
+    description: "Mark several passages in one call — same as annotate but batched. Each item is {quote, style, comment?, color?} and is applied independently. Returns {results:[{ok:true,id,style,quote} | {ok:false,quote,error}]} so a bad quote does not fail the whole batch.",
+    args: {
+      type: "object",
+      properties: {
+        annotations: {
+          type: "array",
+          description: "Marks to apply: {quote (exact text), style (underline|highlight|circle), comment?, color?}",
+          items: {
+            type: "object",
+            properties: {
+              quote: { type: "string" },
+              style: { type: "string" },
+              comment: { type: "string" },
+              color: { type: "string" }
+            },
+            required: ["quote", "style"]
+          }
+        },
+        tabId: { type: "number", description: "Target tab id; omit for the active tab" }
+      },
+      required: ["annotations"]
+    }
+  },
+  {
     name: "annotations_list",
     description: "List the annotations on a tab, including their comment threads. Returns {annotations:[{id, style, quote, comment, author, replies:[{who,text}]}]}.",
     args: {

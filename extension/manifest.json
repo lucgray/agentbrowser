@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "AgentBrowser",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Side-panel chat backed by a local agent hub. Executes browser tools via chrome.debugger (trusted CDP input).",
   "permissions": [
     "debugger",

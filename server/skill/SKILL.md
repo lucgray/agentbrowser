@@ -68,6 +68,7 @@ Mark up the page for the user (co-reading):
 
 ```bash
 agentbrowser annotate '{"quote":"exact text from the page","style":"highlight","comment":"why this is flagged"}'
+agentbrowser annotate_batch '{"annotations":[{"quote":"one phrase","style":"highlight"},{"quote":"another","style":"circle","comment":"why"}]}'
 ```
 
 Patch the page to prove a fix, then roll it back:

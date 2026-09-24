@@ -606,6 +606,24 @@ const TOOLS = {
     return { id: res.id, style: res.style, quote: res.quote };
   },
 
+  async annotate_batch(args) {
+    const tabId = await resolveTabId(args.tabId);
+    const items = Array.isArray(args.annotations) ? args.annotations : [];
+    const res = await sendToAnnotationScript(tabId, {
+      target: 'annotation',
+      cmd: 'batch',
+      annotations: items.map((it) => ({
+        quote: String((it && it.quote) || ''),
+        style: String((it && it.style) || ''),
+        comment: String((it && it.comment) || ''),
+        color: it && it.color ? String(it.color) : '',
+      })),
+      author: 'agent',
+    });
+    if (!res || !res.ok) throw new Error((res && res.error) || 'annotate_batch failed');
+    return { results: res.results || [] };
+  },
+
   async annotations_list(args) {
     const tabId = await resolveTabId(args.tabId);
     const res = await sendToAnnotationScript(tabId, {

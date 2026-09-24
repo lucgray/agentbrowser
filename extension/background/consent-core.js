@@ -18,7 +18,7 @@
 export const WRITE_TOOLS = [
   'click', 'click_element', 'type_text', 'press_key', 'navigate',
   'eval_js', 'patch_apply',
-  'annotate', 'annotate_reply', 'annotate_clear',
+  'annotate', 'annotate_batch', 'annotate_reply', 'annotate_clear',
 ];
 
 // "Allow on this domain for this session" grants live for the service
@@ -121,6 +121,8 @@ export function summarizeArgs(tool, a = {}) {
       return `live-patch ${Array.isArray(a.patches) ? a.patches.length : 0} node(s)`;
     case 'annotate':
       return `annotate (${String(a.style || 'underline')}) "${clip(a.quote)}"`;
+    case 'annotate_batch':
+      return `annotate ${Array.isArray(a.annotations) ? a.annotations.length : 0} passage(s)`;
     case 'annotate_reply':
       return `reply on annotation ${String(a.id || '?')}`;
     case 'annotate_clear':

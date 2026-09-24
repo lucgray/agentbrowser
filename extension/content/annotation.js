@@ -520,6 +520,22 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       );
       return true;
     }
+    if (msg.cmd === "batch") {
+      const items = Array.isArray(msg.annotations) ? msg.annotations : [];
+      const results = items.map((it) => {
+        const r = addAnnotation({
+          quote: String((it && it.quote) || ""),
+          style: String((it && it.style) || ""),
+          comment: String((it && it.comment) || ""),
+          color: it && it.color ? String(it.color) : "",
+          author: msg.author === "user" ? "user" : "agent",
+        });
+        if (r && r.ok) return { ok: true, id: r.id, style: r.style, quote: r.quote };
+        return { ok: false, quote: String((it && it.quote) || "").slice(0, 80), error: (r && r.error) || "annotate failed" };
+      });
+      sendResponse({ ok: true, results });
+      return true;
+    }
     if (msg.cmd === "list") {
       sendResponse({ ok: true, annotations: listAnnotations() });
       return true;

@@ -56,7 +56,7 @@ error-handling standard.
 | **Select text → floating "Ask" button at the caret** | — | ✓ |
 | **Right-click → "Ask AgentBrowser" context menu** | — | ✓ |
 | **Rich selection context** — semantic DOM path, nearest heading, ±800 chars, enclosing `<pre>`/code block + language, table headers + active row as markdown → `context.selection` (protocol v1.4) | — | ✓ |
-| **Page annotations** — `annotate`/`annotations_list`/`annotate_reply`/`annotate_clear` tools; underline, highlight, circle on quoted text; per-mark comment cards that run as their own chat turns (protocol v1.5) | — | ✓ |
+| **Page annotations** — `annotate`/`annotate_batch`/`annotations_list`/`annotate_reply`/`annotate_clear` tools; underline, highlight, circle on quoted text; per-mark comment cards that run as their own chat turns (protocol v1.5) | — | ✓ |
 | **Proactive co-reading pass** — opt-in `proactiveAnnotation` config: one background turn per page flags confusing passages with a why-note | — | ✓ |
 | **Observe-first inspection** — BBX-style structured reads (`dom_inspect`, `console_log`, `network_log` + sanitized HAR, `a11y_tree`, dialog handling) and reversible live patches (`patch_apply`/`patch_revert`) — protocol v1.6 | — | ✓ |
 | **MCP-free skill + CLI access** — `agentbrowser <tool> '<json>'` command + SKILL.md installer for agents that don't load MCP servers | — | ✓ |
@@ -191,9 +191,10 @@ The agent sees all of it, so "explain this", "what does this regex do", or
 }
 ```
 
-`annotations_list` returns every mark and thread on a tab — handy to ask
-for a digest ("give me all the notes we left on this page") — and
-`annotate_clear` removes one mark or all of them.
+`annotate_batch` marks several passages in one call — one bad quote does
+not fail the batch. `annotations_list` returns every mark and thread on a
+tab — handy to ask for a digest ("give me all the notes we left on this
+page") — and `annotate_clear` removes one mark or all of them.
 
 ## Inspecting the page
 
