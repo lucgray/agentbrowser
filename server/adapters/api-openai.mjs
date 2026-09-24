@@ -6,9 +6,9 @@
 //
 // The endpoint shape is also what Ollama, LM Studio, OpenRouter, vLLM and
 // friends speak, so the base URL is configurable:
-//   server/config.json  ->  {"openaiBaseUrl": "http://127.0.0.1:11434/v1"}
+//   server/hub/config.json  ->  {"openaiBaseUrl": "http://127.0.0.1:11434/v1"}
 // and so is the model list the panel offers:
-//   server/config.json  ->  {"openaiModels": [{"id":"llama3.1","label":"Llama 3.1"}]}
+//   server/hub/config.json  ->  {"openaiModels": [{"id":"llama3.1","label":"Llama 3.1"}]}
 // (a plain array of id strings works too).
 //
 // ctx.fetchImpl overrides globalThis.fetch — that is how the unit tests feed
