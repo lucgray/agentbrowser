@@ -2,7 +2,8 @@
 // harnesses (mcp-proxy), and in-process adapter sessions. See PROTOCOL.md.
 
 import {
-  readFileSync, existsSync, mkdirSync, writeFileSync, rmSync, chmodSync
+  readFileSync, existsSync, mkdirSync, writeFileSync, rmSync, chmodSync,
+  readdirSync
 } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -233,6 +234,147 @@ const runningCommands = new Map();
 // adapter sessions are single-turn objects, so a chat and a command (or two
 // commands) running at once on the same session would interleave their state.
 const activeChats = new Set();
+
+// ---------------------------------------------------------------------------
+// Chat transcripts (v1.8). Every chat turn is journaled to
+// ~/.agentchat/chats/<chatId>.json so the panel can list and re-open past
+// conversations. A chat whose adapter session is still registered is "live"
+// and resumes with context; dead sessions come back as read-only archives.
+
+// chatId -> { chatId, title, adapter, model, createdAt, updatedAt, msgs }
+const transcripts = new Map();
+// chatId -> assistant text accumulated across the current turn.
+const turnText = new Map();
+const MAX_CHATS_LISTED = 50;
+
+function chatsDir() {
+  return path.join(os.homedir(), ".agentchat", "chats");
+}
+
+function transcriptFile(chatId) {
+  return path.join(chatsDir(), String(chatId).replace(/[^A-Za-z0-9_-]/g, "_") + ".json");
+}
+
+function transcriptFor(chatId, adapterName) {
+  let t = transcripts.get(chatId);
+  if (!t) {
+    t = {
+      chatId, title: "", adapter: adapterName || null, model: null,
+      createdAt: Date.now(), updatedAt: Date.now(), msgs: []
+    };
+    transcripts.set(chatId, t);
+  }
+  return t;
+}
+
+function recordUser(chatId, text, adapterName, model) {
+  const t = transcriptFor(chatId, adapterName);
+  if (adapterName) t.adapter = adapterName;
+  if (model) t.model = model;
+  if (!t.title) t.title = String(text).replace(/\s+/g, " ").trim().slice(0, 80) || "(untitled)";
+  t.msgs.push({ role: "user", text: String(text).slice(0, 20000) });
+  t.updatedAt = Date.now();
+}
+
+function recordToken(chatId, text) {
+  if (!transcripts.has(chatId)) return;
+  turnText.set(chatId, (turnText.get(chatId) || "") + String(text));
+}
+
+function recordDone(chatId, model) {
+  const t = transcripts.get(chatId);
+  const text = (turnText.get(chatId) || "").trim();
+  turnText.delete(chatId);
+  if (!t) return;
+  if (model) t.model = model;
+  if (text) t.msgs.push({ role: "assistant", text: text.slice(0, 60000) });
+  t.updatedAt = Date.now();
+  persistTranscript(t);
+}
+
+function persistTranscript(t) {
+  try {
+    mkdirSync(chatsDir(), { recursive: true, mode: 0o700 });
+    writeFileSync(transcriptFile(t.chatId), JSON.stringify(t), { mode: 0o600 });
+  } catch (err) {
+    log("transcript write failed", t.chatId, err && err.message);
+  }
+}
+
+function loadTranscript(chatId) {
+  const mem = transcripts.get(chatId);
+  if (mem) return mem;
+  try {
+    const t = JSON.parse(readFileSync(transcriptFile(chatId), "utf8"));
+    if (t && t.chatId === chatId && Array.isArray(t.msgs)) {
+      transcripts.set(chatId, t);
+      return t;
+    }
+    log("transcript file malformed, skipped:", transcriptFile(chatId));
+    return null;
+  } catch (err) {
+    if (!err || err.code !== "ENOENT") {
+      log("transcript read failed", chatId, err && err.message);
+    }
+    return null;
+  }
+}
+
+function chatIsLive(chatId) {
+  return sessions.has(chatId) || activeChats.has(chatId) || runningCommands.has(chatId);
+}
+
+function chatSummary(t) {
+  return {
+    chatId: t.chatId, title: t.title || "(untitled)", adapter: t.adapter,
+    model: t.model, updatedAt: t.updatedAt, msgs: t.msgs.length,
+    live: chatIsLive(t.chatId)
+  };
+}
+
+// All known chats: on-disk archives merged with anything held in memory,
+// newest first, capped for the dropdown.
+function listChats() {
+  const byId = new Map();
+  let files = [];
+  try {
+    files = readdirSync(chatsDir());
+  } catch (err) {
+    if (!err || err.code !== "ENOENT") log("chats dir read failed:", err && err.message);
+  }
+  for (const file of files) {
+    if (!file.endsWith(".json")) continue;
+    const id = file.slice(0, -5);
+    // Filename was sanitized on write; ids the extension mints are UUIDs, so
+    // sanitized == original in practice. loadTranscript tolerates a mismatch
+    // by skipping malformed entries.
+    const t = loadTranscript(id);
+    if (t) byId.set(t.chatId, t);
+  }
+  for (const t of transcripts.values()) byId.set(t.chatId, t);
+  return [...byId.values()]
+    .sort((a, b) => b.updatedAt - a.updatedAt)
+    .slice(0, MAX_CHATS_LISTED)
+    .map(chatSummary);
+}
+
+function handleChatList(ws) {
+  safeSend(ws, { type: "chat_list", chats: listChats() });
+}
+
+function handleChatResume(ws, msg) {
+  const chatId = String(msg.chatId || "");
+  const t = chatId ? loadTranscript(chatId) : null;
+  if (!t) {
+    safeSend(ws, { type: "chat_resumed", chatId, found: false, live: false, msgs: [] });
+    return;
+  }
+  safeSend(ws, {
+    type: "chat_resumed", chatId: t.chatId, found: true,
+    live: chatIsLive(t.chatId), adapter: t.adapter, model: t.model,
+    title: t.title, msgs: t.msgs
+  });
+}
 
 function safeSend(ws, obj) {
   if (ws && ws.readyState === ws.OPEN) {
@@ -585,6 +727,8 @@ function createTurnEmitter(chatId, adapterName, state) {
     if (done) return;
     let outgoing = event;
     if (event && typeof event === "object") {
+      if (event.kind === "token") recordToken(chatId, event.text);
+      if (event.kind === "done") recordDone(chatId, state.model);
       if (event.kind === "status") sawStatus = true;
       if (event.kind === "meta") {
         if (sawMeta) return; // never two metas
@@ -1004,6 +1148,7 @@ async function handleChat(msg) {
   // and be dispatched synchronously; a guard that reads state written after an
   // await would let both through onto the same single-turn adapter session.
   activeChats.add(chatId);
+  recordUser(chatId, text, adapterName, requestedModel);
   try {
     const check = checkAttachments(attachments);
     if (!check.ok) {
@@ -1334,6 +1479,8 @@ function handleMessage(ws, msg) {
     else if (msg.type === "chat_abort") handleChatAbort(msg);
     else if (msg.type === "set_key") handleSetKey(ws, msg);
     else if (msg.type === "get_capabilities") sendCapabilities(ws);
+    else if (msg.type === "chat_list") handleChatList(ws);
+    else if (msg.type === "chat_resume") handleChatResume(ws, msg);
   }
 }
 

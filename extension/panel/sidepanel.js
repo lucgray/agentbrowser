@@ -655,7 +655,7 @@ function init() {
   const settingsBtn = document.getElementById("settings-btn");
   const settingsView = document.getElementById("settings-view");
   const settingsClose = document.getElementById("settings-close");
-  const newChatBtn = document.getElementById("new-chat");
+  const chatSwitcher = document.getElementById("chat-switcher");
   const banner = document.getElementById("banner");
   const messagesEl = document.getElementById("messages");
   const composerEl = document.getElementById("composer");
@@ -697,6 +697,8 @@ function init() {
   let connected = false;
   let chatId = crypto.randomUUID();
   let streaming = false;
+  let archived = false; // viewing a dead transcript: a send starts a new chat
+  let knownChats = []; // last chat_list the hub sent
   let assistantEl = null; // current streaming assistant block
   let pendingChips = []; // [{tool, statusEl, chipEl}] awaiting tool_result
   let retryBtn = null; // the one "Retry" button under a failed turn, if any
@@ -761,6 +763,7 @@ function init() {
       setTimeout(connectPort, 500);
     });
     postToHub({ type: "get_capabilities" });
+    postToHub({ type: "chat_list" });
   }
 
   // One send path for everything that is not a chat turn, so a dead Port never
@@ -792,7 +795,79 @@ function init() {
     } else if (msg.type === "chat_event") {
       if (msg.chatId !== chatId) return; // stale conversation
       handleChatEvent(msg.event || {});
+    } else if (msg.type === "chat_list") {
+      knownChats = Array.isArray(msg.chats) ? msg.chats : [];
+      renderSwitcher();
+    } else if (msg.type === "chat_resumed") {
+      if (msg.found) {
+        loadChat(msg);
+      } else {
+        // Gone between list and resume — drop it and re-sync the dropdown.
+        knownChats = knownChats.filter((c) => c.chatId !== msg.chatId);
+        renderSwitcher();
+        requestChatList();
+        showComposerError("that conversation is gone from the hub");
+      }
     }
+  }
+
+  function requestChatList() {
+    postToHub({ type: "chat_list" });
+  }
+
+  // One dropdown for history + new chat, centered in the header. The current
+  // conversation renders as "New chat" until the hub knows it.
+  function renderSwitcher() {
+    if (!chatSwitcher) return;
+    const opts = [makeOption("__new__", "+ New chat")];
+    const current = knownChats.find((c) => c.chatId === chatId);
+    if (!current) opts.push(makeOption(chatId, "New chat"));
+    for (const c of knownChats) {
+      const title = String(c.title || "(untitled)").slice(0, 40);
+      opts.push(makeOption(c.chatId, c.live ? title + " (live)" : title));
+    }
+    chatSwitcher.replaceChildren(...opts);
+    chatSwitcher.value = chatId;
+  }
+
+  // Re-open a conversation the hub still has a transcript for. live === the
+  // adapter session survived (hub uptime), so the chat continues where it left
+  // off; dead sessions render read-only and a send detaches into a fresh chat.
+  function loadChat(msg) {
+    resetChatState(msg.chatId);
+    archived = !msg.live;
+    for (const m of msg.msgs || []) {
+      if (m.role === "user") addUserMessage(String(m.text || ""), null, null);
+      else if (m.role === "assistant") addArchiveAssistant(String(m.text || ""));
+    }
+    addLine(
+      "system",
+      archived
+        ? "Archived conversation — sending a message starts a new chat."
+        : "Resumed live conversation."
+    );
+    if (msg.adapter && optionValues(adapterSelect).includes(msg.adapter)) {
+      adapterSelect.value = msg.adapter;
+      renderModelSelect(msg.model || undefined);
+    }
+    renderSwitcher();
+    inputEl.focus();
+  }
+
+  // Static assistant bubble for transcripts: markdown rendered once, no
+  // streaming, no meta, no action row.
+  function addArchiveAssistant(text) {
+    const el = document.createElement("div");
+    el.className = "msg assistant";
+    try {
+      el.appendChild(renderMarkdown(text));
+    } catch (err) {
+      console.warn("[agentbrowser] archive markdown render failed", err);
+      el.classList.add("raw");
+      el.textContent = text;
+    }
+    messagesEl.appendChild(el);
+    scrollToBottom();
   }
 
   // ----- capabilities, model picker, stored preferences -----
@@ -1810,6 +1885,7 @@ function init() {
         failPendingChips("");
         finishTurn();
         endStreaming();
+        requestChatList(); // the turn just journaled itself on the hub
         break;
       default:
         break;
@@ -2470,6 +2546,8 @@ function init() {
       return;
     }
 
+    if (archived) newChat(); // a dead transcript cannot take a reply
+
     const msg = buildChatMessage({
       chatId,
       text,
@@ -2497,9 +2575,10 @@ function init() {
     // Keep the abort button until the hub confirms with done/error.
   }
 
-  function newChat() {
+  function resetChatState(id) {
     if (streaming) abortChat(); // best-effort cancel of the old conversation
-    chatId = crypto.randomUUID();
+    chatId = id;
+    archived = false;
     messagesEl.textContent = "";
     assistantEl = null;
     pendingChips = [];
@@ -2532,6 +2611,11 @@ function init() {
     renderChips();
     autoGrow();
     updateControls();
+  }
+
+  function newChat() {
+    resetChatState(crypto.randomUUID());
+    renderSwitcher();
     inputEl.focus();
   }
 
@@ -2639,7 +2723,19 @@ function init() {
 
   sendBtn.addEventListener("click", sendMessage);
   abortBtn.addEventListener("click", abortChat);
-  newChatBtn.addEventListener("click", newChat);
+  chatSwitcher.addEventListener("change", () => {
+    const v = chatSwitcher.value;
+    if (v === "__new__") {
+      newChat();
+    } else if (v && v !== chatId) {
+      postToHub({ type: "chat_resume", chatId: v });
+    }
+  });
+  // The list refreshes when the user reaches for it, not on every render:
+  // opening the dropdown must not be stale, and a client command like /clear
+  // stays off the wire entirely.
+  chatSwitcher.addEventListener("mousedown", requestChatList);
+  chatSwitcher.addEventListener("focus", requestChatList);
 
   adapterSelect.addEventListener("change", () => {
     renderModelSelect();

@@ -95,8 +95,28 @@ body {
 
 /* No webfonts are available to an MV3 page, so the richer feel comes from the
    system faces themselves: the ui-* generics first, the stylistic sets the
-   modern system faces ship, and antialiased rendering on the dark surface. */
+   modern system faces ship, and antialiased rendering. */
+/* The panel body runs light; #header re-declares the dark palette inside its
+   own subtree so the top bar keeps the original dark look. Everything else
+   inherits these lighter values. */
 body {
+  --ac-bg-0: #ffffff;
+  --ac-bg-1: #ffffff;
+  --ac-bg-2: #f4f7f5;
+  --ac-border: #dde5e0;
+  --ac-border-soft: #e7ede9;
+  --ac-text: #1c2420;
+  --ac-text-secondary: #4d5b53;
+  --ac-text-muted: #77867d;
+  --ac-error: #dc2626;
+  --ac-error-bg: rgba(220, 38, 38, 0.08);
+  --ac-error-border: rgba(220, 38, 38, 0.32);
+  --ac-warn: #b07817;
+  --ac-warn-bg: rgba(176, 120, 23, 0.1);
+  --ac-warn-border: rgba(176, 120, 23, 0.32);
+  --ac-on-accent: #ffffff;
+  --ac-shadow-card: 0 8px 24px rgba(16, 26, 21, 0.12);
+
   display: flex;
   flex-direction: column;
   min-width: 0;
@@ -124,9 +144,19 @@ img {
 
 /* ----- header ----- */
 
-/* Wraps rather than clips: adapter, model, settings and New chat do not fit on
-   one line once the panel is dragged narrow. */
+/* logo · status dot · centered chat switcher · settings. flex-wrap keeps the
+   switcher usable when the panel is dragged narrow. */
 #header {
+  /* Header keeps the dark theme: re-declare the palette for this subtree so
+     the light body vars don't leak in. */
+  --ac-bg-1: #0f1512;
+  --ac-bg-2: #141c18;
+  --ac-border: #1f2b25;
+  --ac-border-soft: #17211c;
+  --ac-text: #dbe5df;
+  --ac-text-secondary: #9aa8a0;
+  --ac-text-muted: #6f7d75;
+
   display: flex;
   align-items: center;
   flex-wrap: wrap;
@@ -139,23 +169,32 @@ img {
 }
 
 #logo {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
   width: 22px;
   height: 22px;
   border-radius: var(--ac-radius-control);
-  background: var(--ac-accent-tint);
-  color: var(--ac-accent);
   flex: none;
 }
 
-#title {
-  margin: 0;
-  font: var(--ac-type-title);
-  letter-spacing: 0.1px;
+/* The centered chat dropdown: current conversation, archives, and New chat. */
+#chat-switcher {
+  min-width: 0;
+  max-width: 200px;
+  margin: 0 auto;
+  background: var(--ac-bg-2);
   color: var(--ac-text);
-  flex: none;
+  border: 1px solid var(--ac-border);
+  border-radius: var(--ac-radius-pill);
+  padding: var(--ac-space-4) var(--ac-space-10);
+  font: var(--ac-type-secondary);
+  font-weight: 500;
+  text-align: center;
+  text-align-last: center;
+  transition: border-color var(--ac-dur-fast) var(--ac-ease);
+}
+
+#chat-switcher:hover,
+#chat-switcher:focus-visible {
+  border-color: var(--ac-accent);
 }
 
 .dot {
@@ -188,7 +227,7 @@ img {
 #adapter,
 #model {
   min-width: 0;
-  max-width: 160px;
+  max-width: 132px;
   background: var(--ac-bg-2);
   color: var(--ac-text-secondary);
   border: 1px solid var(--ac-border);
@@ -199,7 +238,7 @@ img {
 }
 
 #model {
-  max-width: 140px;
+  max-width: 110px;
 }
 
 #adapter:hover,
@@ -519,6 +558,19 @@ button:disabled {
 
 .line.error {
   color: var(--ac-error);
+}
+
+/* Transcript markers ("Archived conversation", "Resumed"). Centered and
+   quieter than an info line. */
+.line.system {
+  align-self: center;
+  color: var(--ac-text-muted);
+  font: var(--ac-type-micro);
+  text-align: center;
+  padding: var(--ac-space-4) var(--ac-space-12);
+  border: 1px solid var(--ac-border-soft);
+  border-radius: var(--ac-radius-pill);
+  background: var(--ac-bg-2);
 }
 
 /* ----- one assistant turn: work block, reply, actions, meta ----- */
@@ -957,6 +1009,7 @@ button:disabled {
 
 #composer-buttons {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--ac-space-8);
   min-width: 0;

@@ -11,7 +11,7 @@ on any page selection.
 [![License: MIT](https://img.shields.io/badge/License-MIT-6C5CE7.svg)](LICENSE)
 [![Chrome MV3](https://img.shields.io/badge/Chrome-MV3-6C5CE7.svg)](extension/manifest.json)
 [![Node ≥ 20.11](https://img.shields.io/badge/Node-%E2%89%A5%2020.11-6C5CE7.svg)](server/package.json)
-[![Protocol v1.6](https://img.shields.io/badge/Protocol-v1.6-6C5CE7.svg)](PROTOCOL.md)
+[![Protocol v1.8](https://img.shields.io/badge/Protocol-v1.8-6C5CE7.svg)](PROTOCOL.md)
 
 **English** · [简体中文](README.zh-CN.md)
 
@@ -61,6 +61,7 @@ error-handling standard.
 | **Observe-first inspection** — BBX-style structured reads (`dom_inspect`, `console_log`, `network_log` + sanitized HAR, `a11y_tree`, dialog handling) and reversible live patches (`patch_apply`/`patch_revert`) — protocol v1.6 | — | ✓ |
 | **MCP-free skill + CLI access** — `agentbrowser <tool> '<json>'` command + SKILL.md installer for agents that don't load MCP servers | — | ✓ |
 | **Consent gate + element-level clicks** — `permissions` config asks before sensitive tools run (page card or system notification); `click_element {selector}` clicks elements directly (protocol v1.7) | — | ✓ |
+| **Chat history on the hub** — every turn is journaled to `~/.agentchat/chats/`; the header's centered chats dropdown lists past conversations, resumes live sessions with context, opens dead ones read-only (protocol v1.8) | — | ✓ |
 | **No-silent-catch rule** — every catch logs or propagates, leveled by impact | — | ✓ |
 
 > Upstream credit: the entire side-panel ↔ hub ↔ adapter architecture, the
