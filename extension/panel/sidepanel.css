@@ -175,14 +175,15 @@ img {
   flex: none;
 }
 
-/* The centered chat dropdown: current conversation, archives, and New chat. */
+/* The centered chat dropdown: current conversation, archives, and New chat.
+   White pill so it reads as the one interactive element on the dark bar. */
 #chat-switcher {
   min-width: 0;
   max-width: 200px;
   margin: 0 auto;
-  background: var(--ac-bg-2);
-  color: var(--ac-text);
-  border: 1px solid var(--ac-border);
+  background: #ffffff;
+  color: #1c2420;
+  border: 1px solid #dde5e0;
   border-radius: var(--ac-radius-pill);
   padding: var(--ac-space-4) var(--ac-space-10);
   font: var(--ac-type-secondary);
@@ -237,12 +238,22 @@ img {
   transition: border-color var(--ac-dur-fast) var(--ac-ease);
 }
 
+/* The model select is the secondary control: ghost style (no border, muted
+   text) so it reads as a suffix of the adapter pick, not a second input. */
 #model {
   max-width: 110px;
+  background: transparent;
+  border-color: transparent;
+  color: var(--ac-text-muted);
+  font: var(--ac-type-micro);
 }
 
-#adapter:hover,
 #model:hover {
+  border-color: transparent;
+  color: var(--ac-text-secondary);
+}
+
+#adapter:hover {
   border-color: var(--ac-accent-pressed);
 }
 
