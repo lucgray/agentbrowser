@@ -59,6 +59,7 @@ error-handling standard.
 | **Page annotations** — `annotate`/`annotations_list`/`annotate_reply`/`annotate_clear` tools; underline, highlight, circle on quoted text; per-mark comment cards that run as their own chat turns (protocol v1.5) | — | ✓ |
 | **Proactive co-reading pass** — opt-in `proactiveAnnotation` config: one background turn per page flags confusing passages with a why-note | — | ✓ |
 | **Observe-first inspection** — BBX-style structured reads (`dom_inspect`, `console_log`, `network_log` + sanitized HAR, `a11y_tree`, dialog handling) and reversible live patches (`patch_apply`/`patch_revert`) — protocol v1.6 | — | ✓ |
+| **MCP-free skill + CLI access** — `agentbrowser <tool> '<json>'` command + SKILL.md installer for agents that don't load MCP servers | — | ✓ |
 | **No-silent-catch rule** — every catch logs or propagates, leveled by impact | — | ✓ |
 
 > Upstream credit: the entire side-panel ↔ hub ↔ adapter architecture, the
@@ -258,7 +259,7 @@ the request to the provider you gave it for, never comes back to the panel
 hub's log, in a chat message, or in an error. Clearing the field deletes the
 key.
 
-API adapters get the same fourteen browser tools the CLI adapters get, so
+API adapters get the same set of browser tools the CLI adapters get, so
 "summarize this page" or "fill this form" works the same way. What they
 don't get is a CLI's file and shell tools, so attachments arrive as paths
 they can't open. Use a CLI adapter when a turn needs to read files off disk.
@@ -324,8 +325,8 @@ adding it to its MCP config:
 }
 ```
 
-Start the hub, keep the extension loaded, and the harness gets the same ten
-tools the built-in adapters use, with no adapter of its own. Cursor, Cline,
+Start the hub, keep the extension loaded, and the harness gets the same tools
+the built-in adapters use, with no adapter of its own. Cursor, Cline,
 Qwen CLI, Codex, Gemini CLI and Claude Code all take a config in this
 shape; only the file name differs (`config.toml` for Codex, `settings.json`
 for Gemini, `.mcp.json` for Claude Code).
@@ -344,6 +345,26 @@ for Gemini, `.mcp.json` for Claude Code).
 The one requirement is **stdio** transport, since `mcp-proxy.mjs` is a
 stdio server. A client that only speaks HTTP to MCP servers cannot reach it
 as things stand.
+
+## MCP-free access: skill + CLI
+
+For agents that don't load MCP servers (or where you'd rather not wire a
+config file), `server/agentbrowser-cli.mjs` exposes every browser tool as a
+shell command — same tools, same hub, nothing long-lived:
+
+```bash
+node server/agentbrowser-cli.mjs read_page '{}'
+node server/agentbrowser-cli.mjs dom_inspect '{"selector":"h1"}'
+node server/agentbrowser-cli.mjs tools              # list tools
+```
+
+`npm run install-skill` (or `node server/install-skill.mjs`) writes an
+`agentbrowser` shim into `~/.local/bin` and drops `server/skill/SKILL.md`
+into `~/.claude/skills` and `~/.agents/skills` (`--target <dir>` for others),
+so skill-based agents — Claude Code, anything reading `.agents` layouts —
+get browser control with **no MCP config at all**. The CLI is stateless;
+buffers and debugger attachments live in the extension, so a process per
+call loses nothing.
 
 <details>
 <summary><b>Python agent frameworks</b> — LangGraph / DeepAgents via <code>langchain-mcp-adapters</code></summary>
