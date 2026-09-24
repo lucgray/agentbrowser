@@ -1874,7 +1874,9 @@ function init() {
     store
       .get("pendingSelection")
       .then((data) => applyPendingSelection(data && data.pendingSelection))
-      .catch(() => {});
+      .catch((err) =>
+        console.warn("[agentbrowser] pendingSelection read failed", err)
+      );
     if (!chrome.storage.onChanged) return;
     chrome.storage.onChanged.addListener((changes, area) => {
       if (area !== "session" || !changes.pendingSelection) return;

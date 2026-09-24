@@ -20,6 +20,10 @@ function isContextValid() {
   );
 }
 
+function logWarn(...args) {
+  console.warn("[agentbrowser]", ...args);
+}
+
 function clip(s, n) {
   const t = String(s == null ? "" : s).replace(/\s+/g, " ").trim();
   return t.length > n ? t.slice(0, n - 1) + "…" : t;
@@ -42,10 +46,11 @@ function findPrecedingHeading(node) {
       }
     }
     if (closest) return { tag: closest.tagName, text: closest.innerText.trim() };
-  } catch (e) {
-    // best effort
+    return null;
+  } catch (err) {
+    logWarn("findPrecedingHeading failed", err);
+    return null;
   }
-  return null;
 }
 
 // Selection inside <pre>/<code> -> {language, fullCode} for the whole block.
@@ -123,10 +128,11 @@ function findEnclosingTable(node) {
           if (rowData.length > 0) md += "| " + rowData.join(" | ") + " |\n";
           return md.trim();
         }
-      } catch (e) {
-        // best effort
+        return null;
+      } catch (err) {
+        logWarn("findEnclosingTable failed", err);
+        return null;
       }
-      return null;
     }
     current = current.parentElement;
   }
@@ -188,10 +194,10 @@ function getSurroundingText(range, charLimit = 800) {
       .trim();
 
     return { before, after };
-  } catch (e) {
-    // best effort
+  } catch (err) {
+    logWarn("getSurroundingText failed", err);
+    return { before: "", after: "" };
   }
-  return { before: "", after: "" };
 }
 
 // Semantic breadcrumb like "main > article > section > h2#intro".
@@ -230,7 +236,8 @@ function buildSemanticPath(node) {
       current = current.parentElement;
     }
     return path.join(" > ");
-  } catch (e) {
+  } catch (err) {
+    logWarn("buildSemanticPath failed", err);
     return "";
   }
 }
@@ -317,7 +324,8 @@ function compileElementContext(element) {
     range = document.createRange();
     range.selectNode(element);
     surrounding = getSurroundingText(range, 800);
-  } catch (e) {
+  } catch (err) {
+    logWarn("compileElementContext range failed, sibling fallback", err);
     let beforeText = "";
     let afterText = "";
     let prev = element.previousElementSibling;
@@ -416,8 +424,9 @@ function showButtonAtSelection(selection) {
     btn.style.left = `${left}px`;
     btn.style.top = `${top}px`;
     btn.classList.remove("agentbrowser-hidden");
-  } catch (e) {
-    // best effort
+  } catch (err) {
+    logWarn("showButtonAtSelection failed", err);
+    hideButton();
   }
 }
 
@@ -464,6 +473,7 @@ async function handleButtonClick(e) {
     }
   } catch (err) {
     // Extension reloaded between script injection and click.
+    logWarn("selection_ask send failed", err);
     hideButton();
   }
 }
@@ -530,6 +540,7 @@ function handleContextMenu(e) {
           contextData = currentSelectionContext;
         }
       } catch (err) {
+        logWarn("selection/range check failed, using selection context", err);
         isSelection = true;
         contextData = currentSelectionContext;
       }
@@ -546,7 +557,7 @@ function handleContextMenu(e) {
       selection: contextData,
       isSelection,
     })
-    .catch(() => {});
+    .catch((err) => logWarn("selection_context_cache send failed", err));
 }
 
 // Service worker asks for fresh context when the context-menu path finds no
@@ -568,7 +579,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         ) {
           useSelection = true;
         }
-      } catch (e) {
+      } catch (err) {
+        logWarn("range/right-click element check failed", err);
         useSelection = true;
       }
     } else {

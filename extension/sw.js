@@ -57,7 +57,10 @@ function deliverSelection(tabId, selection) {
       },
     })
     .then(() => true)
-    .catch(() => false);
+    .catch((err) => {
+      console.warn('[agentbrowser] pendingSelection write failed', err);
+      return false;
+    });
 }
 
 async function resolveMenuSelection(info, tab) {
@@ -80,7 +83,7 @@ async function resolveMenuSelection(info, tab) {
         return response.selection;
       }
       if (attempt > 0) break;
-    } catch {
+    } catch (err) {
       if (attempt > 0) break;
       try {
         await chrome.scripting.executeScript({
@@ -91,7 +94,13 @@ async function resolveMenuSelection(info, tab) {
           target: { tabId: tab.id, frameIds: [frameId] },
           files: ['selection.css'],
         });
-      } catch {
+      } catch (injectErr) {
+        console.warn(
+          '[agentbrowser] selection script injection failed',
+          injectErr,
+          'after message error:',
+          err
+        );
         break; // chrome:// and friends reject injection entirely
       }
     }
@@ -119,13 +128,17 @@ async function resolveMenuSelection(info, tab) {
 chrome.contextMenus.onClicked.addListener((info, tab) => {
   if (info.menuItemId !== CONTEXT_MENU_ID || !tab || tab.id == null) return;
   // Open synchronously: sidePanel.open only works inside the user gesture.
-  chrome.sidePanel.open({ tabId: tab.id }).catch(() => {});
+  chrome.sidePanel.open({ tabId: tab.id }).catch((err) => {
+    console.warn('[agentbrowser] sidePanel.open failed', err);
+  });
   resolveMenuSelection(info, tab)
     .then((selection) => {
       if (selection) return deliverSelection(tab.id, selection);
       return false;
     })
-    .catch(() => {});
+    .catch((err) => {
+      console.warn('[agentbrowser] menu selection resolution failed', err);
+    });
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => {
@@ -220,7 +233,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return true;
     }
     // Open first, still inside the click's user gesture.
-    chrome.sidePanel.open({ tabId }).catch(() => {});
+    chrome.sidePanel.open({ tabId }).catch((err) => {
+      console.warn('[agentbrowser] sidePanel.open failed', err);
+    });
     deliverSelection(tabId, message.selection).then(
       (ok) => sendResponse({ success: ok }),
       () => sendResponse({ success: false })
