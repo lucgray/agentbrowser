@@ -96,9 +96,8 @@ body {
 /* No webfonts are available to an MV3 page, so the richer feel comes from the
    system faces themselves: the ui-* generics first, the stylistic sets the
    modern system faces ship, and antialiased rendering. */
-/* The panel body runs light; #header re-declares the dark palette inside its
-   own subtree so the top bar keeps the original dark look. Everything else
-   inherits these lighter values. */
+/* The whole panel runs light: body re-declares the palette once and every
+   subtree, header included, inherits these lighter values. */
 body {
   --ac-bg-0: #ffffff;
   --ac-bg-1: #ffffff;
@@ -147,16 +146,6 @@ img {
 /* logo · status dot · centered chat switcher · settings. flex-wrap keeps the
    switcher usable when the panel is dragged narrow. */
 #header {
-  /* Header keeps the dark theme: re-declare the palette for this subtree so
-     the light body vars don't leak in. */
-  --ac-bg-1: #0f1512;
-  --ac-bg-2: #141c18;
-  --ac-border: #1f2b25;
-  --ac-border-soft: #17211c;
-  --ac-text: #dbe5df;
-  --ac-text-secondary: #9aa8a0;
-  --ac-text-muted: #6f7d75;
-
   display: flex;
   align-items: center;
   flex-wrap: wrap;
@@ -176,14 +165,14 @@ img {
 }
 
 /* The centered chat dropdown: current conversation, archives, and New chat.
-   White pill so it reads as the one interactive element on the dark bar. */
+   A soft-filled pill so it reads as the one interactive element up top. */
 #chat-switcher {
   min-width: 0;
   max-width: 200px;
   margin: 0 auto;
-  background: #ffffff;
-  color: #1c2420;
-  border: 1px solid #dde5e0;
+  background: var(--ac-bg-2);
+  color: var(--ac-text);
+  border: 1px solid var(--ac-border);
   border-radius: var(--ac-radius-pill);
   padding: var(--ac-space-4) var(--ac-space-10);
   font: var(--ac-type-secondary);
@@ -225,36 +214,25 @@ img {
   50% { opacity: 0.4; }
 }
 
-#adapter,
-#model {
+/* The merged backend picker (adapter + model in one). Ghost style keeps it
+   quiet next to the icon buttons; it only darkens on hover. */
+#backend {
   min-width: 0;
-  max-width: 132px;
-  background: var(--ac-bg-2);
-  color: var(--ac-text-secondary);
-  border: 1px solid var(--ac-border);
+  max-width: 180px;
+  background: transparent;
+  color: var(--ac-text-muted);
+  border: 1px solid transparent;
   border-radius: var(--ac-radius-control);
   padding: var(--ac-space-4) var(--ac-space-8);
   font: var(--ac-type-secondary);
-  transition: border-color var(--ac-dur-fast) var(--ac-ease);
+  transition: color var(--ac-dur-fast) var(--ac-ease),
+    border-color var(--ac-dur-fast) var(--ac-ease);
 }
 
-/* The model select is the secondary control: ghost style (no border, muted
-   text) so it reads as a suffix of the adapter pick, not a second input. */
-#model {
-  max-width: 110px;
-  background: transparent;
-  border-color: transparent;
-  color: var(--ac-text-muted);
-  font: var(--ac-type-micro);
-}
-
-#model:hover {
-  border-color: transparent;
+#backend:hover,
+#backend:focus-visible {
   color: var(--ac-text-secondary);
-}
-
-#adapter:hover {
-  border-color: var(--ac-accent-pressed);
+  border-color: var(--ac-border);
 }
 
 /* ----- buttons: ghost text is the default variant ----- */

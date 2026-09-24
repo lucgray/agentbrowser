@@ -650,8 +650,7 @@ export function buildSetKeyMessage(provider, key) {
 
 function init() {
   const statusDot = document.getElementById("status-dot");
-  const adapterSelect = document.getElementById("adapter");
-  const modelSelect = document.getElementById("model");
+  const backendSelect = document.getElementById("backend");
   const settingsBtn = document.getElementById("settings-btn");
   const settingsView = document.getElementById("settings-view");
   const settingsClose = document.getElementById("settings-close");
@@ -719,6 +718,8 @@ function init() {
   let commands = []; // capabilities: [{name,args,summary,scope}] from the hub
   let prefAdapter = null; // remembered choices from chrome.storage.local
   let prefModel = null;
+  let selAdapter = ""; // current adapter name
+  let selModel = null; // current model id, or null when the adapter has none
   let keyState = { anthropic: false, openai: false };
 
   let currentTab = null; // {tabId,url,title} or null
@@ -846,10 +847,10 @@ function init() {
         ? "Archived conversation — sending a message starts a new chat."
         : "Resumed live conversation."
     );
-    if (msg.adapter && optionValues(adapterSelect).includes(msg.adapter)) {
-      adapterSelect.value = msg.adapter;
-      renderModelSelect(msg.model || undefined);
+    if (msg.adapter && adapters.some((a) => a.name === msg.adapter)) {
+      selAdapter = msg.adapter;
     }
+    renderBackendSelect(msg.model || undefined);
     renderSwitcher();
     inputEl.focus();
   }
@@ -872,10 +873,6 @@ function init() {
 
   // ----- capabilities, model picker, stored preferences -----
 
-  function optionValues(select) {
-    return [...select.children].map((o) => o.value);
-  }
-
   function makeOption(value, label) {
     const o = document.createElement("option");
     o.value = value;
@@ -890,44 +887,56 @@ function init() {
     adapters = list;
     commands = normalizeCommands(commandList);
     if (palette) updatePalette();
-    if (adapters.length) {
-      const want = adapterSelect.value || prefAdapter;
-      adapterSelect.replaceChildren(
-        ...adapters.map((a) => makeOption(a.name, a.label || a.name))
-      );
-      const names = adapters.map((a) => a.name);
-      // A select silently keeps "" when the value matches no option, so the
-      // fallback has to be explicit.
-      const pick = names.includes(want) ? want : names.includes(prefAdapter) ? prefAdapter : names[0];
-      adapterSelect.value = pick;
-      if (adapterSelect.value !== pick) adapterSelect.value = names[0];
-    }
-    renderModelSelect();
+    renderBackendSelect();
     keyState = keyStateFromCapabilities(adapters);
     renderKeyState();
   }
 
-  // preferred wins over what the dropdown currently holds: capabilities can
-  // land before chrome.storage does, and the remembered model has to survive
-  // that race.
-  function renderModelSelect(preferred) {
-    const { models } = modelsFor(adapters, adapterSelect.value);
-    if (models.length === 0) {
-      modelSelect.replaceChildren();
-      modelSelect.hidden = true;
-      return;
+  // The merged backend picker encodes "adapter::model" in each option value
+  // ("adapter::" when the adapter has no model switch). Adapters with models
+  // render as an optgroup of their models; adapters without render flat.
+  function backendValue(adapter, model) {
+    return adapter + "::" + (model || "");
+  }
+
+  function renderBackendSelect(preferredModel) {
+    backendSelect.replaceChildren();
+    const flat = [];
+    for (const a of adapters) {
+      const { models } = modelsFor(adapters, a.name);
+      if (models.length === 0) {
+        backendSelect.appendChild(makeOption(backendValue(a.name), a.label || a.name));
+        flat.push({ adapter: a.name, model: null });
+      } else {
+        const group = document.createElement("optgroup");
+        group.label = a.label || a.name;
+        for (const m of models) {
+          group.appendChild(makeOption(backendValue(a.name, m.id), m.label || m.id));
+        }
+        backendSelect.appendChild(group);
+        for (const m of models) flat.push({ adapter: a.name, model: m.id });
+      }
     }
-    const want = pickModel(adapters, adapterSelect.value, preferred || modelSelect.value || prefModel);
-    modelSelect.replaceChildren(...models.map((m) => makeOption(m.id, m.label || m.id)));
-    modelSelect.value = want;
-    if (modelSelect.value !== want) modelSelect.value = models[0].id;
-    modelSelect.hidden = false;
+    // Keep the current adapter when it still exists; otherwise the remembered
+    // one, otherwise the first entry. A select silently keeps "" when the
+    // value matches no option, so the fallback has to be explicit.
+    const have = (n) => adapters.some((a) => a && a.name === n);
+    selAdapter = have(selAdapter) ? selAdapter : have(prefAdapter) ? prefAdapter : (flat[0] ? flat[0].adapter : "");
+    selModel = pickModel(adapters, selAdapter, preferredModel || selModel || prefModel);
+    const want = backendValue(selAdapter, selModel);
+    backendSelect.value = want;
+    if (backendSelect.value !== want) backendSelect.value = flat[0] ? backendValue(flat[0].adapter, flat[0].model) : "";
+    backendSelect.hidden = flat.length === 0;
+    // The collapsed text shows only the short label; the tooltip carries the
+    // full "adapter · model" identity.
+    const selA = adapterEntry(adapters, selAdapter);
+    backendSelect.title = (selA && (selA.label || selA.name) || selAdapter) + (selModel ? " · " + selModel : "");
   }
 
   // The model that rides on the next chat message, or undefined for "adapter
-  // default" (the picker is hidden when the adapter has no model switch).
+  // default" (selModel stays null when the adapter has no model switch).
   function currentModel() {
-    return modelSelect.hidden ? undefined : modelSelect.value || undefined;
+    return selModel || undefined;
   }
 
   function storage() {
@@ -949,11 +958,8 @@ function init() {
         if (!v || typeof v !== "object") return;
         if (typeof v.adapter === "string" && v.adapter) prefAdapter = v.adapter;
         if (typeof v.model === "string" && v.model) prefModel = v.model;
-        // Only restore a choice the dropdown can actually hold.
-        if (prefAdapter && optionValues(adapterSelect).includes(prefAdapter)) {
-          adapterSelect.value = prefAdapter;
-        }
-        renderModelSelect(prefModel);
+        // renderBackendSelect restores only choices the list can still hold.
+        renderBackendSelect(prefModel);
       })
       .catch((err) => console.warn("[agentbrowser] prefs restore failed", err));
   }
@@ -962,7 +968,7 @@ function init() {
     const store = storage();
     if (!store) return;
     try {
-      const out = { adapter: adapterSelect.value };
+      const out = { adapter: selAdapter };
       const model = currentModel();
       // An adapter with no model switch leaves the remembered model alone, so
       // a detour through one does not forget it.
@@ -2452,29 +2458,26 @@ function init() {
     return true;
   }
 
-  // A select the user drove from the composer instead of the dropdown.
-  function pickFromSelect(select, args, what) {
-    if (select.hidden) {
-      addLine("info", "this adapter has no " + what + " switch");
-      return;
-    }
-    const values = optionValues(select);
+  // The shared match-and-apply core for /adapter and /model: resolve the
+  // typed fragment against the option list, apply it, re-render the merged
+  // picker, persist.
+  function pickBackend(options, current, args, what, apply) {
     const want = String(args || "").trim();
     if (!want) {
-      addLine("info", what + ": " + select.value + " (" + values.join(", ") + ")");
-      select.focus();
+      addLine("info", what + ": " + current + " (" + options.join(", ") + ")");
+      backendSelect.focus();
       return;
     }
     const lower = want.toLowerCase();
     const hit =
-      values.find((v) => v.toLowerCase() === lower) ||
-      values.find((v) => v.toLowerCase().includes(lower));
+      options.find((v) => v.toLowerCase() === lower) ||
+      options.find((v) => v.toLowerCase().includes(lower));
     if (!hit) {
       addLine("error", 'no ' + what + ' matching "' + want + '"');
       return;
     }
-    select.value = hit;
-    if (select === adapterSelect) renderModelSelect();
+    apply(hit);
+    renderBackendSelect();
     savePrefs();
     addLine("info", what + " set to " + hit);
   }
@@ -2489,8 +2492,20 @@ function init() {
       else addLine("info", "nothing is running");
     },
     keys: () => setSettingsOpen(true),
-    model: (args) => pickFromSelect(modelSelect, args, "model"),
-    adapter: (args) => pickFromSelect(adapterSelect, args, "adapter"),
+    model: (args) => {
+      const { models } = modelsFor(adapters, selAdapter);
+      if (models.length === 0) {
+        addLine("info", "this adapter has no model switch");
+        return;
+      }
+      pickBackend(models.map((m) => m.id), selModel || "", args, "model", (hit) => {
+        selModel = hit;
+      });
+    },
+    adapter: (args) =>
+      pickBackend(adapters.map((a) => a.name), selAdapter, args, "adapter", (hit) => {
+        selAdapter = hit;
+      }),
   };
 
   function runClientCommand(plan) {
@@ -2509,7 +2524,7 @@ function init() {
       chatId,
       name: plan.name,
       args: plan.args,
-      adapter: adapterSelect.value,
+      adapter: selAdapter,
       model: currentModel(),
       currentTab: currentTabOff ? null : currentTab,
       taggedTabs,
@@ -2551,7 +2566,7 @@ function init() {
     const msg = buildChatMessage({
       chatId,
       text,
-      adapter: adapterSelect.value,
+      adapter: selAdapter,
       model: currentModel(),
       currentTab: currentTabOff ? null : currentTab,
       taggedTabs,
@@ -2737,11 +2752,16 @@ function init() {
   chatSwitcher.addEventListener("mousedown", requestChatList);
   chatSwitcher.addEventListener("focus", requestChatList);
 
-  adapterSelect.addEventListener("change", () => {
-    renderModelSelect();
+  backendSelect.addEventListener("change", () => {
+    const v = String(backendSelect.value);
+    const sep = v.indexOf("::");
+    if (sep > 0) {
+      selAdapter = v.slice(0, sep);
+      selModel = v.slice(sep + 2) || null;
+    }
+    renderBackendSelect(); // refreshes the tooltip and normalizes the value
     savePrefs();
   });
-  modelSelect.addEventListener("change", savePrefs);
 
   settingsBtn.addEventListener("click", () => setSettingsOpen(settingsView.hidden));
   settingsClose.addEventListener("click", () => setSettingsOpen(false));
