@@ -1,49 +1,77 @@
+<div align="center">
+
 # AgentBrowser
 
-**[English](README.md)** · 简体中文
+**选中它，问它——让编码 Agent 驱动你真实的浏览器。**
 
-> 一个 Chrome 侧边栏：编码 Agent 既能和你对话，又能通过 CDP 驱动你**真实登录态**的浏览器——并支持对页面选中文本直接提问。
+一个 Chrome 侧边栏：Agent 既能和你对话，又能通过可信 CDP 输入控制你
+**真实登录态**的浏览器——现在更支持对页面选中文本直接提问。
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Chrome MV3](https://img.shields.io/badge/Chrome-MV3-green.svg)](extension/manifest.json)
 [![Node ≥ 20.11](https://img.shields.io/badge/Node-%E2%89%A5%2020.11-339933.svg)](server/package.json)
 [![Protocol v1.4](https://img.shields.io/badge/Protocol-v1.4-orange.svg)](PROTOCOL.md)
 
-本项目是 [VasiHemanth/agentbrowser](https://github.com/VasiHemanth/agentbrowser)
-的 fork，补齐了 ContextLens 式的「选中即问」交互，并引入了更严格的错误处理规范。
-消息格式、工具名、文件路径以 [PROTOCOL.md](PROTOCOL.md) 为准；
-[DESIGN.md](DESIGN.md) 讲设计动机，[AGENTS.md](AGENTS.md) 记仓库约定。
+[English](README.md) · **简体中文**
+
+</div>
 
 ---
+
+本项目是 [VasiHemanth/agentbrowser](https://github.com/VasiHemanth/agentbrowser)
+的 fork，补齐了 ContextLens 式的「选中即问」交互，并引入了更严格的
+错误处理规范。
+
+**[PROTOCOL.md](PROTOCOL.md)** 是协议的唯一事实来源 ·
+**[DESIGN.md](DESIGN.md)** 讲设计动机 ·
+**[AGENTS.md](AGENTS.md)** 记仓库约定。
+
+## 目录
+
+- [本分支 vs 上游](#本分支-vs-上游)
+- [为什么用 CDP](#为什么用-cdp)
+- [架构](#架构)
+- [安装](#安装)
+- [选中即问](#选中即问)
+- [Tab、文件与语音](#tab文件与语音)
+- [选模型](#选模型)
+- [API key](#用-api-key-代替-cli)
+- [接管表单](#接管表单)
+- [适配器](#适配器)
+- [接入任意其他 harness](#接入任意其他-harness)
+- [浏览器工具](#浏览器工具)
+- [测试](#测试)
+- [已知限制](#已知限制)
 
 ## 本分支 vs 上游
 
 | | [VasiHemanth/agentbrowser](https://github.com/VasiHemanth/agentbrowser) | **本分支** |
-|---|---|---|
-| 侧边栏对话 + 可插拔 Agent 后端（SDK、CLI、API 适配器） | ✅ | ✅ |
-| 可信 CDP 输入，跑在你真实登录的浏览器上——无需自动化专用 Profile、无需重新登录 | ✅ | ✅ |
-| 当前 Tab 上下文、`@` 跨 Tab 引用、附件、语音输入 | ✅ | ✅ |
-| `mcp-proxy.mjs` — 任意支持 stdio MCP 的 Agent 均可驱动浏览器 | ✅ | ✅ |
-| **选中文字 → 光标处浮出「Ask」按钮** | — | ✅ |
-| **右键菜单 → "Ask AgentBrowser"** | — | ✅ |
-| **选中内容自动补上下文** — 语义化 DOM 路径、最近章节标题、±800 字符上下文、所在 `<pre>`/代码块（含语言识别）、表格的表头+当前行渲染为 markdown → `context.selection`（协议 v1.4） | — | ✅ |
-| **禁止静默 catch** — 每个 catch 必须按影响分级记日志或向上抛出（[AGENTS.md](AGENTS.md)） | — | ✅ |
+|---|:---:|:---:|
+| 侧边栏对话 + 可插拔 Agent 后端（SDK、CLI、API 适配器） | ✓ | ✓ |
+| 可信 CDP 输入，跑在你真实登录的浏览器上——无需自动化专用 Profile、无需重新登录 | ✓ | ✓ |
+| 当前 Tab 上下文、`@` 跨 Tab 引用、附件、语音输入 | ✓ | ✓ |
+| `mcp-proxy.mjs` — 任意支持 stdio MCP 的 Agent 均可驱动浏览器 | ✓ | ✓ |
+| **选中文字 → 光标处浮出「Ask」按钮** | — | ✓ |
+| **右键菜单 → "Ask AgentBrowser"** | — | ✓ |
+| **选中内容自动补上下文** — 语义化 DOM 路径、最近章节标题、±800 字符上下文、所在 `<pre>`/代码块（含语言识别）、表格表头+当前行渲染为 markdown → `context.selection`（协议 v1.4） | — | ✓ |
+| **禁止静默 catch** — 每个 catch 必须按影响分级记日志或向上抛出 | — | ✓ |
 
-致谢上游：侧边栏 ↔ hub ↔ 适配器的整体架构、十个浏览器工具、以及全部
-适配器均为上游项目的工作成果。本分支只新增了选中交互层和约定文档。
+> 致谢上游：侧边栏 ↔ hub ↔ 适配器的整体架构、十个浏览器工具、以及
+> 全部适配器均为上游项目的工作成果。本分支只新增了选中交互层和约定
+> 文档。
 
 ## 为什么用 CDP
 
 Content script 发出的合成事件带有 `isTrusted: false`，现代编辑器
-（Lexical、React composer）会直接忽略。而 `chrome.debugger` 派发的输入是
-可信的：CDP 点击和 `Input.insertText` 与真人操作完全等价（已于
-2026-08-01 在 Threads 编辑器上验证）。由于扩展附着在你已有的浏览器
-Profile 上，不存在独立的自动化 Profile，也无需重新登录。Agent 主循环
-本身从不触碰页面 DOM——所有动作都走 `chrome.debugger`。唯一的小
-content script（`extension/selection.js`）只监听文本选中（浮窗 Ask
-按钮和右键菜单），从不驱动页面；为此 manifest 在 `debugger, tabs,
-storage, offscreen, sidePanel` 之外追加了 `contextMenus, scripting` 和
-`*://*/*` 主机权限。
+（Lexical、React composer）会直接忽略。而 `chrome.debugger` 派发的
+输入是可信的：CDP 点击和 `Input.insertText` 与真人操作完全等价
+（已于 2026-08-01 在 Threads 编辑器上验证）。由于扩展附着在你已有的
+浏览器 Profile 上，不存在独立的自动化 Profile，也无需重新登录。
+Agent 主循环本身从不触碰页面 DOM——所有动作都走 `chrome.debugger`。
+唯一的小 content script（`extension/selection.js`）只监听文本选中
+（浮窗 Ask 按钮和右键菜单），从不驱动页面；为此 manifest 在
+`debugger, tabs, storage, offscreen, sidePanel` 之外追加了
+`contextMenus, scripting` 和 `*://*/*` 主机权限。
 
 ## 架构
 
@@ -61,13 +89,15 @@ script 捕获的选中文本按 content script → service worker →
 `chrome.storage.session` → 面板的路径传递，随下一条消息以
 `context.selection` 发出。
 
-## 环境要求
+## 安装
+
+**环境要求**
 
 - Chrome（或任意支持 `chrome.debugger` 与 `sidePanel` 的 Chromium）
 - Node.js 20.11+
-- 至少一个后端：PATH 上的编码 CLI，或 Anthropic/OpenAI API key
+- 至少一个后端：`PATH` 上的编码 CLI，或 Anthropic/OpenAI API key
 
-## 安装
+**1 · 启动 hub**
 
 ```bash
 git clone https://github.com/lucgray/agentbrowser.git
@@ -76,7 +106,7 @@ npm install
 npm start          # 监听 ws://127.0.0.1:9010
 ```
 
-然后加载扩展：
+**2 · 加载扩展**
 
 1. 打开 `chrome://extensions`，开启开发者模式。
 2. 「加载已解压的扩展程序」，选择本仓库的 `extension/` 目录。
@@ -86,23 +116,23 @@ npm start          # 监听 ws://127.0.0.1:9010
 `server/config.json`），发送即可。工具活动以紧凑 chip 形式显示在
 对话流中。
 
-可用 `AGENTCHAT_PORT` 覆盖端口。想让 hub 跨登录常驻，
-[server/autostart.md](server/autostart.md) 里有 macOS 的 launchd 方案
-（plist 放在仓库外）。日志写到 `/tmp/agentchat-hub.log`。如果 hub 报
-端口被占用，说明已有 autostart 副本在运行。
+> **提示** — 可用 `AGENTCHAT_PORT` 覆盖端口。想让 hub 跨登录常驻，
+> [server/autostart.md](server/autostart.md) 里有 macOS 的 launchd 方案
+> （plist 放在仓库外）。日志写到 `/tmp/agentchat-hub.log`。如果 hub 报
+> 端口被占用，说明已有 autostart 副本在运行。
 
 ## 选中即问
 
 *本分支的标志性功能。*
 
-- **浮窗 Ask**：在页面上划选任意文字，光标处会出现 **Ask** 按钮。点击后
-  侧边栏打开，选中内容以可移除的 chip 暂存在输入框里。
-- **右键菜单**：右键点击选中区域，选择 **Ask AgentBrowser**。
-- **自动补富上下文**：下一条消息携带 `context.selection`（协议
-  v1.4）——选中文本 + 语义化 DOM 路径（如 `article > section >
-  pre`）、最近章节标题、±800 字符上下文；若选中内容位于代码块或表格
-  内，还会带上整个外层块：代码块含识别出的语言，表格渲染为
-  markdown 的表头+当前行。
+- **浮窗 Ask** — 在页面上划选任意文字，光标处会出现 **Ask** 按钮。
+  点击后侧边栏打开，选中内容以可移除的 chip 暂存在输入框里。
+- **右键菜单** — 右键点击选中区域，选择 **Ask AgentBrowser**。
+- **自动补富上下文** — 下一条消息携带 `context.selection`（协议
+  v1.4）：选中文本 + 语义化 DOM 路径（如 `article > section > pre`）、
+  最近章节标题、±800 字符上下文；若选中内容位于代码块或表格内，还会
+  带上整个外层块——代码块含识别出的语言，表格渲染为 markdown 的
+  表头+当前行。
 
 Agent 能完整看到这些信息，所以「解释一下这个」「这个正则做什么」
 「总结这张表」都精确作用于你划选的内容。
@@ -111,16 +141,16 @@ Agent 能完整看到这些信息，所以「解释一下这个」「这个正�
 
 每次发送的不只是你打的字。
 
-- **Tab 上下文**：你正在看的标签页随每条消息发送，所以「总结这个页面」
-  「帮我填这个表单」无需粘贴 URL。harness 拿到它的 tabId，用于
+- **Tab 上下文** — 你正在看的标签页随每条消息发送，所以「总结这个
+  页面」「帮我填这个表单」无需粘贴 URL。harness 拿到它的 tabId，用于
   `read_page`、`screenshot`、`eval_js`。
-- **`@` 引用**：在输入框敲 `@`，按标题挑选其他已打开的标签页。同时引用
-  两个标签页就可以让它们做对比。
-- **附件**：拖文件进输入框或点选。面板将其 base64 编码，hub 写到
+- **`@` 引用** — 在输入框敲 `@`，按标题挑选其他已打开的标签页。同时
+  引用两个标签页就可以让它们做对比。
+- **附件** — 拖文件进输入框或点选。面板将其 base64 编码，hub 写到
   `<tmpdir>/agentchat-uploads/<chatId>/<name>`，再把绝对路径告诉
   harness，由它用文件工具打开。单条消息解码后总大小上限 8 MB。chat
   会话销毁时上传目录一并删除。
-- **语音**：麦克风按钮把口述填入输入框——只填字，不发送。
+- **语音** — 麦克风按钮把口述填入输入框——只填字，不发送。
 
 ## 选模型
 
@@ -128,9 +158,9 @@ Agent 能完整看到这些信息，所以「解释一下这个」「这个正�
 适配器、各自的名字、能跑哪些模型、默认用哪个。无模型切换的适配器
 （多数 CLI 读自己的配置）模型列表为空。
 
-会话中换模型会重启该 chat 的 session——因为模型在 session 创建时定
-死。对话流会出现一行 "session restarted with model X"，下一轮从零开
-始。不换模型则一切照旧。
+会话中换模型会重启该 chat 的 session——因为模型在 session 创建时
+定死。对话流会出现一行 "session restarted with model X"，下一轮从
+零开始。不换模型则一切照旧。
 
 ## 用 API key 代替 CLI
 
@@ -162,42 +192,30 @@ API 适配器拿到的十个浏览器工具与 CLI 适配器相同，所以「�
 
 按 chat 选择，或配置在 `server/config.json`：
 
-- `claude-agent-sdk`：在 hub 进程内运行
-  `@anthropic-ai/claude-agent-sdk`。十个浏览器工具以进程内 MCP
-  server 的形式暴露给模型，截图以图片形式返回给模型。每个 chat 一
-  个 SDK session，上下文跨轮次保留。
-- `claude-cli`：以 stream-json 模式拉起 `claude -p`，并生成指向
-  `mcp-proxy.mjs` 的 MCP 配置。子进程在整个 session 期间存活。想要
-  完整 Claude Code 工具集（文件、bash）加上浏览器工具时用。
+| 适配器 | 调用方式 | 会话 | 说明 |
+|---|---|---|---|
+| `claude-agent-sdk` | 进程内（`@anthropic-ai/claude-agent-sdk`） | 每个 chat 一个 SDK session | 浏览器工具以进程内 MCP server 暴露给模型；截图以图片返回 |
+| `claude-cli` | `claude -p`，stream-json | 子进程在整个 session 期间存活 | 完整 Claude Code 工具集（文件、bash）+ 生成的 MCP 配置接入浏览器工具 |
+| `anthropic-api` | Anthropic API | 按 chat | 需要 API key，无需 CLI |
+| `openai-api` | OpenAI API | 按 chat | 需要 API key，无需 CLI |
 
-另外六个 CLI 由 `server/adapters/generic-cli.mjs` 统一包装：每轮起
-一个进程，轮次间恢复 CLI 自己的会话；浏览器工具经 `mcp-proxy.mjs`
-接入：
+<details>
+<summary><b>另外六个 CLI</b> — 由 <code>server/adapters/generic-cli.mjs</code> 统一包装：每轮起一个进程，轮次间恢复 CLI 自己的会话，浏览器工具经 <code>mcp-proxy.mjs</code> 接入</summary>
 
-- `codex`：`codex exec --json`，用 `codex exec resume <thread id>` 续
-  接；每次调用以 `-c mcp_servers.browser.*` 覆盖项挂 MCP。
-- `opencode`：`opencode run --format json`，用 `-s <sessionID>` 续接；
-  MCP 写到临时目录里生成的 `opencode.json`，并以该目录为 cwd。
-- `copilot`：`copilot -p ... -s`，纯文本回复；`--session-id <uuid>` 每
-  轮复用保证确定性会话；MCP 经 `--additional-mcp-config`。
-- `grok`：`grok -p ... --output-format json`，`--resume <sessionId>` 续
-  接；MCP 写到临时 cwd 里的 `.grok/config.toml`。
-- `agy`：`agy -p ...`，纯文本回复；`--conversation <id>` 续接（首轮后
-  通过比对会话目录拿到 id，失败回退 `-c`）；MCP 只在全局
-  `~/.gemini/config/mcp_config.json` 注册一次（merge-only，保留已有
-  条目）。
-- `gemini`：`gemini -p ... -o stream-json`，`-r <session_id>` 续接；
-  MCP 写到临时 cwd 的 `.gemini/settings.json`；其他已配置 server 用
-  `--allowed-mcp-server-names browser` 排除。
+| 适配器 | 启动命令 | 续接方式 | MCP 接入 |
+|---|---|---|---|
+| `codex` | `codex exec --json` | `codex exec resume <thread id>` | 每次调用以 `-c mcp_servers.browser.*` 覆盖项挂载 |
+| `opencode` | `opencode run --format json` | `-s <sessionID>` | 临时目录生成 `opencode.json`，并以该目录为 cwd |
+| `copilot` | `copilot -p ... -s` | `--session-id <uuid>` 每轮复用 | `--additional-mcp-config` |
+| `grok` | `grok -p ... --output-format json` | `--resume <sessionId>` | 临时 cwd 生成 `.grok/config.toml` |
+| `agy` | `agy -p ...` | `--conversation <id>`（首轮后比对会话目录拿 id，失败回退 `-c`） | 只在全局 `~/.gemini/config/mcp_config.json` 注册一次（merge-only） |
+| `gemini` | `gemini -p ... -o stream-json` | `-r <session_id>` | 临时 cwd 生成 `.gemini/settings.json`；其他 server 用 `--allowed-mcp-server-names browser` 排除 |
 
-每个 CLI 都在你的 PATH 上查找。路径特殊的话用
+每个 CLI 都在你的 `PATH` 上查找。路径特殊的话用
 `AGENTCHAT_BIN_<NAME>` 指定绝对路径，例如
 `AGENTCHAT_BIN_CODEX=/opt/homebrew/bin/codex`。
 
-还有两个直连厂商 API、需要 key 而非 CLI：
-
-- `anthropic-api`：Anthropic API，key 存于 `anthropic` provider 名下。
-- `openai-api`：OpenAI API，key 存于 `openai` provider 名下。
+</details>
 
 ## 接入任意其他 harness
 
@@ -221,7 +239,8 @@ WebSocket 转发给 hub。任何支持 MCP 的 harness 只要在 MCP 配置里�
 Claude Code 都接受这种形态的配置，只是文件名不同（Codex 用
 `config.toml`，Gemini 用 `settings.json`，Claude Code 用 `.mcp.json`）。
 
-另有三个客户端用不同的键名放同样的 server 定义：
+<details>
+<summary><b>使用不同键名的客户端</b></summary>
 
 | 客户端 | 配置位置 |
 |---|---|
@@ -229,12 +248,13 @@ Claude Code 都接受这种形态的配置，只是文件名不同（Codex 用
 | [Muse Code](https://dev.meta.ai/docs/muse-code/extending) | 设置文件里的 `mcp_servers`，加 `"transport": "stdio"` |
 | [Hermes Agent](https://hermes-agent.nousresearch.com/docs/user-guide/features/mcp) | `~/.hermes/config.yaml` 的 `mcp_servers`，或 `hermes mcp add browser --command node --args <path>` |
 
+</details>
+
 唯一硬性要求是 **stdio** transport——`mcp-proxy.mjs` 就是 stdio
 server。只会走 HTTP 的 MCP 客户端暂时接不上。
 
-Python agent 框架同理。LangGraph 和 DeepAgents 都通过
-[`langchain-mcp-adapters`](https://github.com/langchain-ai/langchain-mcp-adapters)
-加载 stdio MCP server：
+<details>
+<summary><b>Python agent 框架</b> — LangGraph / DeepAgents，经 <code>langchain-mcp-adapters</code> 加载</summary>
 
 ```python
 from langchain_mcp_adapters.client import MultiServerMCPClient
@@ -248,6 +268,8 @@ client = MultiServerMCPClient({
 })
 tools = await client.get_tools()
 ```
+
+</details>
 
 ## 浏览器工具
 
@@ -300,8 +322,11 @@ node --test markdown.test.mjs overlay.test.mjs sidepanel.test.mjs sidepanel.dom.
   Anthropic 的适配器使用。key 以明文存在
   `~/.agentchat/keys.json`，靠文件权限保护，未加密。
 
-## 许可证
+---
 
-MIT，见 [LICENSE](LICENSE)。上游部分 ©
-[VasiHemanth/agentbrowser](https://github.com/VasiHemanth/agentbrowser)，
-MIT 许可。
+<div align="center">
+
+**许可证** — MIT · 见 [LICENSE](LICENSE) · 上游部分 ©
+[VasiHemanth/agentbrowser](https://github.com/VasiHemanth/agentbrowser)（MIT）
+
+</div>
