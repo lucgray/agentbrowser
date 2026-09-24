@@ -14,7 +14,7 @@ hub on 127.0.0.1:9010.
 
 - The `agentbrowser` CLI is installed (this file's install step handles it).
 - The AgentBrowser extension is loaded in the user's Chrome and its hub is
-  running (`node server/hub.mjs`, or the user's autostart setup).
+  running (`node server/hub/hub.mjs`, or the user's autostart setup).
 - If a call fails with "no extension connected", tell the user the extension
   isn't connected to the hub — the CLI cannot fix that from here.
 
@@ -88,6 +88,6 @@ agentbrowser patch_revert '{"patchId":"patch-..."}'
   on navigation — call them early if you're reproducing a bug.
 - JS dialogs are auto-dismissed after ~5s while you're driving a tab; answer
   them yourself with `dialog_respond` if you need a specific outcome.
-- If the user enabled the consent gate (`permissions` in server/config.json),
+- If the user enabled the consent gate (`permissions` in server/hub/config.json),
   sensitive tools may return `denied by user` — that's the user declining,
   not a bug: explain what you wanted to do and ask before retrying.

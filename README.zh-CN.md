@@ -67,7 +67,7 @@
 > 以及全部适配器均为上游项目的工作成果。本分支新增了选中交互层、
 > 标注层和约定文档。
 >
-> 第三方致谢：`extension/selection.js` 中的选中内容提取代码（标题/表
+> 第三方致谢：`extension/content/selection.js` 中的选中内容提取代码（标题/表
 > 格/代码块捕获、语义化路径、浮窗 Ask 按钮）改编自
 > [cola-sk/context-lens](https://github.com/cola-sk/context-lens)（MIT），
 > 文件头部亦有标注。
@@ -80,8 +80,8 @@ Content script 发出的合成事件带有 `isTrusted: false`，现代编辑器
 （已于 2026-08-01 在 Threads 编辑器上验证）。由于扩展附着在你已有的
 浏览器 Profile 上，不存在独立的自动化 Profile，也无需重新登录。
 Agent 主循环本身从不触碰页面 DOM——所有动作都走 `chrome.debugger`。
-两个小 content script（`extension/selection.js` 监听文本选中，
-`extension/annotation.js` 渲染标注与评论卡片）都不驱动页面。
+两个小 content script（`extension/content/selection.js` 监听文本选中，
+`extension/content/annotation.js` 渲染标注与评论卡片）都不驱动页面。
 为此 manifest 在
 `debugger, tabs, storage, offscreen, sidePanel` 之外追加了
 `contextMenus, scripting` 和 `*://*/*` 主机权限。
@@ -96,7 +96,7 @@ selection.js                      (CDP executor)                              mc
 (content script)
 ```
 
-Hub（`server/hub.mjs`）在面板与当前适配器之间转发对话，并把任意
+Hub（`server/hub/hub.mjs`）在面板与当前适配器之间转发对话，并把任意
 harness 的工具调用转发给扩展，由扩展经 CDP 执行并回传结果。content
 script 捕获的选中文本按 content script → service worker →
 `chrome.storage.session` → 面板的路径传递，随下一条消息以
@@ -126,7 +126,7 @@ npm start          # 监听 ws://127.0.0.1:9010
 3. 点击工具栏的 AgentBrowser 图标打开侧边栏；hub 连通后状态点变绿。
 
 输入消息，如需切换后端在下拉框选适配器（默认取自
-`server/config.json`），发送即可。工具活动以紧凑 chip 形式显示在
+`server/hub/config.json`），发送即可。工具活动以紧凑 chip 形式显示在
 对话流中。
 
 > **提示** — 可用 `AGENTCHAT_PORT` 覆盖端口。想让 hub 跨登录常驻，
@@ -164,13 +164,13 @@ Agent 能完整看到这些信息，所以「解释一下这个」「这个正�
   发到面板当前使用的适配器（可在配置中指定）；回复流式回写到同一张
   卡片，每条标注长出自己的讨论串。`annotate_reply` 让 Agent 在串内
   定向回复，不必走完一整轮。
-- **主动标注（可选）** — 在 `server/config.json` 里设置
+- **主动标注（可选）** — 在 `server/hub/config.json` 里设置
   `proactiveAnnotation`，Agent 会对每个页面跑一轮后台 pass：读完
   标签页后标出它认为难懂的段落，每条标注带上「为什么标」的说明，
   并用与你不同的颜色区分。
 
 ```jsonc
-// server/config.json
+// server/hub/config.json
 {
   "adapter": "claude-agent-sdk",
   "proactiveAnnotation": {
@@ -256,7 +256,7 @@ API 适配器拿到的浏览器工具与 CLI 适配器完全相同，所以「�
 
 ## 动手前先问你：同意门
 
-提示词约定之外还有一道硬门。在 `server/config.json` 里加
+提示词约定之外还有一道硬门。在 `server/hub/config.json` 里加
 `permissions` 块：
 
 ```json
@@ -285,7 +285,7 @@ this domain**（本浏览器会话内该域放行）或 **Deny**（拒绝）。�
 
 ## 适配器
 
-按 chat 选择，或配置在 `server/config.json`：
+按 chat 选择，或配置在 `server/hub/config.json`：
 
 | 适配器 | 调用方式 | 会话 | 说明 |
 |---|---|---|---|
@@ -315,7 +315,7 @@ this domain**（本浏览器会话内该域放行）或 **Deny**（拒绝）。�
 
 ## 接入任意其他 harness
 
-`server/mcp-proxy.mjs` 是一个 stdio MCP server，把工具调用经
+`server/proxy/mcp-proxy.mjs` 是一个 stdio MCP server，把工具调用经
 WebSocket 转发给 hub。任何支持 MCP 的 harness 只要在 MCP 配置里加上
 它就能驱动浏览器：
 
@@ -324,7 +324,7 @@ WebSocket 转发给 hub。任何支持 MCP 的 harness 只要在 MCP 配置里�
   "mcpServers": {
     "agentbrowser": {
       "command": "node",
-      "args": ["/absolute/path/to/agentbrowser/server/mcp-proxy.mjs"]
+      "args": ["/absolute/path/to/agentbrowser/server/proxy/mcp-proxy.mjs"]
     }
   }
 }
@@ -351,16 +351,16 @@ server。只会走 HTTP 的 MCP 客户端暂时接不上。
 ## 免 MCP 接入：Skill + CLI
 
 对不支持 MCP server、或不想改配置文件的 Agent，
-`server/agentbrowser-cli.mjs` 把全部浏览器工具暴露为命令行——同一套
+`server/proxy/agentbrowser-cli.mjs` 把全部浏览器工具暴露为命令行——同一套
 工具、同一个 hub、无常驻进程：
 
 ```bash
-node server/agentbrowser-cli.mjs read_page '{}'
-node server/agentbrowser-cli.mjs dom_inspect '{"selector":"h1"}'
-node server/agentbrowser-cli.mjs tools              # 列出工具
+node server/proxy/agentbrowser-cli.mjs read_page '{}'
+node server/proxy/agentbrowser-cli.mjs dom_inspect '{"selector":"h1"}'
+node server/proxy/agentbrowser-cli.mjs tools              # 列出工具
 ```
 
-`npm run install-skill`（或 `node server/install-skill.mjs`）会在
+`npm run install-skill`（或 `node server/proxy/install-skill.mjs`）会在
 `~/.local/bin` 写入 `agentbrowser` 启动脚本，并把
 `server/skill/SKILL.md` 铺到 `~/.claude/skills` 与 `~/.agents/skills`
 （其他目录用 `--target <dir>`）。读 skill 的 Agent（Claude Code、
@@ -377,7 +377,7 @@ from langchain_mcp_adapters.client import MultiServerMCPClient
 client = MultiServerMCPClient({
     "agentbrowser": {
         "command": "node",
-        "args": ["/absolute/path/to/agentbrowser/server/mcp-proxy.mjs"],
+        "args": ["/absolute/path/to/agentbrowser/server/proxy/mcp-proxy.mjs"],
         "transport": "stdio",
     }
 })
@@ -426,7 +426,7 @@ node --test ../tests/extension/*.test.mjs
 ```
 
 所有测试都不花模型 token、不起 CLI。端到端套件通过
-`AGENTCHAT_ADAPTER_MODULE` 把 hub 指向 `server/stub-adapter.mjs`。
+`AGENTCHAT_ADAPTER_MODULE` 把 hub 指向 `server/hub/stub-adapter.mjs`。
 
 ## 已知限制
 

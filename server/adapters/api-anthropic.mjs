@@ -14,7 +14,7 @@
 // The message array lives on the session, so consecutive send() calls on the
 // same chatId continue one conversation.
 
-import { TOOLS } from '../tools.mjs';
+import { TOOLS } from '../hub/tools.mjs';
 import { getKey } from './keystore.mjs';
 
 const API_URL = 'https://api.anthropic.com/v1/messages';

@@ -4,22 +4,17 @@ Guidance for AI agents (and humans) working in this repository.
 
 ## Project layout
 
-- `extension/` — Chrome MV3 extension, plain JS, **no build step**. Load unpacked from `chrome://extensions`.
-  - `sw.js` — service worker: connects to the hub over `ws://127.0.0.1:9010`, dispatches browser tools, owns the context menu and selection delivery via `chrome.storage.session`.
-  - `sidepanel.js` / `sidepanel.html` / `sidepanel.css` — chat UI. No `innerHTML` on untrusted content (enforced by test).
-  - `cdp.js` — executes browser tools through `chrome.debugger` (trusted CDP input).
-  - `overlay.js` — in-page overlay. Its code is a string evaluated inside the page via `Runtime.evaluate` — console output lands on the **page** console.
-  - `selection.js` / `selection.css` — content script: floating "Ask" button on text selection and rich context extraction (semantic path, headings, ±800 chars, code block + language, table header + row as markdown).
-  - `annotation.js` / `annotation.css` — content script: quote-anchored underline/highlight/circle marks plus per-mark comment cards; comments run as `ann-<id>-<tabId>` chat turns routed back to the page by sw.js.
-  - `inspect.js` / `inspect-core.js` — BBX-style observe-first tools: lazy CDP domain enablement, per-tab console/network/dialog ring buffers, a11y tree with DOM-outline fallback, reversible live patches. inspect-core.js is pure (page-side expression builders + HAR builder) and node-testable.
-  - `consent.js` / `consent-core.js` — consent gate (v1.7): sw checks `config.permissions` (carried on each tool_call) before executing a gated tool; the page card lives in annotation.js (`cmd:'consent'`), with a chrome.notifications fallback. consent-core.js is pure (tool classification, domain matching, session grants) and node-testable.
-  - `agentbrowser-cli.mjs` / `install-skill.mjs` / `skill/SKILL.md` — MCP-free access (v1.6): the CLI is a one-shot WS harness client (`agentbrowser <tool> '<json>'`), the installer writes a shim + copies the skill doc for agents that don't load MCP servers.
-  - `offscreen.js` — offscreen document that holds the WebSocket when MV3 suspends the worker.
+- `extension/` — Chrome MV3 extension, plain JS, **no build step**. Load unpacked from `chrome://extensions`. Files are grouped by where they run:
+  - `background/` — service-worker side: `sw.js` (hub connection, tool dispatch, context menu, selection delivery via `chrome.storage.session`), `cdp.js` (executes browser tools through `chrome.debugger` — trusted CDP input), `consent.js` / `consent-core.js` (consent gate, v1.7 — core is pure and node-testable), `inspect.js` / `inspect-core.js` (BBX-style observe-first tools — core is pure: page-side expression builders + HAR builder).
+  - `content/` — content scripts: `selection.js` / `selection.css` (floating Ask button + rich context extraction) and `annotation.js` / `annotation.css` (quote-anchored underline/highlight/circle marks, per-mark comment cards, consent card host). Comments run as `ann-<id>-<tabId>` chat turns routed back by sw.js.
+  - `page/` — `overlay.js`, evaluated inside the page via `Runtime.evaluate` — its console output lands on the **page** console.
+  - `panel/` — `sidepanel.html` / `sidepanel.js` / `sidepanel.css` + `markdown.js`. Chat UI; no `innerHTML` on untrusted content (enforced by test).
+  - `offscreen/` — `offscreen.html` / `offscreen.js`, holds the WebSocket when MV3 suspends the worker.
 - `server/` — local hub and agent adapters.
-  - `hub.mjs` — WebSocket broker on `127.0.0.1:9010`, adapter registry, prompt composition (page context + selection). `log()` writes `[hub]`-tagged stderr with secret scrubbing.
+  - `hub/` — `hub.mjs` (WebSocket broker on `127.0.0.1:9010`, adapter registry, prompt composition; `log()` writes `[hub]`-tagged stderr with secret scrubbing), `commands.mjs` (slash-command registry), `tools.mjs` (tool schema table shared with the extension), `config.json` (adapter + permissions config), `stub-adapter.mjs` (token-free adapter for the e2e suite).
   - `adapters/` — one module per backend: `claude-cli.mjs`, `generic-cli.mjs` (preconfigured presets incl. codex/opencode/gemini/devin), `claude-agent-sdk.mjs`, `api-anthropic.mjs`, `api-openai.mjs`. Shared plumbing in `base.mjs`; credentials via `keystore.mjs` (macOS Keychain / file fallback).
-  - `mcp-proxy.mjs` — stdio MCP server exposing browser tools to external harnesses. **stderr only** — stdout is the protocol channel.
-  - `tools.mjs` — tool schema definitions shared with the extension.
+  - `proxy/` — external access: `mcp-proxy.mjs` (stdio MCP server — **stderr only**, stdout is the protocol channel), `agentbrowser-cli.mjs` + `install-skill.mjs` (MCP-free access, v1.6 — one-shot WS harness client + shim/skill installer), `smoke.mjs` (hub routing round trip).
+  - `skill/` — the SKILL.md the installer copies.
 - `docs/index.html` — static landing page.
 - `tests/` — `node:test` suites: `extension/` covers extension files, `server/` covers hub + adapters.
 - `PROTOCOL.md` — the hub↔extension wire protocol. Document new message/context shapes here with a version bump.

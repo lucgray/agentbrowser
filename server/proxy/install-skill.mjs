@@ -4,7 +4,7 @@
 //
 // What it does:
 //   1. Installs an `agentbrowser` shim into --bin-dir (default ~/.local/bin)
-//      that execs `node <repo>/server/agentbrowser-cli.mjs "$@"`.
+//      that execs `node <repo>/server/proxy/agentbrowser-cli.mjs "$@"`.
 //   2. Copies skill/SKILL.md into each chosen target dir:
 //        --target claude  -> ~/.claude/skills/agentbrowser/SKILL.md
 //        --target agents  -> ~/.agents/skills/agentbrowser/SKILL.md
@@ -21,7 +21,7 @@ import { homedir } from 'node:os';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const CLI = join(HERE, 'agentbrowser-cli.mjs');
-const SKILL_SRC = join(HERE, 'skill', 'SKILL.md');
+const SKILL_SRC = join(HERE, '..', 'skill', 'SKILL.md');
 
 const DEFAULT_TARGETS = [
   ['claude', join(homedir(), '.claude', 'skills')],
@@ -47,7 +47,7 @@ function main() {
     process.exit(0);
   }
   if (!existsSync(CLI) || !existsSync(SKILL_SRC)) {
-    console.error('run this from the repo: server/install-skill.mjs needs agentbrowser-cli.mjs and skill/SKILL.md next to it');
+    console.error('run this from the repo: server/proxy/install-skill.mjs needs agentbrowser-cli.mjs and ../skill/SKILL.md next to it');
     process.exit(1);
   }
 
@@ -76,7 +76,7 @@ function main() {
     console.log(`skill(${name}): ${join(dest, 'SKILL.md')}`);
   }
 
-  console.log('\nDone. Make sure the AgentBrowser extension is loaded and the hub is running (node server/hub.mjs).');
+  console.log('\nDone. Make sure the AgentBrowser extension is loaded and the hub is running (node server/hub/hub.mjs).');
 }
 
 main();

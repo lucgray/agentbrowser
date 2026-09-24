@@ -21,30 +21,40 @@ agentchat/
   README.md                (docs agent)
   extension/
     manifest.json          (ext-core agent)
-    sw.js                  (ext-core)  service worker: routing + CDP executor
-    cdp.js                 (ext-core)  ES module with CDP helpers, imported by sw.js
-    offscreen.html         (ext-core)  hosts the persistent WebSocket
-    offscreen.js           (ext-core)
-    sidepanel.html         (ext-ui agent)
-    sidepanel.css          (ext-ui)
-    sidepanel.js           (ext-ui)
-    overlay.js/css         (ext-core)  in-page read/highlight overlay (v1.2 F)
-    selection.js/css       (ext-core)  content script: selection Ask + right-click context (v1.4)
-    annotation.js/css      (ext-core)  content script: underline/highlight/circle marks + comment card (v1.5)
-    inspect.js             (ext-core)  per-tab console/network/dialog buffers + patch state (v1.6)
-    inspect-core.js        (ext-core)  pure helpers: page-side expressions, HAR builder (v1.6)
-    consent.js             (ext-core)  consent gate side effects: page card, notification fallback (v1.7)
-    consent-core.js        (ext-core)  pure policy: tool classification, domain lists, session memory (v1.7)
+    background/
+      sw.js                (ext-core)  service worker: routing + CDP executor
+      cdp.js               (ext-core)  ES module with CDP helpers, imported by sw.js
+      inspect.js           (ext-core)  per-tab console/network/dialog buffers + patch state (v1.6)
+      inspect-core.js      (ext-core)  pure helpers: page-side expressions, HAR builder (v1.6)
+      consent.js           (ext-core)  consent gate side effects: page card, notification fallback (v1.7)
+      consent-core.js      (ext-core)  pure policy: tool classification, domain lists, session memory (v1.7)
+    content/
+      selection.js/css     (ext-core)  content script: selection Ask + right-click context (v1.4)
+      annotation.js/css    (ext-core)  content script: underline/highlight/circle marks + comment card (v1.5)
+    page/
+      overlay.js           (ext-core)  in-page read/highlight overlay (v1.2 F)
+    panel/
+      sidepanel.html       (ext-ui agent)
+      sidepanel.css        (ext-ui)
+      sidepanel.js         (ext-ui)
+      markdown.js          (ext-ui)
+    offscreen/
+      offscreen.html       (ext-core)  hosts the persistent WebSocket
+      offscreen.js         (ext-core)
   server/
     package.json           (pre-written; deps already installed)
-    hub.mjs                (server-hub agent)  WebSocket hub on 127.0.0.1:9010
-    tools.mjs              (server-hub)        tool name/schema/description table
-    mcp-proxy.mjs          (server-adapters)   stdio MCP server for external harnesses
-    agentbrowser-cli.mjs   (server-hub)        MCP-free CLI: one WS harness call per invocation (v1.6)
-    install-skill.mjs      (server-hub)        installs the agentbrowser shim + SKILL.md for skill agents
+    hub/
+      hub.mjs              (server-hub agent)  WebSocket hub on 127.0.0.1:9010
+      tools.mjs            (server-hub)        tool name/schema/description table
+      commands.mjs         (server-hub)        v1.3 slash command registry + dispatch
+      config.json          (server-hub)        {"adapter":"claude-agent-sdk","model":"claude-opus-5"}
+      stub-adapter.mjs     (server-hub)        token-free adapter for the e2e suite
+    proxy/
+      mcp-proxy.mjs        (server-adapters)   stdio MCP server for external harnesses
+      agentbrowser-cli.mjs (server-hub)        MCP-free CLI: one WS harness call per invocation (v1.6)
+      install-skill.mjs    (server-hub)        installs the agentbrowser shim + SKILL.md for skill agents
+      smoke.mjs            (server-hub)        hub routing round trip
     skill/SKILL.md         (server-hub)        the skill doc the installer copies (v1.6)
-    config.json            (server-hub)        {"adapter":"claude-agent-sdk","model":"claude-opus-5"}
-    commands.mjs           (server-hub)        v1.3 slash command registry + dispatch
     adapters/
       base.mjs             (server-adapters)   adapter interface + registry + DESCRIPTORS
       pricing.mjs          (server-adapters)   v1.3 PRICES table, costFor(), isMetered()
@@ -263,7 +273,7 @@ commands:[{name, args, summary, scope:"client"|"server"}, ...]}   // v1.3, see "
 The hub builds the list from the ten names above unioned with whatever
 `adapters/base.mjs` exports as `DESCRIPTORS`; per-adapter fields come from the
 descriptor, and `keyConfigured` from the key store. `commands` is the registry
-from `server/commands.mjs` (v1.3).
+from `server/hub/commands.mjs` (v1.3).
 
 sw.js relays the whole capabilities message to the panel Port VERBATIM, every
 field. It must not pick fields out of it or the panel loses `commands` and its
@@ -405,7 +415,7 @@ uses (`status`, `token`, `info`, `thinking`, `tool_use`, `tool_result`, `error`,
 `meta`, `done`), `meta` and `done` exactly once each, `done` terminal. A command
 therefore renders in the transcript like any other turn.
 
-The registry lives in `server/commands.mjs`:
+The registry lives in `server/hub/commands.mjs`:
 
 ```js
 export const COMMANDS = [{name, args, summary, scope:"client"|"server"}, ...];
@@ -649,7 +659,7 @@ the ability to revert (the mutations stay applied).
 
 ## Consent gate, v1.7
 
-`config.permissions` in server/config.json gates sensitive tools behind a
+`config.permissions` in server/hub/config.json gates sensitive tools behind a
 user confirmation:
 
 ```
@@ -683,7 +693,7 @@ to the caller.
 
 ## Proactive annotation, v1.5
 
-`config.proactiveAnnotation` in server/config.json:
+`config.proactiveAnnotation` in server/hub/config.json:
 
 ```
 { "enabled": false, "adapter": "<adapter name>", "prompt": "<override>" }

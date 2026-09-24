@@ -14,12 +14,12 @@ import fs from 'node:fs';
 import os from 'node:os';
 import net from 'node:net';
 import { createRequire } from 'node:module';
-const require = createRequire(new URL('../../server/hub.mjs', import.meta.url));
+const require = createRequire(new URL('../../server/hub/hub.mjs', import.meta.url));
 const { WebSocket } = require('ws');
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const HUB = path.join(here, '../../server/hub.mjs');
-const STUB = path.join(here, '../../server/stub-adapter.mjs');
+const HUB = path.join(here, '../../server/hub/hub.mjs');
+const STUB = path.join(here, '../../server/hub/stub-adapter.mjs');
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -274,7 +274,7 @@ test('a chat arriving mid-loop is refused and does not disturb the loop', async 
 });
 
 test('/goal wall-clock cap binds (dispatch maxMs, clamped)', async () => {
-  const { dispatch, LOOP_MAX_MS } = await import('../../server/commands.mjs');
+  const { dispatch, LOOP_MAX_MS } = await import('../../server/hub/commands.mjs');
   const events = [];
   const controller = new AbortController();
   let sends = 0;
@@ -428,7 +428,7 @@ test('capabilities carries the command registry and the lane field survives the 
 
   assert.ok(Array.isArray(caps.adapters) && caps.adapters.length > 0);
   assert.ok(Array.isArray(caps.commands), 'capabilities.commands present');
-  const { COMMANDS } = await import('../../server/commands.mjs');
+  const { COMMANDS } = await import('../../server/hub/commands.mjs');
   assert.deepEqual(caps.commands, JSON.parse(JSON.stringify(COMMANDS)));
   for (const cmd of caps.commands) {
     for (const field of ['name', 'args', 'summary', 'scope']) {
@@ -469,7 +469,7 @@ test('capabilities carries the command registry and the lane field survives the 
 });
 
 test('goalMet: last marker wins and NOT MET never reads as met', async () => {
-  const { goalMet } = await import('../../server/commands.mjs');
+  const { goalMet } = await import('../../server/hub/commands.mjs');
   assert.equal(goalMet('GOAL: NOT MET'), false);
   assert.equal(goalMet('GOAL: MET'), true);
   assert.equal(goalMet('goal: met'), true, 'case insensitive');

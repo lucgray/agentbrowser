@@ -18,7 +18,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { TOOLS } from '../tools.mjs';
+import { TOOLS } from '../hub/tools.mjs';
 import { getKey } from './keystore.mjs';
 // Shared with the Anthropic adapter rather than duplicated: the operator
 // prompt and SSE parser as before, plus the D1 concurrency limiter and the
@@ -38,7 +38,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 function logWarn(context, err) {
   console.error('[api-openai]', context + ':', (err && err.message) || err);
 }
-const CONFIG_PATH = path.resolve(__dirname, '..', 'config.json');
+const CONFIG_PATH = path.resolve(__dirname, '..', 'hub', 'config.json');
 
 const DEFAULT_BASE_URL = 'https://api.openai.com/v1';
 const MAX_TOOL_ITERATIONS = 40;
