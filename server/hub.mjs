@@ -38,6 +38,13 @@ try {
   log("could not read config.json, using defaults:", err.message);
 }
 
+// config.permissions rides on every forwarded tool_call so the extension can
+// run the consent gate (PROTOCOL.md "Consent gate, v1.7"). Absent = gate off.
+function consentPolicy() {
+  const p = config && config.permissions;
+  return p && typeof p === "object" ? p : null;
+}
+
 // ---------------------------------------------------------------------------
 // Log scrubbing (PROTOCOL.md "API keys")
 //
@@ -270,7 +277,7 @@ function callBrowserTool(tool, args = {}) {
     }, TOOL_TIMEOUT_MS);
     pending.set(id, { kind: "hub", resolve, reject, timer });
     log("tool_call", tool);
-    safeSend(extensionSocket, { type: "tool_call", id, tool, args });
+    safeSend(extensionSocket, { type: "tool_call", id, tool, args, permissions: consentPolicy() });
   });
 }
 
@@ -1288,7 +1295,9 @@ function handleHarnessToolCall(ws, msg) {
     safeSend(ws, { type: "tool_result", id, ok: false, error: "timeout" });
   }, TOOL_TIMEOUT_MS);
   pending.set(id, { kind: "harness", ws, timer });
-  safeSend(extensionSocket, { type: "tool_call", id, tool, args: msg.args || {} });
+  safeSend(extensionSocket, {
+    type: "tool_call", id, tool, args: msg.args || {}, permissions: consentPolicy(),
+  });
 }
 
 function handleToolResult(msg) {

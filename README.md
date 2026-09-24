@@ -60,6 +60,7 @@ error-handling standard.
 | **Proactive co-reading pass** — opt-in `proactiveAnnotation` config: one background turn per page flags confusing passages with a why-note | — | ✓ |
 | **Observe-first inspection** — BBX-style structured reads (`dom_inspect`, `console_log`, `network_log` + sanitized HAR, `a11y_tree`, dialog handling) and reversible live patches (`patch_apply`/`patch_revert`) — protocol v1.6 | — | ✓ |
 | **MCP-free skill + CLI access** — `agentbrowser <tool> '<json>'` command + SKILL.md installer for agents that don't load MCP servers | — | ✓ |
+| **Consent gate + element-level clicks** — `permissions` config asks before sensitive tools run (page card or system notification); `click_element {selector}` clicks elements directly (protocol v1.7) | — | ✓ |
 | **No-silent-catch rule** — every catch logs or propagates, leveled by impact | — | ✓ |
 
 > Upstream credit: the entire side-panel ↔ hub ↔ adapter architecture, the
@@ -278,6 +279,32 @@ It will not click submit, send, post, or buy unless you asked for that in
 the chat. Filling is not permission to submit. If you want it to go through,
 say so: "fill it and submit".
 
+## Asking before it acts: the consent gate
+
+Beyond that prompt-level courtesy, a hard gate exists for sensitive tools.
+Add a `permissions` block to `server/config.json`:
+
+```json
+{
+  "permissions": {
+    "requireConsent": ["click", "click_element", "type_text", "navigate"],
+    "trustedDomains": ["localhost", "internal.example.com"],
+    "sensitiveDomains": ["yourbank.com"]
+  }
+}
+```
+
+Every listed tool then asks before it runs: a card pops up on the target
+page naming the action concretely (`click 'button.buy' → button "Buy now"`,
+`navigate → github.com/settings`), and you pick **Allow once**, **Always on
+this domain** (this session), or **Deny**. Pages where a card can't be
+injected (chrome://, PDFs) fall back to a system notification. Reads
+(`read_page`, `dom_inspect`, screenshots, …) never gate; omit the block
+entirely and nothing is gated. `sensitiveDomains` always ask and ignore
+session grants; `trustedDomains` never ask. `eval_js` is in the default
+write set — it's arbitrary code, so leaving it out of `requireConsent`
+requires an explicit choice on your part.
+
 ## Adapters
 
 Selected per chat or via `server/config.json`:
@@ -395,7 +422,8 @@ tools = await client.get_tools()
 | `read_page` | `{tabId?, maxChars?}` | `{url, title, text}` (innerText, 60k char default cap) |
 | `screenshot` | `{tabId?}` | `{base64, mimeType:"image/png"}` |
 | `click` | `{x, y, tabId?}` | `{clicked:true}` |
-| `type_text` | `{text, tabId?}` | `{typed:<charcount>}` (inserts into the focused element) |
+| `click_element` | `{selector, dx?, dy?, tabId?}` | `{clicked:true, selector, tag}` — scrolls into view, clicks the element's center |
+| `type_text` | `{text, selector?, tabId?}` | `{typed:<charcount>}` (optional `selector` click-focuses the target first) |
 | `press_key` | `{key, tabId?}` | `{pressed:key}` (e.g. "Enter", "Escape", "Meta+A") |
 | `eval_js` | `{expression, tabId?}` | `{value}` |
 | `dom_inspect` | `{selector, all?, styles?, max?, tabId?}` | `{selector, matched, elements:[...]}` |

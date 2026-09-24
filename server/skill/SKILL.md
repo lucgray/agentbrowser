@@ -39,9 +39,11 @@ Read the current page the user is looking at:
 agentbrowser read_page '{}'
 ```
 
-Find and click a button (inspect first, then click by coordinates):
+Find and click a button — either click the selector directly, or inspect
+first and click by coordinates:
 
 ```bash
+agentbrowser click_element '{"selector":"button.primary"}'
 agentbrowser dom_inspect '{"selector":"button.primary","styles":["display"]}'
 agentbrowser click '{"x":512,"y":340}'
 ```
@@ -57,7 +59,7 @@ agentbrowser network_log '{"har":true}' > page.har.json   # sanitized HAR
 Type into a focused field, press keys, navigate:
 
 ```bash
-agentbrowser type_text '{"text":"hello"}'
+agentbrowser type_text '{"text":"hello","selector":"input[name=q]"}'  # selector click-focuses first
 agentbrowser press_key '{"key":"Enter"}'
 agentbrowser navigate '{"url":"https://example.com"}'
 ```
@@ -86,3 +88,6 @@ agentbrowser patch_revert '{"patchId":"patch-..."}'
   on navigation — call them early if you're reproducing a bug.
 - JS dialogs are auto-dismissed after ~5s while you're driving a tab; answer
   them yourself with `dialog_respond` if you need a specific outcome.
+- If the user enabled the consent gate (`permissions` in server/config.json),
+  sensitive tools may return `denied by user` — that's the user declining,
+  not a bug: explain what you wanted to do and ask before retrying.

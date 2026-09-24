@@ -12,6 +12,7 @@ Guidance for AI agents (and humans) working in this repository.
   - `selection.js` / `selection.css` — content script: floating "Ask" button on text selection and rich context extraction (semantic path, headings, ±800 chars, code block + language, table header + row as markdown).
   - `annotation.js` / `annotation.css` — content script: quote-anchored underline/highlight/circle marks plus per-mark comment cards; comments run as `ann-<id>-<tabId>` chat turns routed back to the page by sw.js.
   - `inspect.js` / `inspect-core.js` — BBX-style observe-first tools: lazy CDP domain enablement, per-tab console/network/dialog ring buffers, a11y tree with DOM-outline fallback, reversible live patches. inspect-core.js is pure (page-side expression builders + HAR builder) and node-testable.
+  - `consent.js` / `consent-core.js` — consent gate (v1.7): sw checks `config.permissions` (carried on each tool_call) before executing a gated tool; the page card lives in annotation.js (`cmd:'consent'`), with a chrome.notifications fallback. consent-core.js is pure (tool classification, domain matching, session grants) and node-testable.
   - `agentbrowser-cli.mjs` / `install-skill.mjs` / `skill/SKILL.md` — MCP-free access (v1.6): the CLI is a one-shot WS harness client (`agentbrowser <tool> '<json>'`), the installer writes a shim + copies the skill doc for agents that don't load MCP servers.
   - `offscreen.js` — offscreen document that holds the WebSocket when MV3 suspends the worker.
   - `*.test.mjs` — `node:test` suites; DOM and `chrome.*` are stubbed.

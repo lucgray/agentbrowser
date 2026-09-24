@@ -60,6 +60,7 @@
 | **主动共读标注** — 可选 `proactiveAnnotation` 配置：每页跑一轮后台 pass，标记疑难段落并附原因 | — | ✓ |
 | **先观察再驱动** — BBX 式结构化读取（`dom_inspect`、`console_log`、`network_log` + 脱敏 HAR、`a11y_tree`、弹窗处理）与可逆实时补丁（`patch_apply`/`patch_revert`）（协议 v1.6） | — | ✓ |
 | **免 MCP 的 Skill + CLI 接入** — `agentbrowser <tool> '<json>'` 命令行 + SKILL.md 安装器，给不支持 MCP 的 Agent 用 | — | ✓ |
+| **同意门 + 元素级点击** — `permissions` 配置让敏感工具执行前必须经你确认（页内确认卡或系统通知）；`click_element {selector}` 直接点元素（协议 v1.7） | — | ✓ |
 | **禁止静默 catch** — 每个 catch 必须按影响分级记日志或向上抛出 | — | ✓ |
 
 > 致谢上游：侧边栏 ↔ hub ↔ 适配器的整体架构、最初的十个浏览器工具、
@@ -253,6 +254,31 @@ API 适配器拿到的浏览器工具与 CLI 适配器完全相同，所以「�
 除非你在对话里明确要求，它不会点提交/发送/发布/购买。填表不等于授
 权提交。要走完整个流程就说清楚："fill it and submit"。
 
+## 动手前先问你：同意门
+
+提示词约定之外还有一道硬门。在 `server/config.json` 里加
+`permissions` 块：
+
+```json
+{
+  "permissions": {
+    "requireConsent": ["click", "click_element", "type_text", "navigate"],
+    "trustedDomains": ["localhost", "internal.example.com"],
+    "sensitiveDomains": ["yourbank.com"]
+  }
+}
+```
+
+名单里的工具每次执行前都会弹确认：目标页右上角出现确认卡，把动
+作写具体（`click 'button.buy' → button "Buy now"`、`navigate →
+github.com/settings`），你选 **Allow once**（仅本次）、**Always on
+this domain**（本会话内该域放行）或 **Deny**（拒绝）。卡片注入不
+了的页面（chrome://、PDF）退回系统通知。纯读类工具（`read_page`、
+`dom_inspect`、截图……）永不拦截；不配这个块则完全不拦。
+`sensitiveDomains` 每次必问且无视会话记忆，`trustedDomains` 永不
+问。`eval_js` 默认在写操作名单里——它能跑任意代码，想把它移出名单
+需要你显式指定 `requireConsent`。
+
 ## 适配器
 
 按 chat 选择，或配置在 `server/config.json`：
@@ -367,7 +393,8 @@ tools = await client.get_tools()
 | `read_page` | `{tabId?, maxChars?}` | `{url, title, text}`（innerText，默认截断 60k 字符） |
 | `screenshot` | `{tabId?}` | `{base64, mimeType:"image/png"}` |
 | `click` | `{x, y, tabId?}` | `{clicked:true}` |
-| `type_text` | `{text, tabId?}` | `{typed:<字符数>}`（插入当前聚焦元素） |
+| `click_element` | `{selector, dx?, dy?, tabId?}` | `{clicked:true, selector, tag}`（先滚入视口，点元素中心） |
+| `type_text` | `{text, selector?, tabId?}` | `{typed:<字符数>}`（可选 `selector` 先点击聚焦目标） |
 | `press_key` | `{key, tabId?}` | `{pressed:key}`（如 "Enter"、"Escape"、"Meta+A"） |
 | `eval_js` | `{expression, tabId?}` | `{value}` |
 | `dom_inspect` | `{selector, all?, styles?, max?, tabId?}` | `{selector, matched, elements:[...]}` |

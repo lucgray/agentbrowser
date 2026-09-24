@@ -5,6 +5,7 @@
 
 import * as cdp from './cdp.js';
 import * as inspect from './inspect.js';
+import * as consent from './consent.js';
 
 const DEFAULT_HUB_URL = 'ws://127.0.0.1:9010';
 
@@ -415,9 +416,25 @@ function handleHubMessage(payload) {
   }
 }
 
-async function handleToolCall({ id, tool, args }) {
+async function handleToolCall({ id, tool, args, permissions }) {
   let reply;
   try {
+    // Consent gate (PROTOCOL v1.7): the hub attaches config.json's
+    // `permissions` object to each forwarded call. Only gated tools pay the
+    // tab lookup; an absent policy means the gate is off.
+    if (permissions && consent.requiredTools(permissions).includes(tool)) {
+      const tabId = await resolveTabId(args && args.tabId);
+      const tab = await chrome.tabs.get(tabId).catch((err) => {
+        console.warn('[agentbrowser] consent tab lookup failed', err);
+        return null;
+      });
+      // navigate is judged by where it is going, not where the tab is now.
+      const gateUrl =
+        tool === 'navigate' && args && args.url
+          ? String(args.url)
+          : (tab && tab.url) || '';
+      await consent.authorize(tool, args, tabId, gateUrl, permissions);
+    }
     const result = await executeTool(tool, args || {});
     reply = { type: 'tool_result', id, ok: true, result };
   } catch (err) {
@@ -546,9 +563,14 @@ const TOOLS = {
     return cdp.click(tabId, args.x, args.y);
   },
 
+  async click_element(args) {
+    const tabId = await resolveTabId(args.tabId);
+    return cdp.clickElement(tabId, args.selector, args.dx || 0, args.dy || 0);
+  },
+
   async type_text(args) {
     const tabId = await resolveTabId(args.tabId);
-    return cdp.typeText(tabId, args.text);
+    return cdp.typeText(tabId, args.text, args.selector);
   },
 
   async press_key(args) {
