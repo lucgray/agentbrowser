@@ -228,7 +228,8 @@ img {
   color: var(--ac-text-muted);
   border: 1px solid transparent;
   border-radius: var(--ac-radius-control);
-  padding: var(--ac-space-4) 22px var(--ac-space-4) var(--ac-space-8);
+  padding: var(--ac-space-4) 20px var(--ac-space-4) 4px;
+  margin-right: -4px; /* hugs the attach button: gap + padding ≈ 4px */
   font: var(--ac-type-secondary);
   background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='9' height='5' viewBox='0 0 9 5'><path d='M1 1l3.5 3L8 1' fill='none' stroke='%2377867d' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/></svg>");
   background-repeat: no-repeat;
@@ -241,6 +242,11 @@ img {
 #backend:focus-visible {
   color: var(--ac-text-secondary);
   border-color: var(--ac-border);
+}
+
+#backend:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 
 /* ----- buttons: ghost text is the default variant ----- */

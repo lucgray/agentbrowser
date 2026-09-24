@@ -952,10 +952,21 @@ function init() {
     const have = (n) => adapters.some((a) => a && a.name === n);
     selAdapter = have(selAdapter) ? selAdapter : have(prefAdapter) ? prefAdapter : (flat[0] ? flat[0].adapter : "");
     selModel = pickModel(adapters, selAdapter, preferredModel || selModel || prefModel);
+    if (flat.length === 0) {
+      // No capabilities yet (or a hub that lists none): keep the control
+      // visible but disabled so the composer row does not jump when the
+      // real list lands.
+      backendSelect.appendChild(makeOption("", "No adapters"));
+      backendSelect.value = "";
+      backendSelect.disabled = true;
+      backendSelect.title = "No adapters — waiting for capabilities";
+      fitBackendWidth();
+      return;
+    }
+    backendSelect.disabled = false;
     const want = backendValue(selAdapter, selModel);
     backendSelect.value = want;
     if (backendSelect.value !== want) backendSelect.value = flat[0] ? backendValue(flat[0].adapter, flat[0].model) : "";
-    backendSelect.hidden = flat.length === 0;
     // The collapsed text shows only the short label; the tooltip carries the
     // full "adapter · model" identity.
     const selA = adapterEntry(adapters, selAdapter);
