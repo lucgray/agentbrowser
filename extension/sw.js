@@ -4,6 +4,7 @@
 // survive via the offscreen document, which owns the WebSocket.
 
 import * as cdp from './cdp.js';
+import * as inspect from './inspect.js';
 
 const DEFAULT_HUB_URL = 'ws://127.0.0.1:9010';
 
@@ -606,6 +607,48 @@ const TOOLS = {
     });
     if (!res || !res.ok) throw new Error((res && res.error) || 'annotate_clear failed');
     return { cleared: res.cleared || 0 };
+  },
+
+  // --- inspection tools (v1.6): BBX-style observe-first reads + live patches.
+
+  async dom_inspect(args) {
+    const tabId = await resolveTabId(args.tabId);
+    return inspect.domInspect(tabId, args);
+  },
+
+  async console_log(args) {
+    const tabId = await resolveTabId(args.tabId);
+    return inspect.consoleLog(tabId, args);
+  },
+
+  async network_log(args) {
+    const tabId = await resolveTabId(args.tabId);
+    return inspect.networkLog(tabId, args);
+  },
+
+  async a11y_tree(args) {
+    const tabId = await resolveTabId(args.tabId);
+    return inspect.a11yTree(tabId, args);
+  },
+
+  async dialog_list(args) {
+    const tabId = await resolveTabId(args.tabId);
+    return inspect.dialogList(tabId);
+  },
+
+  async dialog_respond(args) {
+    const tabId = await resolveTabId(args.tabId);
+    return inspect.dialogRespond(tabId, args);
+  },
+
+  async patch_apply(args) {
+    const tabId = await resolveTabId(args.tabId);
+    return inspect.patchApply(tabId, args);
+  },
+
+  async patch_revert(args) {
+    const tabId = await resolveTabId(args.tabId);
+    return inspect.patchRevert(tabId, args);
   },
 };
 

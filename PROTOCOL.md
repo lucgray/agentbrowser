@@ -1,4 +1,4 @@
-# AgentBrowser protocol v1.5
+# AgentBrowser protocol v1.6
 
 AgentBrowser is a Chrome MV3 extension with a side-panel chat UI, plus a local hub
 server. The chat is backed by a pluggable "harness" (Claude Agent SDK, Claude
@@ -31,6 +31,9 @@ agentchat/
     overlay.js/css         (ext-core)  in-page read/highlight overlay (v1.2 F)
     selection.js/css       (ext-core)  content script: selection Ask + right-click context (v1.4)
     annotation.js/css      (ext-core)  content script: underline/highlight/circle marks + comment card (v1.5)
+    inspect.js             (ext-core)  per-tab console/network/dialog buffers + patch state (v1.6)
+    inspect-core.js        (ext-core)  pure helpers: page-side expressions, HAR builder (v1.6)
+    inspect-core.test.mjs  (ext-core)  node --test for the pure helpers
   server/
     package.json           (pre-written; deps already installed)
     hub.mjs                (server-hub agent)  WebSocket hub on 127.0.0.1:9010
@@ -579,6 +582,14 @@ executor, in the SDK adapter's MCP server, and in mcp-proxy.mjs.
 | `annotations_list` | `{tabId?}` | `{annotations:[{id,style,quote,comment,author,replies}]}` — v1.5 |
 | `annotate_reply` | `{id, text, tabId?}` | `{id, replied:true}` — v1.5, appends an agent reply to the mark's comment thread |
 | `annotate_clear` | `{id?, tabId?}` | `{cleared:<n>}` — v1.5; no id clears all marks on the tab |
+| `dom_inspect` | `{selector, all?, styles?, max?, tabId?}` | `{selector, matched, elements:[{tag,id,classes,attributes,text,rect,styles}]}` — v1.6 |
+| `console_log` | `{level?, limit?, clear?, tabId?}` | `{entries:[{ts,level,source,text,url}]}` — v1.6; capture starts on first call |
+| `network_log` | `{filter?, includeHeaders?, har?, limit?, clear?, tabId?}` | `{entries:[{id,url,method,status,type,mimeType,startTime,duration,size,pending,failed,headers?}], har?}` — v1.6 |
+| `a11y_tree` | `{maxDepth?, tabId?}` | `{source:'axtree', nodes:[{nodeId,role,name,depth,ignored}]}` — v1.6; falls back to `{source:'outline', nodes:[...]}` |
+| `dialog_list` | `{tabId?}` | `{dialogs:[{type,message,url,ts,status}]}` — v1.6 |
+| `dialog_respond` | `{accept, promptText?, tabId?}` | `{handled:true,type,message}` or `{handled:false}` — v1.6 |
+| `patch_apply` | `{patches:[{selector,styles?,attributes?,insertAdjacentHTML?,remove?}], label?, tabId?}` | `{patchId, applied, results:[{selector,matched,error?}]}` — v1.6 |
+| `patch_revert` | `{patchId, tabId?}` | `{patchId, reverted, missing}` — v1.6 |
 
 `tabId` omitted = active tab of the current window. All tools run in the SW;
 CDP tools attach `chrome.debugger` (version "1.3") on demand, keep a set of
@@ -592,6 +603,39 @@ comment card whose submissions become `ann-*` chat turns, and its replies —
 streamed tokens or explicit `annotate_reply` calls — render in the same card.
 Agent marks default to a distinct color and carry a mandatory `comment`
 saying why the passage was flagged.
+
+## Page inspection, v1.6
+
+inspect.js keeps per-tab ring buffers (console 500, network 500, dialogs 20)
+fed by `chrome.debugger.onEvent`. Most CDP domains are enabled lazily — the
+first `console_log` call enables Runtime+Log, `network_log` enables
+Network — and stay enabled while the debugger is attached. The exception is
+Page, which cdp.js enables on every attach: enabling it after a dialog had
+already opened would deadlock the session, so dialogs are always
+intercepted while AgentBrowser drives a tab. Buffers reset on main-frame
+navigation and on tab close; they survive service-worker restarts only
+insofar as the debugger session does (a worker restart clears in-memory
+buffers).
+
+Credentials never leave the extension: `cookie`, `set-cookie`,
+`authorization`, `proxy-authorization`, `x-api-key` and `x-auth-token`
+headers are stripped from `network_log` output and from HAR exports
+regardless of `includeHeaders`.
+
+Dialogs: with Page enabled at attach, JS dialogs on a driven tab are
+intercepted rather than shown. A pending dialog auto-answers after ~5s so
+the page cannot wedge: alert/confirm/prompt are dismissed (`accept:false`),
+beforeunload is accepted (`accept:true`) so navigations aren't silently
+blocked. An agent that wants a dialog answered differently must call
+`dialog_respond` within that window. Entries report `status:
+pending|accepted|dismissed|auto-dismissed`.
+
+Patches: `patch_apply` snapshots each matched element's `outerHTML` plus a
+stable CSS path before mutating (style/attribute/HTML/remove). `patch_revert`
+relocates elements by path and restores the snapshot — event listeners bound
+after the patch are lost and DOM changes made since may leave entries
+`missing`. Snapshots live in service-worker memory: a worker restart loses
+the ability to revert (the mutations stay applied).
 
 ## Proactive annotation, v1.5
 

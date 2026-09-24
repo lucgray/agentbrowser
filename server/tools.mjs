@@ -168,6 +168,126 @@ export const TOOLS = [
       },
       required: []
     }
+  },
+  {
+    name: "dom_inspect",
+    description: "Structured DOM read: return every element matching a CSS selector with tag, id, classes, all attributes, text, bounding rect and computed styles (default subset or the property names in `styles`). Returns {selector, matched, elements:[...]}.",
+    args: {
+      type: "object",
+      properties: {
+        selector: { type: "string", description: "CSS selector to match" },
+        all: { type: "boolean", description: "true (default) returns all matches, false only the first" },
+        styles: { type: "array", items: { type: "string" }, description: "Computed-style property names to include; omit for the default subset" },
+        max: { type: "number", description: "Max elements returned (default 25)" },
+        tabId: { type: "number", description: "Target tab id; omit for the active tab" }
+      },
+      required: ["selector"]
+    }
+  },
+  {
+    name: "console_log",
+    description: "Read the tab's console buffer: console.* calls, uncaught exceptions and browser Log entries captured since the tool was first used (or since the last navigation). Returns {entries:[{ts,level,source,text,url}]}.",
+    args: {
+      type: "object",
+      properties: {
+        level: { type: "string", description: "Filter: log|info|warn|error|exception|..." },
+        limit: { type: "number", description: "Max entries, newest last (default 100, cap 500)" },
+        clear: { type: "boolean", description: "Empty the buffer after reading" },
+        tabId: { type: "number", description: "Target tab id; omit for the active tab" }
+      },
+      required: []
+    }
+  },
+  {
+    name: "network_log",
+    description: "Read the tab's network buffer: requests captured since the tool was first used. Returns {entries:[{id,url,method,status,type,mimeType,startTime,duration,size,pending,failed}]} — headers only with includeHeaders (credential headers are always stripped). `har:true` also returns a sanitized HAR 1.2 document.",
+    args: {
+      type: "object",
+      properties: {
+        filter: { type: "string", description: "Substring filter on request URL" },
+        includeHeaders: { type: "boolean", description: "Include request/response headers (cookie/auth headers always removed)" },
+        har: { type: "boolean", description: "Also return {har} as a HAR 1.2 log" },
+        limit: { type: "number", description: "Max entries (default 100, cap 500)" },
+        clear: { type: "boolean", description: "Empty the buffer after reading" },
+        tabId: { type: "number", description: "Target tab id; omit for the active tab" }
+      },
+      required: []
+    }
+  },
+  {
+    name: "a11y_tree",
+    description: "Accessibility-tree read of the page (role + name + depth per node, capped at 1000). Falls back to a DOM-derived semantic outline when the CDP Accessibility domain is unavailable. Returns {source:'axtree'|'outline', nodes|...}.",
+    args: {
+      type: "object",
+      properties: {
+        maxDepth: { type: "number", description: "Max depth for the outline fallback (default 6)" },
+        tabId: { type: "number", description: "Target tab id; omit for the active tab" }
+      },
+      required: []
+    }
+  },
+  {
+    name: "dialog_list",
+    description: "List JavaScript dialogs (alert/confirm/prompt/beforeunload) seen on the tab. While the debugger is attached dialogs are auto-dismissed after ~5s unless answered sooner with dialog_respond — otherwise the page would hang. Returns {dialogs:[{type,message,url,ts,status}]}.",
+    args: {
+      type: "object",
+      properties: {
+        tabId: { type: "number", description: "Target tab id; omit for the active tab" }
+      },
+      required: []
+    }
+  },
+  {
+    name: "dialog_respond",
+    description: "Answer the currently pending JS dialog before its auto-dismiss fires. Returns {handled:true,type,message} or {handled:false} when nothing is pending.",
+    args: {
+      type: "object",
+      properties: {
+        accept: { type: "boolean", description: "true accepts (OK), false dismisses (Cancel)" },
+        promptText: { type: "string", description: "Text entered into a prompt dialog when accepting" },
+        tabId: { type: "number", description: "Target tab id; omit for the active tab" }
+      },
+      required: ["accept"]
+    }
+  },
+  {
+    name: "patch_apply",
+    description: "Apply a reversible live patch to the page — set styles/attributes, insert HTML, or remove elements matching a selector. The pre-change outerHTML is snapshotted so patch_revert can restore it. Returns {patchId, applied, results}.",
+    args: {
+      type: "object",
+      properties: {
+        patches: {
+          type: "array",
+          description: "Patches to apply (max 20 elements each)",
+          items: {
+            type: "object",
+            properties: {
+              selector: { type: "string", description: "CSS selector" },
+              styles: { type: "object", description: "CSS properties to set, e.g. {\"outline\":\"2px solid red\"}" },
+              attributes: { type: "object", description: "Attributes to set; null value removes the attribute" },
+              insertAdjacentHTML: { type: "object", description: "{position:'beforebegin'|'afterbegin'|'beforeend'|'afterend', html}" },
+              remove: { type: "boolean", description: "Remove the matched element" }
+            },
+            required: ["selector"]
+          }
+        },
+        label: { type: "string", description: "Human note about what this patch proves" },
+        tabId: { type: "number", description: "Target tab id; omit for the active tab" }
+      },
+      required: ["patches"]
+    }
+  },
+  {
+    name: "patch_revert",
+    description: "Restore elements changed by patch_apply to their snapshotted outerHTML (event listeners attached since are lost — snapshot semantics). Returns {reverted, missing}.",
+    args: {
+      type: "object",
+      properties: {
+        patchId: { type: "string", description: "patchId from patch_apply" },
+        tabId: { type: "number", description: "Target tab id; omit for the active tab" }
+      },
+      required: ["patchId"]
+    }
   }
 ];
 
