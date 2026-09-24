@@ -14,12 +14,12 @@
     "node": ">=20.11"
   },
   "scripts": {
-    "start": "node hub.mjs",
+    "start": "node hub/hub.mjs",
     "test": "node --test ../tests/server/pricing.test.mjs ../tests/server/api-adapters.test.mjs ../tests/server/protocol-v13.test.mjs",
     "test:e2e": "node --test ../tests/server/hub-e2e.test.mjs",
-    "smoke": "node smoke.mjs",
-    "cli": "node agentbrowser-cli.mjs",
-    "install-skill": "node install-skill.mjs"
+    "smoke": "node proxy/smoke.mjs",
+    "cli": "node proxy/agentbrowser-cli.mjs",
+    "install-skill": "node proxy/install-skill.mjs"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.1.0",

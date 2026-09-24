@@ -116,11 +116,11 @@ async function resolveMenuSelection(info, tab) {
       try {
         await chrome.scripting.executeScript({
           target: { tabId: tab.id, frameIds: [frameId] },
-          files: ['selection.js'],
+          files: ['content/selection.js'],
         });
         await chrome.scripting.insertCSS({
           target: { tabId: tab.id, frameIds: [frameId] },
-          files: ['selection.css'],
+          files: ['content/selection.css'],
         });
       } catch (injectErr) {
         console.warn(
@@ -210,11 +210,11 @@ async function sendToAnnotationScript(tabId, payload) {
       try {
         await chrome.scripting.executeScript({
           target: { tabId },
-          files: ['annotation.js'],
+          files: ['content/annotation.js'],
         });
         await chrome.scripting.insertCSS({
           target: { tabId },
-          files: ['annotation.css'],
+          files: ['content/annotation.css'],
         });
       } catch (injectErr) {
         console.warn(
@@ -247,7 +247,7 @@ async function ensureOffscreen() {
   if (!creatingOffscreen) {
     creatingOffscreen = chrome.offscreen
       .createDocument({
-        url: 'offscreen.html',
+        url: 'offscreen/offscreen.html',
         reasons: ['WORKERS'],
         justification: 'persistent WebSocket to local agent hub',
       })

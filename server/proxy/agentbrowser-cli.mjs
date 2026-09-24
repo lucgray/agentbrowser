@@ -12,7 +12,7 @@
 // between invocations.
 
 import { WebSocket } from 'ws';
-import { TOOLS } from './tools.mjs';
+import { TOOLS } from '../hub/tools.mjs';
 
 const DEFAULT_HUB = 'ws://127.0.0.1:9010';
 const DEFAULT_TIMEOUT_MS = 30000;

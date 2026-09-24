@@ -3,23 +3,42 @@
   "name": "AgentBrowser",
   "version": "1.0.0",
   "description": "Side-panel chat backed by a local agent hub. Executes browser tools via chrome.debugger (trusted CDP input).",
-  "permissions": ["debugger", "tabs", "storage", "offscreen", "sidePanel", "contextMenus", "scripting", "notifications"],
-  "host_permissions": ["*://*/*"],
+  "permissions": [
+    "debugger",
+    "tabs",
+    "storage",
+    "offscreen",
+    "sidePanel",
+    "contextMenus",
+    "scripting",
+    "notifications"
+  ],
+  "host_permissions": [
+    "*://*/*"
+  ],
   "content_scripts": [
     {
-      "matches": ["*://*/*"],
-      "js": ["selection.js", "annotation.js"],
-      "css": ["selection.css", "annotation.css"],
+      "matches": [
+        "*://*/*"
+      ],
+      "js": [
+        "content/selection.js",
+        "content/annotation.js"
+      ],
+      "css": [
+        "content/selection.css",
+        "content/annotation.css"
+      ],
       "run_at": "document_idle",
       "all_frames": true
     }
   ],
   "background": {
-    "service_worker": "sw.js",
+    "service_worker": "background/sw.js",
     "type": "module"
   },
   "side_panel": {
-    "default_path": "sidepanel.html"
+    "default_path": "panel/sidepanel.html"
   },
   "icons": {
     "16": "icons/icon-16.png",

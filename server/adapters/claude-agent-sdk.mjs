@@ -7,7 +7,7 @@
 
 import { query, tool, createSdkMcpServer } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
-import { TOOL_NAMES } from '../tools.mjs';
+import { TOOL_NAMES } from '../hub/tools.mjs';
 
 const MCP_SERVER_NAME = 'browser';
 const TOOL_PREFIX = `mcp__${MCP_SERVER_NAME}__`;

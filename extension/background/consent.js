@@ -117,8 +117,8 @@ async function askPage(tabId, request) {
       lastErr = err;
       if (attempt > 0) break;
       try {
-        await chrome.scripting.executeScript({ target: { tabId }, files: ['annotation.js'] });
-        await chrome.scripting.insertCSS({ target: { tabId }, files: ['annotation.css'] });
+        await chrome.scripting.executeScript({ target: { tabId }, files: ['content/annotation.js'] });
+        await chrome.scripting.insertCSS({ target: { tabId }, files: ['content/annotation.css'] });
       } catch (injectErr) {
         console.warn('[agentbrowser] consent card injection failed', injectErr);
         break;

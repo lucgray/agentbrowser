@@ -117,7 +117,7 @@ let keystoreModule = null;
 async function loadKeystore() {
   if (keystoreModule) return keystoreModule;
   try {
-    const mod = await import("./adapters/keystore.mjs");
+    const mod = await import("../adapters/keystore.mjs");
     if (mod && typeof mod.setKey === "function") {
       keystoreModule = mod;
       return mod;
@@ -480,7 +480,7 @@ let pricingWarned = false;
 // and stops the moment adapters/pricing.mjs exists. The warning is logged once.
 function pricingSpecifier() {
   const override = process.env.AGENTCHAT_PRICING_MODULE;
-  return override ? pathToFileURL(path.resolve(override)).href : "./adapters/pricing.mjs";
+  return override ? pathToFileURL(path.resolve(override)).href : "../adapters/pricing.mjs";
 }
 
 function loadPricing() {
@@ -779,7 +779,7 @@ function loadAdapterModule() {
       log("adapter module overridden by AGENTCHAT_ADAPTER_MODULE");
       adapterModulePromise = import(pathToFileURL(path.resolve(override)).href);
     } else {
-      adapterModulePromise = import("./adapters/base.mjs");
+      adapterModulePromise = import("../adapters/base.mjs");
     }
   }
   return adapterModulePromise;

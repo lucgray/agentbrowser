@@ -4,7 +4,7 @@
 // set is rebuilt lazily (an "already attached" error on re-attach is treated
 // as attached, since debugger attachments outlive the worker).
 
-import { buildOverlayScript } from './overlay.js';
+import { buildOverlayScript } from '../page/overlay.js';
 
 const PROTOCOL_VERSION = '1.3';
 

@@ -24,7 +24,7 @@ import * as genericCli from './generic-cli.mjs';
 import * as apiAnthropic from './api-anthropic.mjs';
 import * as apiOpenAi from './api-openai.mjs';
 
-import { TOOLS } from '../tools.mjs';
+import { TOOLS } from '../hub/tools.mjs';
 import { getKey, hasKey } from './keystore.mjs';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -33,7 +33,7 @@ import path from 'node:path';
 const CONFIG = (() => {
   try {
     const dir = path.dirname(fileURLToPath(import.meta.url));
-    return JSON.parse(readFileSync(path.join(dir, '..', 'config.json'), 'utf8'));
+    return JSON.parse(readFileSync(path.join(dir, '..', 'hub', 'config.json'), 'utf8'));
   } catch (err) {
     console.error('[base]', 'config.json unreadable, using defaults:', (err && err.message) || err);
     return {};

@@ -16,7 +16,7 @@ absolute path to your clone and to `node` (`which node`):
   <key>ProgramArguments</key>
   <array>
     <string>/usr/local/bin/node</string>
-    <string>/absolute/path/to/agentbrowser/server/hub.mjs</string>
+    <string>/absolute/path/to/agentbrowser/server/hub/hub.mjs</string>
   </array>
   <key>WorkingDirectory</key>   <string>/absolute/path/to/agentbrowser/server</string>
   <key>RunAtLoad</key>          <true/>

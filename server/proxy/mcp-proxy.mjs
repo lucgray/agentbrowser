@@ -15,7 +15,7 @@ import WebSocket from 'ws';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';
-import { TOOLS, TOOL_NAMES } from './tools.mjs';
+import { TOOLS, TOOL_NAMES } from '../hub/tools.mjs';
 
 const HUB_PORT = process.env.AGENTCHAT_PORT || '9010';
 const HUB_URL = `ws://127.0.0.1:${HUB_PORT}`;

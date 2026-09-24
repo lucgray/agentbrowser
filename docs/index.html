@@ -31,7 +31,7 @@
 
 <style>
   :root {
-    /* Lifted from the extension's own tokens (extension/sidepanel.css) */
+    /* Lifted from the extension's own tokens (extension/panel/sidepanel.css) */
     --bg-0:#0b0f0d; --bg-1:#0f1512; --bg-2:#141c18;
     --border:#1f2b25; --border-soft:#17211c;
     --text:#dbe5df; --text-2:#9aa8a0; --text-3:#6f7d75;
@@ -259,7 +259,7 @@
     <p class="kicker">Adapters</p>
     <h2>Bring your own coding agent.</h2>
     <p class="lead-p" style="margin-bottom:24px">
-      Pick one per chat, or set a default in <code>server/config.json</code>. Six CLIs run
+      Pick one per chat, or set a default in <code>server/hub/config.json</code>. Six CLIs run
       one process per turn and resume their own session; two call a provider API
       directly; two are Claude-native.
     </p>
@@ -313,7 +313,7 @@
     <p class="kicker">Any MCP harness</p>
     <h2>Not on the list? Point it at the proxy.</h2>
     <p class="lead-p">
-      <code>server/mcp-proxy.mjs</code> is a stdio MCP server that forwards tool calls to
+      <code>server/proxy/mcp-proxy.mjs</code> is a stdio MCP server that forwards tool calls to
       the hub. Anything that speaks the Model Context Protocol gets the same ten tools,
       with no adapter of its own.
     </p>
@@ -332,7 +332,7 @@
   <span class="k">"mcpServers"</span>: {
     <span class="k">"agentbrowser"</span>: {
       <span class="k">"command"</span>: "node",
-      <span class="k">"args"</span>: ["/absolute/path/to/agentbrowser/server/mcp-proxy.mjs"]
+      <span class="k">"args"</span>: ["/absolute/path/to/agentbrowser/server/proxy/mcp-proxy.mjs"]
     }
   }
 }</pre>

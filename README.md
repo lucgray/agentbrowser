@@ -69,7 +69,7 @@ error-handling standard.
 > and the conventions doc.
 >
 > Third-party credit: the selection-extraction code in
-> `extension/selection.js` (heading/table/code-block capture, semantic path,
+> `extension/content/selection.js` (heading/table/code-block capture, semantic path,
 > floating Ask button) is adapted from
 > [cola-sk/context-lens](https://github.com/cola-sk/context-lens) (MIT), noted
 > in that file's header.
@@ -83,7 +83,7 @@ like a human's, verified against the Threads composer on 2026-08-01. Because
 the extension attaches to your existing profile, there is no separate
 automation profile and no re-login. The agent loop itself never touches page
 DOM — everything it does goes through `chrome.debugger`. Two small content
-scripts (`extension/selection.js`, `extension/annotation.js`) watch text
+scripts (`extension/content/selection.js`, `extension/content/annotation.js`) watch text
 selections and render annotation marks plus their comment cards; neither
 drives the page. For them the manifest adds `contextMenus, scripting` and
 `*://*/*` host access on top of
@@ -99,7 +99,7 @@ selection.js                      (CDP executor)                              mc
 (content script)
 ```
 
-The hub (`server/hub.mjs`) relays chat between the panel and the active
+The hub (`server/hub/hub.mjs`) relays chat between the panel and the active
 adapter, and relays tool calls from any harness to the extension, which
 executes them via CDP and returns the result. Selections captured by the
 content script travel content-script → service worker →
@@ -130,7 +130,7 @@ npm start          # listens on ws://127.0.0.1:9010
    turns green when the hub is reachable.
 
 Type a message, pick an adapter from the dropdown if you don't want the
-default from `server/config.json`, and send. Tool activity shows up as
+default from `server/hub/config.json`, and send. Tool activity shows up as
 compact chips in the transcript.
 
 > **Tip** — override the port with `AGENTCHAT_PORT`. To keep the hub running
@@ -174,12 +174,12 @@ The agent sees all of it, so "explain this", "what does this regex do", or
   its own thread. `annotate_reply` lets the agent post a targeted reply
   inside a thread instead of streaming a full turn.
 - **Proactive marks, opt-in** — set `proactiveAnnotation` in
-  `server/config.json` and the agent runs one background pass per page:
+  `server/hub/config.json` and the agent runs one background pass per page:
   it reads the tab and flags the passages it thinks are confusing — each
   mark carries a note saying why, in a color distinct from yours.
 
 ```jsonc
-// server/config.json
+// server/hub/config.json
 {
   "adapter": "claude-agent-sdk",
   "proactiveAnnotation": {
@@ -282,7 +282,7 @@ say so: "fill it and submit".
 ## Asking before it acts: the consent gate
 
 Beyond that prompt-level courtesy, a hard gate exists for sensitive tools.
-Add a `permissions` block to `server/config.json`:
+Add a `permissions` block to `server/hub/config.json`:
 
 ```json
 {
@@ -312,7 +312,7 @@ records the intent in config.
 
 ## Adapters
 
-Selected per chat or via `server/config.json`:
+Selected per chat or via `server/hub/config.json`:
 
 | adapter | transport | session | notes |
 |---|---|---|---|
@@ -342,7 +342,7 @@ Each CLI is looked up on your `PATH`. If yours lives somewhere unusual, set
 
 ## Using any other harness
 
-`server/mcp-proxy.mjs` is a stdio MCP server that forwards tool calls to the
+`server/proxy/mcp-proxy.mjs` is a stdio MCP server that forwards tool calls to the
 hub over WebSocket. Any harness that speaks MCP can drive the browser by
 adding it to its MCP config:
 
@@ -351,7 +351,7 @@ adding it to its MCP config:
   "mcpServers": {
     "agentbrowser": {
       "command": "node",
-      "args": ["/absolute/path/to/agentbrowser/server/mcp-proxy.mjs"]
+      "args": ["/absolute/path/to/agentbrowser/server/proxy/mcp-proxy.mjs"]
     }
   }
 }
@@ -381,16 +381,16 @@ as things stand.
 ## MCP-free access: skill + CLI
 
 For agents that don't load MCP servers (or where you'd rather not wire a
-config file), `server/agentbrowser-cli.mjs` exposes every browser tool as a
+config file), `server/proxy/agentbrowser-cli.mjs` exposes every browser tool as a
 shell command — same tools, same hub, nothing long-lived:
 
 ```bash
-node server/agentbrowser-cli.mjs read_page '{}'
-node server/agentbrowser-cli.mjs dom_inspect '{"selector":"h1"}'
-node server/agentbrowser-cli.mjs tools              # list tools
+node server/proxy/agentbrowser-cli.mjs read_page '{}'
+node server/proxy/agentbrowser-cli.mjs dom_inspect '{"selector":"h1"}'
+node server/proxy/agentbrowser-cli.mjs tools              # list tools
 ```
 
-`npm run install-skill` (or `node server/install-skill.mjs`) writes an
+`npm run install-skill` (or `node server/proxy/install-skill.mjs`) writes an
 `agentbrowser` shim into `~/.local/bin` and drops `server/skill/SKILL.md`
 into `~/.claude/skills` and `~/.agents/skills` (`--target <dir>` for others),
 so skill-based agents — Claude Code, anything reading `.agents` layouts —
@@ -407,7 +407,7 @@ from langchain_mcp_adapters.client import MultiServerMCPClient
 client = MultiServerMCPClient({
     "agentbrowser": {
         "command": "node",
-        "args": ["/absolute/path/to/agentbrowser/server/mcp-proxy.mjs"],
+        "args": ["/absolute/path/to/agentbrowser/server/proxy/mcp-proxy.mjs"],
         "transport": "stdio",
     }
 })
@@ -457,7 +457,7 @@ node --test ../tests/extension/*.test.mjs
 ```
 
 No test spends model tokens or spawns a CLI. The end-to-end suite points
-the hub at `server/stub-adapter.mjs` via `AGENTCHAT_ADAPTER_MODULE`.
+the hub at `server/hub/stub-adapter.mjs` via `AGENTCHAT_ADAPTER_MODULE`.
 
 ## Known constraints
 

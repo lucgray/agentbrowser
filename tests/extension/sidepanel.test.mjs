@@ -6,7 +6,7 @@
 import fs from "node:fs/promises";
 import assert from "node:assert/strict";
 
-const SIDEPANEL = new URL("../../extension/sidepanel.js", import.meta.url);
+const SIDEPANEL = new URL("../../extension/panel/sidepanel.js", import.meta.url);
 const SRC = await fs.readFile(SIDEPANEL, "utf8");
 
 const mod = await import(SIDEPANEL.href);
