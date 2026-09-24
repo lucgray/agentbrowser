@@ -15,7 +15,7 @@
 import { spawn } from 'node:child_process';
 import {
   writeFileSync, readFileSync, mkdirSync, mkdtempSync, rmSync,
-  readdirSync, statSync
+  readdirSync, statSync, existsSync
 } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import os from 'node:os';
@@ -37,6 +37,10 @@ const EXTRA_BIN_DIRS = [
   path.join(os.homedir(), '.opencode', 'bin')
 ];
 
+function logWarn(context, err) {
+  console.error('[generic-cli]', context + ':', (err && err.message) || err);
+}
+
 function resolveBin(name) {
   const override = process.env[`AGENTCHAT_BIN_${name.toUpperCase()}`];
   if (override) return override;
@@ -44,11 +48,9 @@ function resolveBin(name) {
   for (const dir of dirs) {
     if (!dir) continue;
     const candidate = path.join(dir, name);
-    try {
-      if (statSync(candidate).isFile()) return candidate;
-    } catch {
-      // not here, keep looking
-    }
+    // existsSync probes instead of a throwing statSync: a miss is control
+    // flow here, not an error worth logging.
+    if (existsSync(candidate) && statSync(candidate).isFile()) return candidate;
   }
   return name;
 }
@@ -70,7 +72,8 @@ function summarize(value) {
   if (typeof value === 'string') return truncate(value) || 'ok';
   try {
     return truncate(JSON.stringify(value));
-  } catch {
+  } catch (err) {
+    logWarn('summarize fell back for unserializable value', err);
     return 'ok';
   }
 }
@@ -83,18 +86,23 @@ function shortToolName(name) {
 
 function parseLooseJson(text) {
   const t = (text || '').trim();
-  try {
-    return JSON.parse(t);
-  } catch {
-    // fall through
+  // Shape guard keeps non-JSON lines from ever throwing; the one real parse
+  // attempt below is on the {..} slice, where a failure is a malformed blob
+  // and worth a warning.
+  if (t.startsWith('{') || t.startsWith('[')) {
+    try {
+      return JSON.parse(t);
+    } catch (err) {
+      logWarn('malformed JSON text, trying loose slice', err);
+    }
   }
   const a = t.indexOf('{');
   const b = t.lastIndexOf('}');
   if (a !== -1 && b > a) {
     try {
       return JSON.parse(t.slice(a, b + 1));
-    } catch {
-      // fall through
+    } catch (err) {
+      logWarn('unparseable JSON blob, returning null', err);
     }
   }
   return null;
@@ -169,7 +177,8 @@ function ensureAgyRegistered(port) {
   let config = {};
   try {
     config = JSON.parse(readFileSync(AGY_MCP_CONFIG, 'utf8'));
-  } catch {
+  } catch (err) {
+    logWarn('agy mcp config unreadable, starting from empty', err);
     config = {};
   }
   if (!config || typeof config !== 'object' || Array.isArray(config)) config = {};
@@ -192,7 +201,8 @@ function ensureAgyRegistered(port) {
 function listAgyConversations() {
   try {
     return new Set(readdirSync(AGY_CONV_DIR).filter((f) => f.endsWith('.db')));
-  } catch {
+  } catch (err) {
+    logWarn('agy conversation dir unreadable', err);
     return new Set();
   }
 }
@@ -471,14 +481,12 @@ export const HARNESSES = {
       let best = null;
       let bestMtime = -1;
       for (const f of fresh) {
-        try {
-          const m = statSync(path.join(AGY_CONV_DIR, f)).mtimeMs;
-          if (m > bestMtime) {
-            bestMtime = m;
-            best = f;
-          }
-        } catch {
-          // ignore
+        const p = path.join(AGY_CONV_DIR, f);
+        if (!existsSync(p)) continue;
+        const m = statSync(p).mtimeMs;
+        if (m > bestMtime) {
+          bestMtime = m;
+          best = f;
         }
       }
       if (best) state.sessionId = best.slice(0, -3);
@@ -628,16 +636,22 @@ export function createGenericCliSession(name, ctx) {
     const clean = stripAnsi(line).trim();
     if (!clean) return;
     let msg;
-    try {
-      msg = JSON.parse(clean);
-    } catch {
+    if (clean.startsWith('{') || clean.startsWith('[')) {
+      try {
+        msg = JSON.parse(clean);
+      } catch (err) {
+        logWarn('dropping malformed JSON line', err);
+        return;
+      }
+    } else {
       return; // non-JSON noise on stdout
     }
     if (!msg || typeof msg !== 'object') return;
     try {
       preset.onLine(msg, state, safeEmit);
-    } catch {
+    } catch (err) {
       // a malformed event must not kill the turn
+      logWarn('onLine handler threw, event skipped', err);
     }
   }
 
@@ -675,8 +689,8 @@ export function createGenericCliSession(name, ctx) {
       if (preset.beforeTurn) {
         try {
           preset.beforeTurn(state);
-        } catch {
-          // ignore
+        } catch (err) {
+          logWarn('beforeTurn hook threw, continuing turn', err);
         }
       }
       let args;
@@ -757,8 +771,8 @@ export function createGenericCliSession(name, ctx) {
           if (preset.afterExit) {
             try {
               preset.afterExit(state);
-            } catch {
-              // ignore
+            } catch (err) {
+              logWarn('afterExit hook threw, ending turn anyway', err);
             }
           }
           endTurn(null);
@@ -773,8 +787,8 @@ export function createGenericCliSession(name, ctx) {
         aborted = true;
         try {
           child.kill('SIGTERM');
-        } catch {
-          // ignore
+        } catch (err) {
+          logWarn('abort kill failed', err);
         }
       }
     },
@@ -784,8 +798,8 @@ export function createGenericCliSession(name, ctx) {
       if (child) {
         try {
           child.kill('SIGTERM');
-        } catch {
-          // ignore
+        } catch (err) {
+          logWarn('dispose kill failed', err);
         }
         child = null;
       }
@@ -793,16 +807,16 @@ export function createGenericCliSession(name, ctx) {
       if (state.tempDir) {
         try {
           rmSync(state.tempDir, { recursive: true, force: true });
-        } catch {
-          // ignore
+        } catch (err) {
+          logWarn('tempDir cleanup failed', err);
         }
         state.tempDir = null;
       }
       for (const f of state.tempFiles) {
         try {
           rmSync(f, { force: true });
-        } catch {
-          // ignore
+        } catch (err) {
+          logWarn('tempFile cleanup failed', err);
         }
       }
       state.tempFiles = [];

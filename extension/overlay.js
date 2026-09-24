@@ -1,8 +1,7 @@
 // Builds the on-page "an agent is driving this tab" overlay.
 //
-// This extension ships no content scripts and asks for no host permissions, so
-// the overlay is a string handed to CDP Runtime.evaluate on the tab cdp.js is
-// already attached to. Everything here is a pure function: no chrome.* access,
+// The overlay never runs as a content script: it is a string handed to CDP
+// Runtime.evaluate on the tab cdp.js is already attached to. Everything here is a pure function: no chrome.* access,
 // no side effects, so it can be unit-tested under plain node.
 //
 // The injected code owns exactly one node (#agentchat-overlay-root) appended to
@@ -114,18 +113,18 @@ export function buildOverlayScript(action, detail) {
     var reduce = false;
     try {
       reduce = !!(w.matchMedia && w.matchMedia('(prefers-reduced-motion: reduce)').matches);
-    } catch (e) {}
+    } catch (e) { console.warn('[agentbrowser] overlay matchMedia check failed', e); }
 
     // Reset the idle timers: a new action means the overlay stays up longer.
-    try { if (w.__agentchatOverlayIdle) clearTimeout(w.__agentchatOverlayIdle); } catch (e) {}
-    try { if (w.__agentchatOverlayKill) clearTimeout(w.__agentchatOverlayKill); } catch (e) {}
+    try { if (w.__agentchatOverlayIdle) clearTimeout(w.__agentchatOverlayIdle); } catch (e) { console.warn('[agentbrowser] overlay timer clear failed', e); }
+    try { if (w.__agentchatOverlayKill) clearTimeout(w.__agentchatOverlayKill); } catch (e) { console.warn('[agentbrowser] overlay timer clear failed', e); }
     w.__agentchatOverlayIdle = null;
     w.__agentchatOverlayKill = null;
 
     var root = d.getElementById(ID);
     // If something on the page squatted our id, drop it and build our own.
     if (root && root.__agentchat !== true) {
-      try { root.parentNode && root.parentNode.removeChild(root); } catch (e) {}
+      try { root.parentNode && root.parentNode.removeChild(root); } catch (e) { console.warn('[agentbrowser] overlay squatter removal failed', e); }
       root = null;
     }
 
@@ -182,7 +181,7 @@ export function buildOverlayScript(action, detail) {
         bolt.style.cssText =
           'display:block;flex:0 0 auto;' +
           (reduce ? '' : 'animation:agentchat-ov-pulse 1600ms ease-in-out infinite;');
-      } catch (e) {}
+      } catch (e) { console.warn('[agentbrowser] overlay bolt style failed', e); }
       pill.appendChild(bolt);
 
       var name = d.createElement('span');
@@ -206,14 +205,14 @@ export function buildOverlayScript(action, detail) {
 
       root.appendChild(pill);
       d.documentElement.appendChild(root);
-      try { void root.offsetWidth; } catch (e) {}
+      try { void root.offsetWidth; } catch (e) { console.warn('[agentbrowser] overlay reflow failed', e); }
     }
 
     root.style.transition = 'opacity 200ms ' + EASE;
     root.style.opacity = '1';
 
     var actionNode = null;
-    try { actionNode = root.querySelector('[data-agentchat="action"]'); } catch (e) {}
+    try { actionNode = root.querySelector('[data-agentchat="action"]'); } catch (e) { console.warn('[agentbrowser] overlay action lookup failed', e); }
     // Written as text, never as markup: the label is inert by construction.
     if (actionNode) actionNode.textContent = D.label;
 
@@ -227,7 +226,7 @@ export function buildOverlayScript(action, detail) {
         'pointer-events:none;animation:agentchat-ov-ripple 600ms ' + EASE + ' forwards;';
       root.appendChild(ripple);
       setTimeout(function () {
-        try { ripple.parentNode && ripple.parentNode.removeChild(ripple); } catch (e) {}
+        try { ripple.parentNode && ripple.parentNode.removeChild(ripple); } catch (e) { console.warn('[agentbrowser] overlay ripple cleanup failed', e); }
       }, 700);
     }
 
@@ -241,7 +240,7 @@ export function buildOverlayScript(action, detail) {
             typeof target.getBoundingClientRect === 'function') {
           rect = target.getBoundingClientRect();
         }
-      } catch (e) {}
+      } catch (e) { console.warn('[agentbrowser] overlay caret rect failed', e); }
       if (rect && rect.width > 0 && rect.height > 0 && rect.width < 6000) {
         var h = Math.max(12, Math.min(rect.height - 8, 22));
         var caret = d.createElement('div');
@@ -253,7 +252,7 @@ export function buildOverlayScript(action, detail) {
           'animation:agentchat-ov-caret 700ms ease-in-out 2;';
         root.appendChild(caret);
         setTimeout(function () {
-          try { caret.parentNode && caret.parentNode.removeChild(caret); } catch (e) {}
+          try { caret.parentNode && caret.parentNode.removeChild(caret); } catch (e) { console.warn('[agentbrowser] overlay caret cleanup failed', e); }
         }, 1500);
       }
     }
@@ -271,14 +270,15 @@ export function buildOverlayScript(action, detail) {
             if (gone && gone.__agentchat === true && gone.style.opacity === '0') {
               gone.parentNode && gone.parentNode.removeChild(gone);
             }
-          } catch (e) {}
+          } catch (e) { console.warn('[agentbrowser] overlay kill sweep failed', e); }
         }, 450);
-      } catch (e) {}
+      } catch (e) { console.warn('[agentbrowser] overlay fade failed', e); }
     }, D.idleMs);
 
     return true;
   } catch (e) {
     // Visual only. A hostile or locked-down page must never fail a tool call.
+    console.warn('[agentbrowser] overlay injection failed', e);
     return false;
   }
 })();`;

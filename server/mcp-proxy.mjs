@@ -52,7 +52,8 @@ function ensureConnected() {
       let msg;
       try {
         msg = JSON.parse(data.toString());
-      } catch {
+      } catch (err) {
+        console.error('[mcp-proxy] dropping non-JSON hub message:', (err && err.message) || err);
         return;
       }
       if (msg && msg.type === 'tool_result' && pending.has(msg.id)) {
@@ -138,6 +139,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     return { content: [{ type: 'text', text: JSON.stringify(result) }] };
   } catch (err) {
     const message = err && err.message ? err.message : String(err);
+    console.error('[mcp-proxy] tool call failed:', message);
     return { content: [{ type: 'text', text: message }], isError: true };
   }
 });

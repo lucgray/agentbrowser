@@ -17,6 +17,10 @@ const MCP_PROXY_PATH = path.resolve(__dirname, '..', 'mcp-proxy.mjs');
 const MCP_SERVER_NAME = 'browser';
 const TOOL_PREFIX = `mcp__${MCP_SERVER_NAME}__`;
 
+function logWarn(context, err) {
+  console.error('[claude-cli]', context + ':', (err && err.message) || err);
+}
+
 function shortToolName(name) {
   return name && name.startsWith(TOOL_PREFIX) ? name.slice(TOOL_PREFIX.length) : name;
 }
@@ -178,9 +182,14 @@ export function createClaudeCliSession(ctx) {
       stdoutBuffer = stdoutBuffer.slice(idx + 1);
       if (!line) continue;
       let msg;
-      try {
-        msg = JSON.parse(line);
-      } catch {
+      if (line.startsWith('{') || line.startsWith('[')) {
+        try {
+          msg = JSON.parse(line);
+        } catch (err) {
+          logWarn('dropping malformed JSON line', err);
+          continue;
+        }
+      } else {
         continue; // non-JSON noise on stdout
       }
       handleMessage(msg);
@@ -246,8 +255,8 @@ export function createClaudeCliSession(ctx) {
         if (mcpConfigPath) {
           try {
             rmSync(mcpConfigPath, { force: true });
-          } catch {
-            // ignore
+          } catch (err) {
+            logWarn('mcp config cleanup failed', err);
           }
           mcpConfigPath = null;
         }
@@ -292,8 +301,8 @@ export function createClaudeCliSession(ctx) {
             request_id: randomUUID(),
             request: { subtype: 'interrupt' }
           }) + '\n');
-        } catch {
-          // ignore
+        } catch (err) {
+          logWarn('interrupt write failed', err);
         }
       }
     },
@@ -304,21 +313,21 @@ export function createClaudeCliSession(ctx) {
       if (child) {
         try {
           child.stdin.end();
-        } catch {
-          // ignore
+        } catch (err) {
+          logWarn('stdin close failed', err);
         }
         try {
           child.kill('SIGTERM');
-        } catch {
-          // ignore
+        } catch (err) {
+          logWarn('dispose kill failed', err);
         }
         child = null;
       }
       if (mcpConfigPath) {
         try {
           rmSync(mcpConfigPath, { force: true });
-        } catch {
-          // ignore
+        } catch (err) {
+          logWarn('mcp config cleanup failed', err);
         }
         mcpConfigPath = null;
       }

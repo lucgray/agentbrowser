@@ -23,7 +23,9 @@ chrome.debugger.onDetach.addListener((source) => {
 
 chrome.tabs.onRemoved.addListener((tabId) => {
   if (attached.has(tabId)) {
-    chrome.debugger.detach({ tabId }).catch(() => {});
+    chrome.debugger.detach({ tabId }).catch((err) => {
+      console.warn('[agentbrowser] debugger detach on tab close failed', err);
+    });
   }
   forget(tabId);
 });
@@ -45,7 +47,9 @@ async function ensureAttached(tabId) {
       attached.add(tabId);
     })();
     attaching.set(tabId, pending);
-    pending.catch(() => {}).then(() => {
+    pending.catch((err) => {
+      console.warn('[agentbrowser] debugger attach rejected', err);
+    }).then(() => {
       if (attaching.get(tabId) === pending) attaching.delete(tabId);
     });
   }
@@ -74,7 +78,12 @@ export function sendCommand(tabId, method, params = {}) {
     }
   });
   // Keep the chain usable after a failed command.
-  queues.set(tabId, run.catch(() => {}));
+  queues.set(
+    tabId,
+    run.catch((err) => {
+      console.warn('[agentbrowser] CDP command failed:', method, err);
+    })
+  );
   return run;
 }
 
@@ -113,7 +122,10 @@ function overlayAllowed() {
         }
         return overlayEnabled;
       })
-      .catch(() => true);
+      .catch((err) => {
+        console.warn('[agentbrowser] overlay preference read failed', err);
+        return true;
+      });
   }
   return overlayPref;
 }
@@ -134,7 +146,8 @@ async function injectOverlay(tabId, action, detail) {
   try {
     const tab = await chrome.tabs.get(tabId);
     url = String((tab && tab.url) || '');
-  } catch {
+  } catch (err) {
+    console.warn('[agentbrowser] overlay tab lookup failed', err);
     return false;
   }
   if (!url || OVERLAY_BLOCKED_URL.test(url) || OVERLAY_BLOCKED_HOST.test(url)) return false;
@@ -171,9 +184,11 @@ export function showOverlay(tabId, action, detail) {
 // Fire-and-forget wrapper: no caller ever sees this promise.
 function flashOverlay(tabId, action, detail) {
   try {
-    showOverlay(tabId, action, detail).catch(() => {});
-  } catch {
-    /* cosmetic only */
+    showOverlay(tabId, action, detail).catch((err) => {
+      console.warn('[agentbrowser] overlay flash failed (cosmetic)', err);
+    });
+  } catch (err) {
+    console.warn('[agentbrowser] overlay flash failed (cosmetic)', err);
   }
 }
 

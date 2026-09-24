@@ -51,8 +51,8 @@ function reconnect() {
     old.onopen = old.onmessage = old.onclose = old.onerror = null;
     try {
       old.close();
-    } catch {
-      // ignore
+    } catch (err) {
+      console.warn('[agentbrowser] closing old hub socket failed', err);
     }
   }
   if (hubUrl) open();
@@ -62,7 +62,8 @@ function open() {
   let socket;
   try {
     socket = new WebSocket(hubUrl);
-  } catch {
+  } catch (err) {
+    console.warn('[agentbrowser] hub socket creation failed', err);
     report(false);
     scheduleReconnect();
     return;
@@ -78,7 +79,8 @@ function open() {
     let payload;
     try {
       payload = JSON.parse(event.data);
-    } catch {
+    } catch (err) {
+      console.warn('[agentbrowser] dropping malformed hub message', err);
       return;
     }
     post({ target: 'sw', cmd: 'ws_message', payload });
@@ -107,5 +109,7 @@ function report(connected) {
 }
 
 function post(message) {
-  chrome.runtime.sendMessage(message).catch(() => {});
+  chrome.runtime.sendMessage(message).catch((err) => {
+    console.warn('[agentbrowser] offscreen -> sw message failed', err);
+  });
 }

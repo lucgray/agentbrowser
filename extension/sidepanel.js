@@ -770,7 +770,8 @@ function init() {
     try {
       port.postMessage(msg);
       return true;
-    } catch {
+    } catch (err) {
+      console.warn("[agentbrowser] postToHub failed", err);
       setConnected(false);
       return false;
     }
@@ -864,7 +865,8 @@ function init() {
     let got;
     try {
       got = store.get(["adapter", "model"]);
-    } catch {
+    } catch (err) {
+      console.warn("[agentbrowser] prefs read failed", err);
       return;
     }
     Promise.resolve(got)
@@ -878,7 +880,7 @@ function init() {
         }
         renderModelSelect(prefModel);
       })
-      .catch(() => {});
+      .catch((err) => console.warn("[agentbrowser] prefs restore failed", err));
   }
 
   function savePrefs() {
@@ -890,9 +892,12 @@ function init() {
       // An adapter with no model switch leaves the remembered model alone, so
       // a detour through one does not forget it.
       if (model !== undefined) out.model = model;
-      Promise.resolve(store.set(out)).catch(() => {});
-    } catch {
+      Promise.resolve(store.set(out)).catch((err) =>
+        console.warn("[agentbrowser] prefs write failed", err)
+      );
+    } catch (err) {
       // storage is best effort; the panel still works without it
+      console.warn("[agentbrowser] prefs write failed", err);
     }
   }
 
@@ -1098,7 +1103,8 @@ function init() {
     lastSentPayload = payload;
     try {
       port.postMessage(payload);
-    } catch {
+    } catch (err) {
+      console.warn("[agentbrowser] retry send failed", err);
       addLine("error", "failed to reach service worker, retrying connection");
       setConnected(false);
       showRetryButton();
@@ -1292,7 +1298,8 @@ function init() {
     try {
       el.replaceChildren(renderMarkdown(el.mdSource));
       el.classList.remove("raw");
-    } catch {
+    } catch (err) {
+      console.warn("[agentbrowser] markdown render failed, showing raw", err);
       // A parser fault must not take the panel down or swallow the reply. Show
       // the source verbatim; .raw restores pre-wrap so newlines survive.
       el.classList.add("raw");
@@ -1390,7 +1397,8 @@ function init() {
     let s;
     try {
       s = JSON.stringify(args);
-    } catch {
+    } catch (err) {
+      console.warn("[agentbrowser] arg stringify failed, using String()", err);
       s = String(args);
     }
     if (s === undefined || s === "{}" || s === "null") return "";
@@ -1823,7 +1831,8 @@ function init() {
       if (tab && tab.id != null && isContextUrl(tab.url)) {
         next = { tabId: tab.id, url: tab.url, title: tab.title || tab.url };
       }
-    } catch {
+    } catch (err) {
+      console.warn("[agentbrowser] active tab query failed", err);
       next = null;
     }
     const changedTab = !currentTab || !next || currentTab.tabId !== next.tabId;
@@ -2053,7 +2062,8 @@ function init() {
     let tabs = [];
     try {
       tabs = await chrome.tabs.query({});
-    } catch {
+    } catch (err) {
+      console.warn("[agentbrowser] tab list query failed", err);
       tabs = [];
     }
     if (seq !== mentionSeq || !mention) return; // a later keystroke won
@@ -2200,7 +2210,8 @@ function init() {
         .then((b64) => {
           entry.base64 = b64;
         })
-        .catch(() => {
+        .catch((err) => {
+          console.warn("[agentbrowser] attachment read failed", err);
           attachments = attachments.filter((x) => x !== entry);
           showComposerError("could not read " + file.name);
         })
@@ -2252,8 +2263,8 @@ function init() {
     if (recognition) {
       try {
         recognition.stop();
-      } catch {
-        // already stopped
+      } catch (err) {
+        console.warn("[agentbrowser] recognition.stop() threw", err);
       }
     }
     recognition = null;
@@ -2265,7 +2276,8 @@ function init() {
     let rec;
     try {
       rec = new SpeechRec();
-    } catch {
+    } catch (err) {
+      console.warn("[agentbrowser] SpeechRecognition ctor failed", err);
       addLine("error", "speech recognition is not available in this browser");
       return;
     }
@@ -2305,7 +2317,8 @@ function init() {
     setListening(true);
     try {
       rec.start();
-    } catch {
+    } catch (err) {
+      console.warn("[agentbrowser] recognition.start() threw", err);
       stopMic();
     }
   }
@@ -2344,7 +2357,8 @@ function init() {
     lastSentPayload = msg;
     try {
       port.postMessage(msg);
-    } catch {
+    } catch (err) {
+      console.warn("[agentbrowser] dispatch send failed", err);
       addLine("error", "failed to reach service worker, retrying connection");
       setConnected(false);
       showRetryButton();
@@ -2476,8 +2490,9 @@ function init() {
     if (!port) return;
     try {
       port.postMessage({ type: "chat_abort", chatId });
-    } catch {
+    } catch (err) {
       // Port died between checks; onDisconnect will handle it.
+      console.warn("[agentbrowser] abort postMessage failed", err);
     }
     // Keep the abort button until the hub confirms with done/error.
   }

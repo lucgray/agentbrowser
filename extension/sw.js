@@ -12,7 +12,9 @@ let panelChatIds = new Set(); // chatIds started by the current panel Port
 let hubConnected = false;
 let lastCapabilities = null; // last {type:'capabilities'} from the hub, replayed on panel connect
 
-chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => {});
+chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch((err) => {
+  console.warn('[agentbrowser] setPanelBehavior failed', err);
+});
 
 // --- selection -> side panel -------------------------------------------------
 //
@@ -181,7 +183,9 @@ async function ensureOffscreen() {
 }
 
 function sendToOffscreen(message) {
-  return chrome.runtime.sendMessage(message).catch(() => {});
+  return chrome.runtime.sendMessage(message).catch((err) => {
+    console.warn('[agentbrowser] sw -> offscreen message failed', err);
+  });
 }
 
 async function connectHub() {
@@ -194,11 +198,15 @@ async function connectHub() {
   });
 }
 
-connectHub().catch(() => {});
+connectHub().catch((err) => {
+  console.warn('[agentbrowser] initial hub connect failed', err);
+});
 
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area === 'local' && changes.hubUrl) {
-    connectHub().catch(() => {});
+    connectHub().catch((err) => {
+      console.warn('[agentbrowser] hub reconnect failed', err);
+    });
   }
 });
 
@@ -208,7 +216,8 @@ function postToPanel(message) {
   if (!panelPort) return;
   try {
     panelPort.postMessage(message);
-  } catch {
+  } catch (err) {
+    console.warn('[agentbrowser] postToPanel failed, dropping port', err);
     panelPort = null;
   }
 }
@@ -280,6 +289,7 @@ async function handleToolCall({ id, tool, args }) {
     const result = await executeTool(tool, args || {});
     reply = { type: 'tool_result', id, ok: true, result };
   } catch (err) {
+    console.warn('[agentbrowser] tool call failed:', tool, err);
     reply = { type: 'tool_result', id, ok: false, error: String((err && err.message) || err) };
   }
   sendToOffscreen({ target: 'offscreen', cmd: 'send', payload: reply });
@@ -291,7 +301,9 @@ chrome.runtime.onConnect.addListener((port) => {
   panelChatIds = new Set();
   port.postMessage({ type: 'status', connected: hubConnected });
   if (lastCapabilities) port.postMessage(lastCapabilities);
-  connectHub().catch(() => {});
+  connectHub().catch((err) => {
+    console.warn('[agentbrowser] hub connect on panel open failed', err);
+  });
   port.onMessage.addListener((msg) => {
     if (!msg || typeof msg !== 'object') return;
     if (msg.type === 'chat' || msg.type === 'command') {
