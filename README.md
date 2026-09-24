@@ -11,7 +11,7 @@ on any page selection.
 [![License: MIT](https://img.shields.io/badge/License-MIT-6C5CE7.svg)](LICENSE)
 [![Chrome MV3](https://img.shields.io/badge/Chrome-MV3-6C5CE7.svg)](extension/manifest.json)
 [![Node ≥ 20.11](https://img.shields.io/badge/Node-%E2%89%A5%2020.11-6C5CE7.svg)](server/package.json)
-[![Protocol v1.5](https://img.shields.io/badge/Protocol-v1.5-6C5CE7.svg)](PROTOCOL.md)
+[![Protocol v1.6](https://img.shields.io/badge/Protocol-v1.6-6C5CE7.svg)](PROTOCOL.md)
 
 **English** · [简体中文](README.zh-CN.md)
 
@@ -35,6 +35,7 @@ error-handling standard.
 - [Install](#install)
 - [Ask about a selection](#ask-about-a-selection)
 - [Page annotations](#page-annotations)
+- [Inspecting the page](#inspecting-the-page)
 - [Tabs, files & voice](#tabs-files--voice)
 - [Picking a model](#picking-a-model)
 - [API keys](#using-an-api-key-instead-of-a-cli)
@@ -57,6 +58,7 @@ error-handling standard.
 | **Rich selection context** — semantic DOM path, nearest heading, ±800 chars, enclosing `<pre>`/code block + language, table headers + active row as markdown → `context.selection` (protocol v1.4) | — | ✓ |
 | **Page annotations** — `annotate`/`annotations_list`/`annotate_reply`/`annotate_clear` tools; underline, highlight, circle on quoted text; per-mark comment cards that run as their own chat turns (protocol v1.5) | — | ✓ |
 | **Proactive co-reading pass** — opt-in `proactiveAnnotation` config: one background turn per page flags confusing passages with a why-note | — | ✓ |
+| **Observe-first inspection** — BBX-style structured reads (`dom_inspect`, `console_log`, `network_log` + sanitized HAR, `a11y_tree`, dialog handling) and reversible live patches (`patch_apply`/`patch_revert`) — protocol v1.6 | — | ✓ |
 | **No-silent-catch rule** — every catch logs or propagates, leveled by impact | — | ✓ |
 
 > Upstream credit: the entire side-panel ↔ hub ↔ adapter architecture, the
@@ -189,6 +191,25 @@ The agent sees all of it, so "explain this", "what does this regex do", or
 `annotations_list` returns every mark and thread on a tab — handy to ask
 for a digest ("give me all the notes we left on this page") — and
 `annotate_clear` removes one mark or all of them.
+
+## Inspecting the page
+
+*Observe first, then drive* — BBX-style structured reads so the agent works
+from real state instead of screenshots, plus live reversible patches to
+prove a change visually before touching source (protocol v1.6).
+
+| tool | what you get |
+|---|---|
+| `dom_inspect` | Elements matching a CSS selector: tag, id, classes, every attribute, text, bounding rect, computed styles — no HTML dump |
+| `console_log` | Ring buffer of console calls, uncaught exceptions and browser log entries, filterable by level |
+| `network_log` | Recent requests with method/status/mimeType/timing/size; `har:true` exports a sanitized HAR 1.2 (credential headers always stripped) |
+| `a11y_tree` | The page's accessibility tree (role + name + depth), with a DOM-derived outline fallback |
+| `dialog_list` / `dialog_respond` | Alert/confirm/prompt dialogs are intercepted while the debugger is attached: listed, answerable, auto-dismissed after ~5s so pages never wedge |
+| `patch_apply` / `patch_revert` | Live CSS/attribute/HTML/remove edits with an outerHTML snapshot, reverted element-by-element |
+
+Capture is lazy: the first call enables the matching CDP domain on the
+attached debugger session; buffers reset on navigation and never require
+DevTools to be open.
 
 ## Tabs, files & voice
 
@@ -356,6 +377,14 @@ tools = await client.get_tools()
 | `type_text` | `{text, tabId?}` | `{typed:<charcount>}` (inserts into the focused element) |
 | `press_key` | `{key, tabId?}` | `{pressed:key}` (e.g. "Enter", "Escape", "Meta+A") |
 | `eval_js` | `{expression, tabId?}` | `{value}` |
+| `dom_inspect` | `{selector, all?, styles?, max?, tabId?}` | `{selector, matched, elements:[...]}` |
+| `console_log` | `{level?, limit?, clear?, tabId?}` | `{entries:[{ts,level,source,text,url}]}` |
+| `network_log` | `{filter?, includeHeaders?, har?, limit?, clear?, tabId?}` | `{entries:[...], har?}` — credential headers always stripped |
+| `a11y_tree` | `{maxDepth?, tabId?}` | `{source, nodes:[{role,name,depth,...}]}` |
+| `dialog_list` | `{tabId?}` | `{dialogs:[{type,message,url,ts,status}]}` |
+| `dialog_respond` | `{accept, promptText?, tabId?}` | `{handled, ...}` |
+| `patch_apply` | `{patches:[{selector,styles?,attributes?,insertAdjacentHTML?,remove?}], label?, tabId?}` | `{patchId, applied, results}` |
+| `patch_revert` | `{patchId, tabId?}` | `{patchId, reverted, missing}` |
 
 `tabId` omitted means the active tab. The service worker attaches the
 debugger on demand, serializes commands per tab, and re-attaches if Chrome

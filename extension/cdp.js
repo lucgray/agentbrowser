@@ -45,6 +45,16 @@ async function ensureAttached(tabId) {
         if (!/already attached/i.test(message)) throw err;
       }
       attached.add(tabId);
+      // Page.enable goes on every attachment, outside the per-tab queue:
+      // JS dialogs are routed to the debugger while the domain is on, and
+      // enabling it only after a dialog opened would deadlock the session
+      // (the command itself queues behind the modal). inspect.js listens
+      // for Page.javascriptDialogOpening and auto-dismisses after a hold.
+      chrome.debugger
+        .sendCommand({ tabId }, 'Page.enable')
+        .catch((err) => {
+          console.warn('[agentbrowser] Page.enable on attach failed', err);
+        });
     })();
     attaching.set(tabId, pending);
     pending.catch((err) => {

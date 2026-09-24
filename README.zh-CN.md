@@ -10,7 +10,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-6C5CE7.svg)](LICENSE)
 [![Chrome MV3](https://img.shields.io/badge/Chrome-MV3-6C5CE7.svg)](extension/manifest.json)
 [![Node ≥ 20.11](https://img.shields.io/badge/Node-%E2%89%A5%2020.11-6C5CE7.svg)](server/package.json)
-[![Protocol v1.5](https://img.shields.io/badge/Protocol-v1.5-6C5CE7.svg)](PROTOCOL.md)
+[![Protocol v1.6](https://img.shields.io/badge/Protocol-v1.6-6C5CE7.svg)](PROTOCOL.md)
 
 [English](README.md) · **简体中文**
 
@@ -34,6 +34,7 @@
 - [安装](#安装)
 - [选中即问](#选中即问)
 - [页面标注](#页面标注)
+- [检查页面](#检查页面)
 - [Tab、文件与语音](#tab文件与语音)
 - [选模型](#选模型)
 - [API key](#用-api-key-代替-cli)
@@ -57,6 +58,7 @@
 | **选中内容自动补上下文** — 语义化 DOM 路径、最近章节标题、±800 字符上下文、所在 `<pre>`/代码块（含语言识别）、表格表头+当前行渲染为 markdown → `context.selection`（协议 v1.4） | — | ✓ |
 | **页面标注** — `annotate`/`annotations_list`/`annotate_reply`/`annotate_clear` 工具；下划线、荧光笔、圈选引用文本；每条标注的评论卡片跑自己的会话（协议 v1.5） | — | ✓ |
 | **主动共读标注** — 可选 `proactiveAnnotation` 配置：每页跑一轮后台 pass，标记疑难段落并附原因 | — | ✓ |
+| **先观察再驱动** — BBX 式结构化读取（`dom_inspect`、`console_log`、`network_log` + 脱敏 HAR、`a11y_tree`、弹窗处理）与可逆实时补丁（`patch_apply`/`patch_revert`）（协议 v1.6） | — | ✓ |
 | **禁止静默 catch** — 每个 catch 必须按影响分级记日志或向上抛出 | — | ✓ |
 
 > 致谢上游：侧边栏 ↔ hub ↔ 适配器的整体架构、最初的十个浏览器工具、
@@ -180,6 +182,24 @@ Agent 能完整看到这些信息，所以「解释一下这个」「这个正�
 `annotations_list` 返回某个标签页上所有标注与评论串——方便让它生成
 「我们在这页留下的所有批注」摘要；`annotate_clear` 删除单条或全部
 标注。
+
+## 检查页面
+
+*先观察、再驱动* —— BBX 式结构化读取让 Agent 基于真实页面状态工作，
+而不是截图；另有可逆的实时补丁，先在页面上"证明"改动效果再动源码
+（协议 v1.6）。
+
+| 工具 | 返回 |
+|---|---|
+| `dom_inspect` | 匹配 CSS 选择器的元素：tag、id、class、全部属性、文本、包围盒、计算样式——不整页 dump |
+| `console_log` | console 调用、未捕获异常、浏览器日志的环形缓冲区，可按级别过滤 |
+| `network_log` | 最近请求的方法/状态/mimeType/耗时/大小；`har:true` 导出脱敏的 HAR 1.2（凭据类 header 一律剔除） |
+| `a11y_tree` | 页面无障碍树（role + name + depth），不可用时回退为 DOM 语义大纲 |
+| `dialog_list` / `dialog_respond` | debugger 附着期间拦截 alert/confirm/prompt：可列出、可应答、约 5 秒未应答自动取消（避免页面卡死） |
+| `patch_apply` / `patch_revert` | 实时改 CSS/属性/HTML/删元素并快照 outerHTML，按元素逐项还原 |
+
+采集是惰性的：第一次调用才在已附着的 debugger 会话上开启对应 CDP
+域；缓冲区随导航重置，全程无需打开 DevTools。
 
 ## Tab、文件与语音
 
@@ -330,6 +350,14 @@ tools = await client.get_tools()
 | `type_text` | `{text, tabId?}` | `{typed:<字符数>}`（插入当前聚焦元素） |
 | `press_key` | `{key, tabId?}` | `{pressed:key}`（如 "Enter"、"Escape"、"Meta+A"） |
 | `eval_js` | `{expression, tabId?}` | `{value}` |
+| `dom_inspect` | `{selector, all?, styles?, max?, tabId?}` | `{selector, matched, elements:[...]}` |
+| `console_log` | `{level?, limit?, clear?, tabId?}` | `{entries:[{ts,level,source,text,url}]}` |
+| `network_log` | `{filter?, includeHeaders?, har?, limit?, clear?, tabId?}` | `{entries:[...], har?}`（凭据类 header 一律剔除） |
+| `a11y_tree` | `{maxDepth?, tabId?}` | `{source, nodes:[{role,name,depth,...}]}` |
+| `dialog_list` | `{tabId?}` | `{dialogs:[{type,message,url,ts,status}]}` |
+| `dialog_respond` | `{accept, promptText?, tabId?}` | `{handled, ...}` |
+| `patch_apply` | `{patches:[{selector,styles?,attributes?,insertAdjacentHTML?,remove?}], label?, tabId?}` | `{patchId, applied, results}` |
+| `patch_revert` | `{patchId, tabId?}` | `{patchId, reverted, missing}` |
 
 省略 `tabId` 即当前活动标签页。service worker 按需 attach
 debugger，每个标签页串行执行命令，被 Chrome 断开后自动重连。
