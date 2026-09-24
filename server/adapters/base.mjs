@@ -49,8 +49,8 @@ const registry = {
   'openai-api': apiOpenAi.createOpenAiApiSession
 };
 
-// Per-turn spawn adapters (codex, opencode, copilot, grok, agy, gemini),
-// all driven by the preset table in generic-cli.mjs.
+// Per-turn spawn adapters (codex, opencode, copilot, grok, agy, gemini,
+// devin), all driven by the preset table in generic-cli.mjs.
 for (const name of GENERIC_CLI_NAMES) {
   registry[name] = (ctx) => createGenericCliSession(name, ctx);
 }
@@ -66,7 +66,7 @@ const CLAUDE_MODELS = [
 ];
 
 // Descriptors for the adapter modules this file does not own (they have no
-// DESCRIPTOR export yet). `models: []` on the six generic-CLI adapters is
+// DESCRIPTOR export yet). `models: []` on the seven generic-CLI adapters is
 // deliberate: none of the presets in generic-cli.mjs passes a --model/-m flag
 // today, and PROTOCOL v1.2 allows an empty list for adapters with no model
 // switch. Fill these in when that plumbing lands.
@@ -88,7 +88,8 @@ const FALLBACK_DESCRIPTORS = {
   copilot: { label: 'GitHub Copilot CLI', models: [], defaultModel: null, provider: null },
   grok: { label: 'Grok CLI', models: [], defaultModel: null, provider: null },
   agy: { label: 'Antigravity CLI', models: [], defaultModel: null, provider: null },
-  gemini: { label: 'Gemini CLI', models: [], defaultModel: null, provider: null }
+  gemini: { label: 'Gemini CLI', models: [], defaultModel: null, provider: null },
+  devin: { label: 'Devin CLI', models: [], defaultModel: null, provider: null }
 };
 
 const modules = {
@@ -101,7 +102,7 @@ for (const name of GENERIC_CLI_NAMES) modules[name] = genericCli;
 
 function descriptorFor(name) {
   const mod = modules[name];
-  // generic-cli.mjs backs six adapters from one module, so a DESCRIPTOR there
+  // generic-cli.mjs backs seven adapters from one module, so a DESCRIPTOR there
   // could not be per-adapter — those always use the fallback table.
   const exported = mod && !GENERIC_CLI_NAMES.includes(name) ? mod.DESCRIPTOR : null;
   const descriptor = exported || FALLBACK_DESCRIPTORS[name] || {};

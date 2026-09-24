@@ -580,6 +580,44 @@ export const HARNESSES = {
         }
       }
     }
+  },
+
+  // Cognition Devin CLI. Plain stdout from -p; conversation memory via -c,
+  // which resumes the most recent session in the cwd — the per-chat temp dir
+  // makes that unambiguous. MCP via a generated .devin/mcp_config.json in that
+  // same dir (project-scope config since v3000.3).
+  // --respect-workspace-trust false: -p cannot show the trust prompt and would
+  // fail outright in the fresh temp dir. --permission-mode dangerous is the
+  // same class of bypass flag every other preset uses; without it, browser
+  // tool calls would sit waiting for a confirmation nobody can give.
+  devin: {
+    bin: 'devin',
+    stream: false,
+    sessionMode: 'deterministic',
+    runInTempDir: true,
+    setup(state) {
+      state.tempDir = mkdtempSync(path.join(os.tmpdir(), 'agentchat-devin-'));
+      const dir = path.join(state.tempDir, '.devin');
+      mkdirSync(dir, { recursive: true });
+      const server = { command: 'node', args: [MCP_PROXY_PATH] };
+      if (state.port) server.env = { AGENTCHAT_PORT: state.port };
+      writeFileSync(
+        path.join(dir, 'mcp_config.json'),
+        JSON.stringify({ mcpServers: { browser: server } }, null, 2) + '\n'
+      );
+    },
+    buildArgs(prompt, state) {
+      const args = [
+        '-p', prompt,
+        '--respect-workspace-trust', 'false',
+        '--permission-mode', 'dangerous'
+      ];
+      if (state.turnCount > 1) args.push('-c');
+      return args;
+    },
+    parseOutput(text, state, emit) {
+      emitPlainReply(text, emit);
+    }
   }
 };
 

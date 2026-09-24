@@ -41,7 +41,7 @@ agentchat/
       keystore.mjs         (server-adapters)   ~/.agentchat/keys.json reader/writer
       claude-agent-sdk.mjs (server-adapters)
       claude-cli.mjs       (server-adapters)
-      generic-cli.mjs      (server-adapters)   per-turn spawn adapters: codex, opencode, copilot, grok, agy, gemini
+      generic-cli.mjs      (server-adapters)   per-turn spawn adapters: codex, opencode, copilot, grok, agy, gemini, devin
       api-anthropic.mjs    (server-adapters)   direct API adapter, needs an anthropic key
       api-openai.mjs       (server-adapters)   direct API adapter, needs an openai key
 ```
@@ -114,7 +114,7 @@ Chat (extension -> hub, streamed events back):
    attachments: [{name:<string>, mimeType:<string>, base64:<string>}, ...] | undefined}
   ```
   `adapter` optional; default from config.json; names: claude-agent-sdk,
-  claude-cli, codex, opencode, copilot, grok, agy, gemini, anthropic-api,
+  claude-cli, codex, opencode, copilot, grok, agy, gemini, devin, anthropic-api,
   openai-api. `model` is optional (v1.2). `context` and `attachments` are
   optional (v1.1); a v1 chat with none of the three behaves exactly as before.
   See "Chat message, v1.1" below for the file and prompt rules.

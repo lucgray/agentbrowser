@@ -208,7 +208,7 @@ API 适配器拿到的十个浏览器工具与 CLI 适配器相同，所以「�
 | `openai-api` | OpenAI API | 按 chat | 需要 API key，无需 CLI |
 
 <details>
-<summary><b>另外六个 CLI</b> — 由 <code>server/adapters/generic-cli.mjs</code> 统一包装：每轮起一个进程，轮次间恢复 CLI 自己的会话，浏览器工具经 <code>mcp-proxy.mjs</code> 接入</summary>
+<summary><b>另外七个 CLI</b> — 由 <code>server/adapters/generic-cli.mjs</code> 统一包装：每轮起一个进程，轮次间恢复 CLI 自己的会话，浏览器工具经 <code>mcp-proxy.mjs</code> 接入</summary>
 
 | 适配器 | 启动命令 | 续接方式 | MCP 接入 |
 |---|---|---|---|
@@ -218,6 +218,7 @@ API 适配器拿到的十个浏览器工具与 CLI 适配器相同，所以「�
 | `grok` | `grok -p ... --output-format json` | `--resume <sessionId>` | 临时 cwd 生成 `.grok/config.toml` |
 | `agy` | `agy -p ...` | `--conversation <id>`（首轮后比对会话目录拿 id，失败回退 `-c`） | 只在全局 `~/.gemini/config/mcp_config.json` 注册一次（merge-only） |
 | `gemini` | `gemini -p ... -o stream-json` | `-r <session_id>` | 临时 cwd 生成 `.gemini/settings.json`；其他 server 用 `--allowed-mcp-server-names browser` 排除 |
+| `devin` | `devin -p <prompt> --respect-workspace-trust false --permission-mode dangerous` | 在 chat 专属临时 cwd 里 `-c`（会话按 cwd 划分） | 临时 cwd 生成 `.devin/mcp_config.json` |
 
 每个 CLI 都在你的 `PATH` 上查找。路径特殊的话用
 `AGENTCHAT_BIN_<NAME>` 指定绝对路径，例如
