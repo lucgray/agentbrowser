@@ -1,4 +1,4 @@
-# AgentBrowser protocol v1.7
+# AgentBrowser protocol v1.8
 
 AgentBrowser is a Chrome MV3 extension with a side-panel chat UI, plus a local hub
 server. The chat is backed by a pluggable "harness" (Claude Agent SDK, Claude
@@ -149,6 +149,11 @@ Chat (extension -> hub, streamed events back):
   server-scope slash command. Answered on the same `chat_event` stream.
 - panel -> hub: `{type:"set_key", provider, key}` and
   `{type:"get_capabilities"}` (v1.2, see below).
+- panel -> hub, v1.8: `{type:"chat_list"}` ->
+  `{type:"chat_list", chats:[{chatId,title,adapter,model,updatedAt,msgs,live}, ...]}`
+  and `{type:"chat_resume", chatId}` ->
+  `{type:"chat_resumed", chatId, found, live, adapter, model, title, msgs:[{role,text}, ...]}`.
+  See "Chat history, v1.8".
 - hub -> extension, once per extension hello and after every key change:
   `{type:"capabilities", adapters:[...], commands:[...]}` (v1.2, `commands` v1.3,
   see below).
@@ -690,6 +695,22 @@ Pages where the content script cannot run (chrome://, the Web Store, PDFs)
 fall back to a system notification (Allow once / Deny only — no domain
 grant). Denials and timeouts return `{ok:false, error:"denied by user: <tool>"}`
 to the caller.
+
+## Chat history, v1.8
+
+The hub journals every chat to `~/.agentchat/chats/<chatId>.json` (dir 0700,
+file 0600): `{chatId, title, adapter, model, createdAt, updatedAt,
+msgs:[{role:"user"|"assistant", text}]}`. `title` is the first user message,
+truncated. Assistant text is the turn's accumulated `token` events; tool
+chips, status and meta lines are not journaled. Writes happen on each turn's
+`done`, so a killed or aborted turn still records its partial reply.
+
+`chat_list` returns summaries newest-first (capped at 50), merging the
+on-disk archive with anything still in memory. `live` is true when the
+chatId's adapter session is still registered — resuming a live chat
+continues the same conversation (the extension re-registers the chatId and
+its `chat_event` stream flows to whoever reopened it). Resuming a dead chat
+returns the transcript for a read-only view.
 
 ## Proactive annotation, v1.5
 

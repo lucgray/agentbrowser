@@ -413,6 +413,8 @@ function handleHubMessage(payload) {
     // without waiting for the round trip its own get_capabilities makes.
     lastCapabilities = payload;
     postToPanel(payload);
+  } else if (payload.type === 'chat_list' || payload.type === 'chat_resumed') {
+    postToPanel(payload);
   }
 }
 
@@ -467,10 +469,16 @@ chrome.runtime.onConnect.addListener((port) => {
       // Verbatim, every field: picking fields out would drop model, context
       // and attachments.
       sendToOffscreen({ target: 'offscreen', cmd: 'send', payload: msg });
+    } else if (msg.type === 'chat_resume') {
+      // Register the resumed chatId so its chat_events reach the panel: a live
+      // chat keeps streaming to whoever re-opened it.
+      if (msg.chatId) panelChatIds.add(msg.chatId);
+      sendToOffscreen({ target: 'offscreen', cmd: 'send', payload: msg });
     } else if (
       msg.type === 'chat_abort' ||
       msg.type === 'set_key' ||
-      msg.type === 'get_capabilities'
+      msg.type === 'get_capabilities' ||
+      msg.type === 'chat_list'
     ) {
       sendToOffscreen({ target: 'offscreen', cmd: 'send', payload: msg });
     }

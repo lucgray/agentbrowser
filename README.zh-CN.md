@@ -10,7 +10,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-6C5CE7.svg)](LICENSE)
 [![Chrome MV3](https://img.shields.io/badge/Chrome-MV3-6C5CE7.svg)](extension/manifest.json)
 [![Node ≥ 20.11](https://img.shields.io/badge/Node-%E2%89%A5%2020.11-6C5CE7.svg)](server/package.json)
-[![Protocol v1.6](https://img.shields.io/badge/Protocol-v1.6-6C5CE7.svg)](PROTOCOL.md)
+[![Protocol v1.8](https://img.shields.io/badge/Protocol-v1.8-6C5CE7.svg)](PROTOCOL.md)
 
 [English](README.md) · **简体中文**
 
@@ -61,6 +61,7 @@
 | **先观察再驱动** — BBX 式结构化读取（`dom_inspect`、`console_log`、`network_log` + 脱敏 HAR、`a11y_tree`、弹窗处理）与可逆实时补丁（`patch_apply`/`patch_revert`）（协议 v1.6） | — | ✓ |
 | **免 MCP 的 Skill + CLI 接入** — `agentbrowser <tool> '<json>'` 命令行 + SKILL.md 安装器，给不支持 MCP 的 Agent 用 | — | ✓ |
 | **同意门 + 元素级点击** — `permissions` 配置让敏感工具执行前必须经你确认（页内确认卡或系统通知）；`click_element {selector}` 直接点元素（协议 v1.7） | — | ✓ |
+| **服务端聊天历史** — 每轮会话落盘到 `~/.agentchat/chats/`；头部居中的会话下拉列出历史对话，活着的会话可续聊，已断开的只读回放（协议 v1.8） | — | ✓ |
 | **禁止静默 catch** — 每个 catch 必须按影响分级记日志或向上抛出 | — | ✓ |
 
 > 致谢上游：侧边栏 ↔ hub ↔ 适配器的整体架构、最初的十个浏览器工具、

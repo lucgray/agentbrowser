@@ -58,6 +58,11 @@ A `catch` that also takes a fallback branch still logs first — logged fallback
 
 Add a `## protocol vX.Y` section to `PROTOCOL.md` whenever the wire shape changes (e.g. v1.4 added `context.selection`).
 
+### Chat state (adopted 2026-09)
+
+- Transcripts live on the hub, journaled to `~/.agentchat/chats/<chatId>.json` on each turn's `done`. The panel never stores history; it lists and re-opens chats via `chat_list`/`chat_resume` (v1.8).
+- A chat is "live" only while its adapter session is registered in the hub; dead chats render read-only in the panel and a send detaches into a fresh chatId.
+
 ### Branch management (adopted 2026-09)
 
 - One branch per PR, named `devin/<unix-ts>-<slug>` for agent sessions (the timestamp sorts chronologically; the slug names the change). Human work uses short `<topic>` names.

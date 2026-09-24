@@ -650,12 +650,11 @@ export function buildSetKeyMessage(provider, key) {
 
 function init() {
   const statusDot = document.getElementById("status-dot");
-  const adapterSelect = document.getElementById("adapter");
-  const modelSelect = document.getElementById("model");
+  const backendSelect = document.getElementById("backend");
   const settingsBtn = document.getElementById("settings-btn");
   const settingsView = document.getElementById("settings-view");
   const settingsClose = document.getElementById("settings-close");
-  const newChatBtn = document.getElementById("new-chat");
+  const chatSwitcher = document.getElementById("chat-switcher");
   const banner = document.getElementById("banner");
   const messagesEl = document.getElementById("messages");
   const composerEl = document.getElementById("composer");
@@ -697,6 +696,8 @@ function init() {
   let connected = false;
   let chatId = crypto.randomUUID();
   let streaming = false;
+  let archived = false; // viewing a dead transcript: a send starts a new chat
+  let knownChats = []; // last chat_list the hub sent
   let assistantEl = null; // current streaming assistant block
   let pendingChips = []; // [{tool, statusEl, chipEl}] awaiting tool_result
   let retryBtn = null; // the one "Retry" button under a failed turn, if any
@@ -717,6 +718,8 @@ function init() {
   let commands = []; // capabilities: [{name,args,summary,scope}] from the hub
   let prefAdapter = null; // remembered choices from chrome.storage.local
   let prefModel = null;
+  let selAdapter = ""; // current adapter name
+  let selModel = null; // current model id, or null when the adapter has none
   let keyState = { anthropic: false, openai: false };
 
   let currentTab = null; // {tabId,url,title} or null
@@ -761,6 +764,7 @@ function init() {
       setTimeout(connectPort, 500);
     });
     postToHub({ type: "get_capabilities" });
+    postToHub({ type: "chat_list" });
   }
 
   // One send path for everything that is not a chat turn, so a dead Port never
@@ -792,14 +796,82 @@ function init() {
     } else if (msg.type === "chat_event") {
       if (msg.chatId !== chatId) return; // stale conversation
       handleChatEvent(msg.event || {});
+    } else if (msg.type === "chat_list") {
+      knownChats = Array.isArray(msg.chats) ? msg.chats : [];
+      renderSwitcher();
+    } else if (msg.type === "chat_resumed") {
+      if (msg.found) {
+        loadChat(msg);
+      } else {
+        // Gone between list and resume — drop it and re-sync the dropdown.
+        knownChats = knownChats.filter((c) => c.chatId !== msg.chatId);
+        renderSwitcher();
+        requestChatList();
+        showComposerError("that conversation is gone from the hub");
+      }
     }
   }
 
-  // ----- capabilities, model picker, stored preferences -----
-
-  function optionValues(select) {
-    return [...select.children].map((o) => o.value);
+  function requestChatList() {
+    postToHub({ type: "chat_list" });
   }
+
+  // One dropdown for history + new chat, centered in the header. The current
+  // conversation renders as "New chat" until the hub knows it.
+  function renderSwitcher() {
+    if (!chatSwitcher) return;
+    const opts = [makeOption("__new__", "+ New chat")];
+    const current = knownChats.find((c) => c.chatId === chatId);
+    if (!current) opts.push(makeOption(chatId, "New chat"));
+    for (const c of knownChats) {
+      const title = String(c.title || "(untitled)").slice(0, 40);
+      opts.push(makeOption(c.chatId, c.live ? title + " (live)" : title));
+    }
+    chatSwitcher.replaceChildren(...opts);
+    chatSwitcher.value = chatId;
+  }
+
+  // Re-open a conversation the hub still has a transcript for. live === the
+  // adapter session survived (hub uptime), so the chat continues where it left
+  // off; dead sessions render read-only and a send detaches into a fresh chat.
+  function loadChat(msg) {
+    resetChatState(msg.chatId);
+    archived = !msg.live;
+    for (const m of msg.msgs || []) {
+      if (m.role === "user") addUserMessage(String(m.text || ""), null, null);
+      else if (m.role === "assistant") addArchiveAssistant(String(m.text || ""));
+    }
+    addLine(
+      "system",
+      archived
+        ? "Archived conversation — sending a message starts a new chat."
+        : "Resumed live conversation."
+    );
+    if (msg.adapter && adapters.some((a) => a.name === msg.adapter)) {
+      selAdapter = msg.adapter;
+    }
+    renderBackendSelect(msg.model || undefined);
+    renderSwitcher();
+    inputEl.focus();
+  }
+
+  // Static assistant bubble for transcripts: markdown rendered once, no
+  // streaming, no meta, no action row.
+  function addArchiveAssistant(text) {
+    const el = document.createElement("div");
+    el.className = "msg assistant";
+    try {
+      el.appendChild(renderMarkdown(text));
+    } catch (err) {
+      console.warn("[agentbrowser] archive markdown render failed", err);
+      el.classList.add("raw");
+      el.textContent = text;
+    }
+    messagesEl.appendChild(el);
+    scrollToBottom();
+  }
+
+  // ----- capabilities, model picker, stored preferences -----
 
   function makeOption(value, label) {
     const o = document.createElement("option");
@@ -815,44 +887,97 @@ function init() {
     adapters = list;
     commands = normalizeCommands(commandList);
     if (palette) updatePalette();
-    if (adapters.length) {
-      const want = adapterSelect.value || prefAdapter;
-      adapterSelect.replaceChildren(
-        ...adapters.map((a) => makeOption(a.name, a.label || a.name))
-      );
-      const names = adapters.map((a) => a.name);
-      // A select silently keeps "" when the value matches no option, so the
-      // fallback has to be explicit.
-      const pick = names.includes(want) ? want : names.includes(prefAdapter) ? prefAdapter : names[0];
-      adapterSelect.value = pick;
-      if (adapterSelect.value !== pick) adapterSelect.value = names[0];
-    }
-    renderModelSelect();
+    renderBackendSelect();
     keyState = keyStateFromCapabilities(adapters);
     renderKeyState();
   }
 
-  // preferred wins over what the dropdown currently holds: capabilities can
-  // land before chrome.storage does, and the remembered model has to survive
-  // that race.
-  function renderModelSelect(preferred) {
-    const { models } = modelsFor(adapters, adapterSelect.value);
-    if (models.length === 0) {
-      modelSelect.replaceChildren();
-      modelSelect.hidden = true;
+  // The merged backend picker encodes "adapter::model" in each option value
+  // ("adapter::" when the adapter has no model switch). Adapters with models
+  // render as an optgroup of their models; adapters without render flat.
+  function backendValue(adapter, model) {
+    return adapter + "::" + (model || "");
+  }
+
+  // Canvas text measure: sizes the merged picker to the selected label's
+  // real width instead of the widest option's, so no dead space opens up
+  // between the text and the arrow. Lazily built — environments without a
+  // canvas implementation just keep the select's natural width.
+  let backendMeasure = null;
+  let backendMeasureTried = false;
+  function fitBackendWidth() {
+    const opt = backendSelect.selectedOptions && backendSelect.selectedOptions[0];
+    if (!opt) {
+      backendSelect.style.width = "";
       return;
     }
-    const want = pickModel(adapters, adapterSelect.value, preferred || modelSelect.value || prefModel);
-    modelSelect.replaceChildren(...models.map((m) => makeOption(m.id, m.label || m.id)));
-    modelSelect.value = want;
-    if (modelSelect.value !== want) modelSelect.value = models[0].id;
-    modelSelect.hidden = false;
+    if (!backendMeasureTried) {
+      backendMeasureTried = true;
+      const canvas = document.createElement("canvas");
+      if (canvas && typeof canvas.getContext === "function") {
+        backendMeasure = canvas.getContext("2d");
+      }
+    }
+    if (!backendMeasure) {
+      backendSelect.style.width = "";
+      return;
+    }
+    backendMeasure.font = getComputedStyle(backendSelect).font;
+    const w = Math.ceil(backendMeasure.measureText(opt.textContent).width);
+    // 8px left padding + 22px right padding for the chevron, capped.
+    backendSelect.style.width = Math.min(w + 30, 200) + "px";
+  }
+
+  function renderBackendSelect(preferredModel) {
+    backendSelect.replaceChildren();
+    const flat = [];
+    for (const a of adapters) {
+      const { models } = modelsFor(adapters, a.name);
+      if (models.length === 0) {
+        backendSelect.appendChild(makeOption(backendValue(a.name), a.label || a.name));
+        flat.push({ adapter: a.name, model: null });
+      } else {
+        const group = document.createElement("optgroup");
+        group.label = a.label || a.name;
+        for (const m of models) {
+          group.appendChild(makeOption(backendValue(a.name, m.id), m.label || m.id));
+        }
+        backendSelect.appendChild(group);
+        for (const m of models) flat.push({ adapter: a.name, model: m.id });
+      }
+    }
+    // Keep the current adapter when it still exists; otherwise the remembered
+    // one, otherwise the first entry. A select silently keeps "" when the
+    // value matches no option, so the fallback has to be explicit.
+    const have = (n) => adapters.some((a) => a && a.name === n);
+    selAdapter = have(selAdapter) ? selAdapter : have(prefAdapter) ? prefAdapter : (flat[0] ? flat[0].adapter : "");
+    selModel = pickModel(adapters, selAdapter, preferredModel || selModel || prefModel);
+    if (flat.length === 0) {
+      // No capabilities yet (or a hub that lists none): keep the control
+      // visible but disabled so the composer row does not jump when the
+      // real list lands.
+      backendSelect.appendChild(makeOption("", "No adapters"));
+      backendSelect.value = "";
+      backendSelect.disabled = true;
+      backendSelect.title = "No adapters — waiting for capabilities";
+      fitBackendWidth();
+      return;
+    }
+    backendSelect.disabled = false;
+    const want = backendValue(selAdapter, selModel);
+    backendSelect.value = want;
+    if (backendSelect.value !== want) backendSelect.value = flat[0] ? backendValue(flat[0].adapter, flat[0].model) : "";
+    // The collapsed text shows only the short label; the tooltip carries the
+    // full "adapter · model" identity.
+    const selA = adapterEntry(adapters, selAdapter);
+    backendSelect.title = (selA && (selA.label || selA.name) || selAdapter) + (selModel ? " · " + selModel : "");
+    fitBackendWidth();
   }
 
   // The model that rides on the next chat message, or undefined for "adapter
-  // default" (the picker is hidden when the adapter has no model switch).
+  // default" (selModel stays null when the adapter has no model switch).
   function currentModel() {
-    return modelSelect.hidden ? undefined : modelSelect.value || undefined;
+    return selModel || undefined;
   }
 
   function storage() {
@@ -874,11 +999,8 @@ function init() {
         if (!v || typeof v !== "object") return;
         if (typeof v.adapter === "string" && v.adapter) prefAdapter = v.adapter;
         if (typeof v.model === "string" && v.model) prefModel = v.model;
-        // Only restore a choice the dropdown can actually hold.
-        if (prefAdapter && optionValues(adapterSelect).includes(prefAdapter)) {
-          adapterSelect.value = prefAdapter;
-        }
-        renderModelSelect(prefModel);
+        // renderBackendSelect restores only choices the list can still hold.
+        renderBackendSelect(prefModel);
       })
       .catch((err) => console.warn("[agentbrowser] prefs restore failed", err));
   }
@@ -887,7 +1009,7 @@ function init() {
     const store = storage();
     if (!store) return;
     try {
-      const out = { adapter: adapterSelect.value };
+      const out = { adapter: selAdapter };
       const model = currentModel();
       // An adapter with no model switch leaves the remembered model alone, so
       // a detour through one does not forget it.
@@ -1810,6 +1932,7 @@ function init() {
         failPendingChips("");
         finishTurn();
         endStreaming();
+        requestChatList(); // the turn just journaled itself on the hub
         break;
       default:
         break;
@@ -2376,29 +2499,26 @@ function init() {
     return true;
   }
 
-  // A select the user drove from the composer instead of the dropdown.
-  function pickFromSelect(select, args, what) {
-    if (select.hidden) {
-      addLine("info", "this adapter has no " + what + " switch");
-      return;
-    }
-    const values = optionValues(select);
+  // The shared match-and-apply core for /adapter and /model: resolve the
+  // typed fragment against the option list, apply it, re-render the merged
+  // picker, persist.
+  function pickBackend(options, current, args, what, apply) {
     const want = String(args || "").trim();
     if (!want) {
-      addLine("info", what + ": " + select.value + " (" + values.join(", ") + ")");
-      select.focus();
+      addLine("info", what + ": " + current + " (" + options.join(", ") + ")");
+      backendSelect.focus();
       return;
     }
     const lower = want.toLowerCase();
     const hit =
-      values.find((v) => v.toLowerCase() === lower) ||
-      values.find((v) => v.toLowerCase().includes(lower));
+      options.find((v) => v.toLowerCase() === lower) ||
+      options.find((v) => v.toLowerCase().includes(lower));
     if (!hit) {
       addLine("error", 'no ' + what + ' matching "' + want + '"');
       return;
     }
-    select.value = hit;
-    if (select === adapterSelect) renderModelSelect();
+    apply(hit);
+    renderBackendSelect();
     savePrefs();
     addLine("info", what + " set to " + hit);
   }
@@ -2413,8 +2533,20 @@ function init() {
       else addLine("info", "nothing is running");
     },
     keys: () => setSettingsOpen(true),
-    model: (args) => pickFromSelect(modelSelect, args, "model"),
-    adapter: (args) => pickFromSelect(adapterSelect, args, "adapter"),
+    model: (args) => {
+      const { models } = modelsFor(adapters, selAdapter);
+      if (models.length === 0) {
+        addLine("info", "this adapter has no model switch");
+        return;
+      }
+      pickBackend(models.map((m) => m.id), selModel || "", args, "model", (hit) => {
+        selModel = hit;
+      });
+    },
+    adapter: (args) =>
+      pickBackend(adapters.map((a) => a.name), selAdapter, args, "adapter", (hit) => {
+        selAdapter = hit;
+      }),
   };
 
   function runClientCommand(plan) {
@@ -2433,7 +2565,7 @@ function init() {
       chatId,
       name: plan.name,
       args: plan.args,
-      adapter: adapterSelect.value,
+      adapter: selAdapter,
       model: currentModel(),
       currentTab: currentTabOff ? null : currentTab,
       taggedTabs,
@@ -2470,10 +2602,12 @@ function init() {
       return;
     }
 
+    if (archived) newChat(); // a dead transcript cannot take a reply
+
     const msg = buildChatMessage({
       chatId,
       text,
-      adapter: adapterSelect.value,
+      adapter: selAdapter,
       model: currentModel(),
       currentTab: currentTabOff ? null : currentTab,
       taggedTabs,
@@ -2497,9 +2631,10 @@ function init() {
     // Keep the abort button until the hub confirms with done/error.
   }
 
-  function newChat() {
+  function resetChatState(id) {
     if (streaming) abortChat(); // best-effort cancel of the old conversation
-    chatId = crypto.randomUUID();
+    chatId = id;
+    archived = false;
     messagesEl.textContent = "";
     assistantEl = null;
     pendingChips = [];
@@ -2532,6 +2667,11 @@ function init() {
     renderChips();
     autoGrow();
     updateControls();
+  }
+
+  function newChat() {
+    resetChatState(crypto.randomUUID());
+    renderSwitcher();
     inputEl.focus();
   }
 
@@ -2639,13 +2779,30 @@ function init() {
 
   sendBtn.addEventListener("click", sendMessage);
   abortBtn.addEventListener("click", abortChat);
-  newChatBtn.addEventListener("click", newChat);
+  chatSwitcher.addEventListener("change", () => {
+    const v = chatSwitcher.value;
+    if (v === "__new__") {
+      newChat();
+    } else if (v && v !== chatId) {
+      postToHub({ type: "chat_resume", chatId: v });
+    }
+  });
+  // The list refreshes when the user reaches for it, not on every render:
+  // opening the dropdown must not be stale, and a client command like /clear
+  // stays off the wire entirely.
+  chatSwitcher.addEventListener("mousedown", requestChatList);
+  chatSwitcher.addEventListener("focus", requestChatList);
 
-  adapterSelect.addEventListener("change", () => {
-    renderModelSelect();
+  backendSelect.addEventListener("change", () => {
+    const v = String(backendSelect.value);
+    const sep = v.indexOf("::");
+    if (sep > 0) {
+      selAdapter = v.slice(0, sep);
+      selModel = v.slice(sep + 2) || null;
+    }
+    renderBackendSelect(); // refreshes the tooltip and normalizes the value
     savePrefs();
   });
-  modelSelect.addEventListener("change", savePrefs);
 
   settingsBtn.addEventListener("click", () => setSettingsOpen(settingsView.hidden));
   settingsClose.addEventListener("click", () => setSettingsOpen(false));
