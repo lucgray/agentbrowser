@@ -7,7 +7,7 @@
 // hand it this file's already-initialised copy.
 import assert from "node:assert/strict";
 
-const SIDEPANEL = new URL("sidepanel.js", import.meta.url).href;
+const SIDEPANEL = new URL("../../extension/sidepanel.js", import.meta.url).href;
 
 // --- the smallest DOM init() can run against ---------------------------------
 

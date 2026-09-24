@@ -15,8 +15,8 @@
   },
   "scripts": {
     "start": "node hub.mjs",
-    "test": "node --test pricing.test.mjs api-adapters.test.mjs protocol-v13.test.mjs",
-    "test:e2e": "node --test hub-e2e.test.mjs",
+    "test": "node --test ../tests/server/pricing.test.mjs ../tests/server/api-adapters.test.mjs ../tests/server/protocol-v13.test.mjs",
+    "test:e2e": "node --test ../tests/server/hub-e2e.test.mjs",
     "smoke": "node smoke.mjs",
     "cli": "node agentbrowser-cli.mjs",
     "install-skill": "node install-skill.mjs"

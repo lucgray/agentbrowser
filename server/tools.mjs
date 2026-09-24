@@ -83,12 +83,27 @@ export const TOOLS = [
     }
   },
   {
+    name: "click_element",
+    description: "Click the first element matching a CSS selector: scrolls it into view, resolves its center, then performs a trusted CDP mouse click. Optional dx/dy offset the point. Returns {clicked:true, selector, tag}.",
+    args: {
+      type: "object",
+      properties: {
+        selector: { type: "string", description: "CSS selector of the element to click" },
+        dx: { type: "number", description: "X offset from the element center (default 0)" },
+        dy: { type: "number", description: "Y offset from the element center (default 0)" },
+        tabId: { type: "number", description: "Target tab id; omit for the active tab" }
+      },
+      required: ["selector"]
+    }
+  },
+  {
     name: "type_text",
-    description: "Type text into the focused element via CDP Input.insertText (trusted input, works in rich editors). Returns {typed:<charcount>}.",
+    description: "Type text into the focused element via CDP Input.insertText (trusted input, works in rich editors). Pass selector to click-focus that element first. Returns {typed:<charcount>}.",
     args: {
       type: "object",
       properties: {
         text: { type: "string", description: "Text to insert at the caret" },
+        selector: { type: "string", description: "Optional CSS selector; the element is clicked first to focus it" },
         tabId: { type: "number", description: "Target tab id; omit for the active tab" }
       },
       required: ["text"]

@@ -241,9 +241,43 @@ export async function click(tabId, x, y) {
   return { clicked: true };
 }
 
-export async function typeText(tabId, text) {
+// Center of the first element matching `selector`, scrolled into view first so
+// the point lands inside the visual viewport. Shared by click_element and
+// type_text's optional selector focus. {dx,dy} offsets from the center.
+async function elementCenter(tabId, selector, dx = 0, dy = 0) {
+  const res = await sendCommand(tabId, 'Runtime.evaluate', {
+    expression: `(() => {
+      const el = document.querySelector(${JSON.stringify(String(selector))});
+      if (!el) return { found: false };
+      el.scrollIntoView({ block: 'center', inline: 'center' });
+      const r = el.getBoundingClientRect();
+      return { found: true, x: r.left + r.width / 2, y: r.top + r.height / 2,
+               tag: el.tagName.toLowerCase() };
+    })()`,
+    returnByValue: true,
+  });
+  const v = res.result && res.result.value;
+  if (!v || !v.found) throw new Error(`no element matches selector: ${selector}`);
+  return { x: v.x + dx, y: v.y + dy, tag: v.tag };
+}
+
+export async function clickElement(tabId, selector, dx = 0, dy = 0) {
+  const center = await elementCenter(tabId, selector, dx, dy);
+  flashOverlay(tabId, 'click', { x: Math.round(center.x), y: Math.round(center.y) });
+  const base = { x: center.x, y: center.y, button: 'left', clickCount: 1 };
+  await sendCommand(tabId, 'Input.dispatchMouseEvent', { type: 'mousePressed', ...base });
+  await sendCommand(tabId, 'Input.dispatchMouseEvent', { type: 'mouseReleased', ...base });
+  return { clicked: true, selector, tag: center.tag };
+}
+
+export async function typeText(tabId, text, selector) {
   const value = String(text ?? '');
   flashOverlay(tabId, 'type_text');
+  if (selector) {
+    // Focus the target first — a real click, so page click handlers see it.
+    await clickElement(tabId, selector);
+    flashOverlay(tabId, 'type_text');
+  }
   await sendCommand(tabId, 'Input.insertText', { text: value });
   return { typed: value.length };
 }

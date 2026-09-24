@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import assert from "node:assert/strict";
 
-const P = new URL("markdown.js", import.meta.url);
+const P = new URL("../../extension/markdown.js", import.meta.url);
 const src = await fs.readFile(P, "utf8");
 const code = src.replace(/^\s*\/\/.*$/gm, "");
 for (const bad of [/innerHTML/, /outerHTML/, /insertAdjacentHTML/, /document\.write/, /createContextualFragment/, /\beval\b/, /new Function/]) {

@@ -1,4 +1,4 @@
-# AgentBrowser protocol v1.6
+# AgentBrowser protocol v1.7
 
 AgentBrowser is a Chrome MV3 extension with a side-panel chat UI, plus a local hub
 server. The chat is backed by a pluggable "harness" (Claude Agent SDK, Claude
@@ -33,7 +33,8 @@ agentchat/
     annotation.js/css      (ext-core)  content script: underline/highlight/circle marks + comment card (v1.5)
     inspect.js             (ext-core)  per-tab console/network/dialog buffers + patch state (v1.6)
     inspect-core.js        (ext-core)  pure helpers: page-side expressions, HAR builder (v1.6)
-    inspect-core.test.mjs  (ext-core)  node --test for the pure helpers
+    consent.js             (ext-core)  consent gate side effects: page card, notification fallback (v1.7)
+    consent-core.js        (ext-core)  pure policy: tool classification, domain lists, session memory (v1.7)
   server/
     package.json           (pre-written; deps already installed)
     hub.mjs                (server-hub agent)  WebSocket hub on 127.0.0.1:9010
@@ -53,6 +54,9 @@ agentchat/
       generic-cli.mjs      (server-adapters)   per-turn spawn adapters: codex, opencode, copilot, grok, agy, gemini, devin
       api-anthropic.mjs    (server-adapters)   direct API adapter, needs an anthropic key
       api-openai.mjs       (server-adapters)   direct API adapter, needs an openai key
+  tests/
+    extension/*.test.mjs   node --test for extension files (DOM/chrome.* stubbed)
+    server/*.test.mjs      node --test for hub + adapters (hub-e2e spawns the real hub)
 ```
 
 ## Ports
@@ -90,7 +94,9 @@ Every client sends a hello first:
 
 Tool calls (hub -> extension, and harness -> hub which forwards to extension):
 
-- request: `{type:"tool_call", id:"<uuid>", tool:"<name>", args:{...}}`
+- request: `{type:"tool_call", id:"<uuid>", tool:"<name>", args:{...}, permissions:<obj|null>}`
+  — `permissions` is config.json's `permissions` block attached by the hub
+  (v1.7 consent gate); absent or null means the gate is off
 - response: `{type:"tool_result", id, ok:true, result:{...}}`
   or `{type:"tool_result", id, ok:false, error:"<message>"}`
 
@@ -578,7 +584,8 @@ executor, in the SDK adapter's MCP server, and in mcp-proxy.mjs.
 | `read_page` | `{tabId?, maxChars?}` | `{url, title, text}` — `document.body.innerText`, default cap 60000 chars |
 | `screenshot` | `{tabId?}` | `{base64, mimeType:"image/png"}` |
 | `click` | `{x, y, tabId?}` | `{clicked:true}` — CDP mousePressed+mouseReleased, button left, clickCount 1 |
-| `type_text` | `{text, tabId?}` | `{typed:<charcount>}` — CDP `Input.insertText` into the focused element |
+| `click_element` | `{selector, dx?, dy?, tabId?}` | `{clicked:true, selector, tag}` — v1.7; scrolls the element into view, clicks its center (+offset) |
+| `type_text` | `{text, selector?, tabId?}` | `{typed:<charcount>}` — CDP `Input.insertText`; optional `selector` click-focuses the target first (v1.7) |
 | `press_key` | `{key, tabId?}` | `{pressed:key}` — e.g. "Enter", "Tab", "Escape", "Backspace", "ArrowDown", "Meta+A", "Meta+C", "Meta+V" |
 | `eval_js` | `{expression, tabId?}` | `{value}` — `Runtime.evaluate` returnByValue+awaitPromise; errors -> ok:false |
 | `annotate` | `{quote, style, comment?, color?, tabId?}` | `{id, style, quote}` — v1.5; style is `underline`/`highlight`/`circle`; error when the quote is not on the page |
@@ -639,6 +646,40 @@ relocates elements by path and restores the snapshot — event listeners bound
 after the patch are lost and DOM changes made since may leave entries
 `missing`. Snapshots live in service-worker memory: a worker restart loses
 the ability to revert (the mutations stay applied).
+
+## Consent gate, v1.7
+
+`config.permissions` in server/config.json gates sensitive tools behind a
+user confirmation:
+
+```
+{ "allowAll": true,                   // explicit opt-out: every tool passes
+  "requireConsent": ["click", ...],   // default: the write-tool set
+  "trustedDomains":  ["localhost"],     // never ask on these hosts
+  "sensitiveDomains": ["bank.example"]  // always ask; session grants ignored }
+```
+
+`allowAll` is the explicit "trust the agent" switch: the block is present
+but nothing is gated — use it for unattended automation, or leave the block
+out entirely (same effect, but `allowAll` records the intent).
+
+The hub attaches the object to every forwarded `tool_call` (absent = gate
+off). sw.js checks the call against the *target* tab's URL — for `navigate`,
+against the destination URL — before executing. A gated call first asks the
+user through a card injected into that tab by annotation.js (fixed top-right;
+the same card styling as annotation comments). The card shows the tool name
+plus a concrete summary — click targets name the element via a bounded
+`elementFromPoint`/`querySelector` evaluate, `navigate` shows the destination
+URL, `type_text` previews the text. Three choices: Allow once, Always on this
+domain (keyed origin+tool, persisted in `chrome.storage.session` so it
+survives service-worker suspension and lasts the browser session), Deny. A
+second request replaces a pending card and denies it; a 30s timeout
+denies.
+
+Pages where the content script cannot run (chrome://, the Web Store, PDFs)
+fall back to a system notification (Allow once / Deny only — no domain
+grant). Denials and timeouts return `{ok:false, error:"denied by user: <tool>"}`
+to the caller.
 
 ## Proactive annotation, v1.5
 

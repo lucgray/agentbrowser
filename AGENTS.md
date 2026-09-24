@@ -12,15 +12,16 @@ Guidance for AI agents (and humans) working in this repository.
   - `selection.js` / `selection.css` — content script: floating "Ask" button on text selection and rich context extraction (semantic path, headings, ±800 chars, code block + language, table header + row as markdown).
   - `annotation.js` / `annotation.css` — content script: quote-anchored underline/highlight/circle marks plus per-mark comment cards; comments run as `ann-<id>-<tabId>` chat turns routed back to the page by sw.js.
   - `inspect.js` / `inspect-core.js` — BBX-style observe-first tools: lazy CDP domain enablement, per-tab console/network/dialog ring buffers, a11y tree with DOM-outline fallback, reversible live patches. inspect-core.js is pure (page-side expression builders + HAR builder) and node-testable.
+  - `consent.js` / `consent-core.js` — consent gate (v1.7): sw checks `config.permissions` (carried on each tool_call) before executing a gated tool; the page card lives in annotation.js (`cmd:'consent'`), with a chrome.notifications fallback. consent-core.js is pure (tool classification, domain matching, session grants) and node-testable.
   - `agentbrowser-cli.mjs` / `install-skill.mjs` / `skill/SKILL.md` — MCP-free access (v1.6): the CLI is a one-shot WS harness client (`agentbrowser <tool> '<json>'`), the installer writes a shim + copies the skill doc for agents that don't load MCP servers.
   - `offscreen.js` — offscreen document that holds the WebSocket when MV3 suspends the worker.
-  - `*.test.mjs` — `node:test` suites; DOM and `chrome.*` are stubbed.
 - `server/` — local hub and agent adapters.
   - `hub.mjs` — WebSocket broker on `127.0.0.1:9010`, adapter registry, prompt composition (page context + selection). `log()` writes `[hub]`-tagged stderr with secret scrubbing.
   - `adapters/` — one module per backend: `claude-cli.mjs`, `generic-cli.mjs` (preconfigured presets incl. codex/opencode/gemini/devin), `claude-agent-sdk.mjs`, `api-anthropic.mjs`, `api-openai.mjs`. Shared plumbing in `base.mjs`; credentials via `keystore.mjs` (macOS Keychain / file fallback).
   - `mcp-proxy.mjs` — stdio MCP server exposing browser tools to external harnesses. **stderr only** — stdout is the protocol channel.
   - `tools.mjs` — tool schema definitions shared with the extension.
 - `docs/index.html` — static landing page.
+- `tests/` — `node:test` suites: `extension/` covers extension files, `server/` covers hub + adapters.
 - `PROTOCOL.md` — the hub↔extension wire protocol. Document new message/context shapes here with a version bump.
 - `DESIGN.md` — longer design narrative.
 
@@ -54,8 +55,9 @@ A `catch` that also takes a fallback branch still logs first — logged fallback
 
 ### Tests
 
-- Node 20+: `node --test extension/sidepanel.test.mjs extension/sidepanel.dom.test.mjs extension/markdown.test.mjs server/pricing.test.mjs server/api-adapters.test.mjs server/protocol-v13.test.mjs`
-- `overlay.test.mjs` is a pre-existing upstream failure (hardcoded absolute path) — ignore it unless you're fixing it.
+- `node:test` suites live in `tests/` — `tests/extension/` for extension code, `tests/server/` for hub/adapters. DOM and `chrome.*` are stubbed.
+- Node 20+: `node --test tests/extension/*.test.mjs tests/server/*.test.mjs`
+- Server tests resolve `ws` through `server/node_modules` via `createRequire`; import new server test files' deps the same way (or with `../../server/...` relative paths).
 
 ### Protocol changes
 

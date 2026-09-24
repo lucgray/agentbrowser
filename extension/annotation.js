@@ -21,6 +21,74 @@ const USER_COLOR = "#d97706"; // reserved for marks the user places later
 const annotations = new Map(); // id -> { data, spans:[Element], ellipse, card? }
 let seq = 0;
 let liveCard = null; // the one open comment card
+let liveConsent = null; // { el, resolve, timer } — the pending consent card
+
+// --- consent card ------------------------------------------------------------
+//
+// Sensitive tool calls (sw/consent.js) arrive as cmd:"consent". The card is
+// fixed to the viewport top-right — it must be visible regardless of scroll.
+// One card at a time: a new request replaces the old one and auto-denies it,
+// so a stale card can never approve a call the user has moved past. Cards
+// self-dismiss after 30s to match CONSENT_TIMEOUT_MS on the worker side.
+
+const CONSENT_CARD_MS = 30000;
+
+function closeConsent(decision) {
+  if (!liveConsent) return;
+  const { el, resolve, timer } = liveConsent;
+  liveConsent = null;
+  clearTimeout(timer);
+  el.remove();
+  resolve(decision);
+}
+
+function openConsentCard(req) {
+  if (liveConsent) closeConsent("deny");
+  const card = document.createElement("div");
+  card.className = "ab-ann-card ab-consent-card";
+
+  const head = document.createElement("div");
+  head.className = "ab-ann-card-head";
+  head.textContent = "Agent wants to act";
+  card.appendChild(head);
+
+  const body = document.createElement("div");
+  body.className = "ab-consent-body";
+  const strong = document.createElement("div");
+  strong.className = "ab-consent-tool";
+  strong.textContent = String(req.tool || "");
+  const detail = document.createElement("div");
+  detail.className = "ab-consent-summary";
+  detail.textContent = String(req.summary || "");
+  const domain = document.createElement("div");
+  domain.className = "ab-consent-domain";
+  domain.textContent = `on ${String(req.domain || "")}`;
+  body.appendChild(strong);
+  body.appendChild(detail);
+  body.appendChild(domain);
+  card.appendChild(body);
+
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => closeConsent("deny"), CONSENT_CARD_MS);
+    const buttons = document.createElement("div");
+    buttons.className = "ab-consent-actions";
+    for (const [label, decision, title] of [
+      ["Allow once", "once", "Permit this one action"],
+      [`Always on ${req.domain || "this site"}`, "domain", "Permit this tool on this domain for the session"],
+      ["Deny", "deny", "Reject the action"],
+    ]) {
+      const btn = document.createElement("button");
+      btn.className = `ab-consent-btn ab-consent-${decision}`;
+      btn.textContent = label;
+      btn.title = title;
+      btn.addEventListener("click", () => closeConsent(decision));
+      buttons.appendChild(btn);
+    }
+    card.appendChild(buttons);
+    document.documentElement.appendChild(card);
+    liveConsent = { el: card, resolve, timer };
+  });
+}
 
 function logWarn(...args) {
   console.warn("[agentbrowser]", ...args);
@@ -476,6 +544,15 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         for (const id of ids) clearAnnotation(id);
         sendResponse({ ok: true, cleared: ids.length });
       }
+      return true;
+    }
+    if (msg.cmd === "consent") {
+      openConsentCard(msg)
+        .then((decision) => sendResponse({ ok: true, decision }))
+        .catch((err) => {
+          logWarn("consent card failed", err);
+          sendResponse({ ok: false, error: String((err && err.message) || err) });
+        });
       return true;
     }
     if (msg.cmd === "event") {

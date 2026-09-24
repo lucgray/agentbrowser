@@ -3,7 +3,7 @@
   "name": "AgentBrowser",
   "version": "1.0.0",
   "description": "Side-panel chat backed by a local agent hub. Executes browser tools via chrome.debugger (trusted CDP input).",
-  "permissions": ["debugger", "tabs", "storage", "offscreen", "sidePanel", "contextMenus", "scripting"],
+  "permissions": ["debugger", "tabs", "storage", "offscreen", "sidePanel", "contextMenus", "scripting", "notifications"],
   "host_permissions": ["*://*/*"],
   "content_scripts": [
     {
