@@ -33,10 +33,8 @@ agentchat/
     annotation.js/css      (ext-core)  content script: underline/highlight/circle marks + comment card (v1.5)
     inspect.js             (ext-core)  per-tab console/network/dialog buffers + patch state (v1.6)
     inspect-core.js        (ext-core)  pure helpers: page-side expressions, HAR builder (v1.6)
-    inspect-core.test.mjs  (ext-core)  node --test for the pure helpers
     consent.js             (ext-core)  consent gate side effects: page card, notification fallback (v1.7)
     consent-core.js        (ext-core)  pure policy: tool classification, domain lists, session memory (v1.7)
-    consent-core.test.mjs  (ext-core)  node --test for the policy helpers
   server/
     package.json           (pre-written; deps already installed)
     hub.mjs                (server-hub agent)  WebSocket hub on 127.0.0.1:9010
@@ -56,6 +54,9 @@ agentchat/
       generic-cli.mjs      (server-adapters)   per-turn spawn adapters: codex, opencode, copilot, grok, agy, gemini, devin
       api-anthropic.mjs    (server-adapters)   direct API adapter, needs an anthropic key
       api-openai.mjs       (server-adapters)   direct API adapter, needs an openai key
+  tests/
+    extension/*.test.mjs   node --test for extension files (DOM/chrome.* stubbed)
+    server/*.test.mjs      node --test for hub + adapters (hub-e2e spawns the real hub)
 ```
 
 ## Ports

@@ -9,7 +9,7 @@ import {
   requiredTools,
   shouldCheck,
   summarizeArgs,
-} from './consent-core.js';
+} from '../../extension/consent-core.js';
 
 const POLICY = { requireConsent: ['click', 'navigate'] };
 

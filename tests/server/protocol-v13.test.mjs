@@ -6,8 +6,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { createAnthropicApiSession } from './adapters/api-anthropic.mjs';
-import { createOpenAiApiSession } from './adapters/api-openai.mjs';
+import { createAnthropicApiSession } from '../../server/adapters/api-anthropic.mjs';
+import { createOpenAiApiSession } from '../../server/adapters/api-openai.mjs';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -216,7 +216,7 @@ test('anthropic: cache buckets reach the meta (they price at 0.1x and 1.25x)', a
   assert.equal(meta.cacheWriteTokens, 500, 'cache writes must not be dropped');
 
   // And the price table turns them into the right dollar figure.
-  const { costFor } = await import('./adapters/pricing.mjs');
+  const { costFor } = await import('../../server/adapters/pricing.mjs');
   // opus 5: in 5, out 25, cacheRead 0.5, cacheWrite 6.25 per MTok
   const expected = (40 * 5 + 60 * 25 + 1000 * 0.5 + 500 * 6.25) / 1e6;
   assert.equal(costFor('claude-opus-5', meta), Math.round(expected * 1e6) / 1e6);

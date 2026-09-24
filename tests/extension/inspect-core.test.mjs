@@ -9,7 +9,7 @@ import {
   outlineExpression,
   patchApplyExpression,
   patchRevertExpression,
-} from './inspect-core.js';
+} from '../../extension/inspect-core.js';
 
 test('truncate caps length', () => {
   assert.equal(truncate('abc', 10), 'abc');

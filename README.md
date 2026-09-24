@@ -453,7 +453,7 @@ npm run test:e2e   # end-to-end against a real hub over a real WebSocket
 npm run smoke      # hub routing round trip; needs `npm start` in another shell
 
 cd ../extension
-node --test markdown.test.mjs overlay.test.mjs sidepanel.test.mjs sidepanel.dom.test.mjs
+node --test ../tests/extension/*.test.mjs
 ```
 
 No test spends model tokens or spawns a CLI. The end-to-end suite points

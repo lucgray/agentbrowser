@@ -422,7 +422,7 @@ npm run test:e2e   # 真实 hub + 真实 WebSocket 的端到端测试
 npm run smoke      # hub 路由往返；需另一个终端先 `npm start`
 
 cd ../extension
-node --test markdown.test.mjs overlay.test.mjs sidepanel.test.mjs sidepanel.dom.test.mjs
+node --test ../tests/extension/*.test.mjs
 ```
 
 所有测试都不花模型 token、不起 CLI。端到端套件通过

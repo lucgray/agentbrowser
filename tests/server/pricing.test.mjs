@@ -8,10 +8,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { PRICES, costFor, isMetered, priceFor } from './adapters/pricing.mjs';
-import { usageFromApi as sdkUsage } from './adapters/claude-agent-sdk.mjs';
-import { usageFromApi as cliUsage } from './adapters/claude-cli.mjs';
-import { HARNESSES, GENERIC_CLI_NAMES } from './adapters/generic-cli.mjs';
+import { PRICES, costFor, isMetered, priceFor } from '../../server/adapters/pricing.mjs';
+import { usageFromApi as sdkUsage } from '../../server/adapters/claude-agent-sdk.mjs';
+import { usageFromApi as cliUsage } from '../../server/adapters/claude-cli.mjs';
+import { HARNESSES, GENERIC_CLI_NAMES } from '../../server/adapters/generic-cli.mjs';
 
 const NO_USAGE = {
   inputTokens: null,

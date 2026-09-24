@@ -9,8 +9,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { createAnthropicApiSession } from './adapters/api-anthropic.mjs';
-import { createOpenAiApiSession } from './adapters/api-openai.mjs';
+import { createAnthropicApiSession } from '../../server/adapters/api-anthropic.mjs';
+import { createOpenAiApiSession } from '../../server/adapters/api-openai.mjs';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
