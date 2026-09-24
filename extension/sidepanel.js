@@ -131,8 +131,9 @@ export function stripDataUrlPrefix(dataUrl) {
 }
 
 // context per PROTOCOL.md, or null when there is nothing to send. Tagged tabs
-// are deduped by tabId and never repeat currentTab.
-export function buildContext(currentTab, taggedTabs) {
+// are deduped by tabId and never repeat currentTab; selection carries the
+// clipped page-selection payload from the floating Ask button / context menu.
+export function buildContext(currentTab, taggedTabs, selection) {
   const cur = currentTab
     ? { tabId: currentTab.tabId, url: currentTab.url, title: currentTab.title }
     : null;
@@ -144,8 +145,58 @@ export function buildContext(currentTab, taggedTabs) {
     seen.add(t.tabId);
     tabs.push({ tabId: t.tabId, url: t.url, title: t.title });
   }
-  if (!cur && tabs.length === 0) return null;
-  return { currentTab: cur, tabs };
+  const sel = normalizeSelection(selection);
+  if (!cur && tabs.length === 0 && !sel) return null;
+  const ctx = { currentTab: cur, tabs };
+  if (sel) ctx.selection = sel;
+  return ctx;
+}
+
+// Field clamps for the selection context. The content script already caps the
+// surrounding window at 800 chars; these bounds are what goes on the wire.
+export const SELECTION_LIMITS = {
+  text: 4000,
+  surrounding: 800,
+  heading: 200,
+  path: 300,
+  code: 8000,
+  table: 4000,
+};
+
+function clipField(s, n) {
+  const t = String(s == null ? "" : s);
+  return t.length > n ? t.slice(0, n) : t;
+}
+
+// Normalize a content-script payload into the wire shape, or null when it has
+// no text at all (right-clicks on blank space carry nothing worth sending).
+export function normalizeSelection(sel) {
+  if (!sel || typeof sel !== "object") return null;
+  const text = clipField(sel.text, SELECTION_LIMITS.text).trim();
+  if (!text) return null;
+  const contentType = ["text", "code", "table"].includes(sel.contentType)
+    ? sel.contentType
+    : "text";
+  const out = {
+    text,
+    contentType,
+    surroundingBefore: clipField(sel.surroundingBefore, SELECTION_LIMITS.surrounding).trim(),
+    surroundingAfter: clipField(sel.surroundingAfter, SELECTION_LIMITS.surrounding).trim(),
+    parentHeading: clipField(sel.parentHeading, SELECTION_LIMITS.heading).trim(),
+    semanticPath: clipField(sel.semanticPath, SELECTION_LIMITS.path).trim(),
+    pageUrl: clipField(sel.pageUrl, 2000).trim(),
+    pageTitle: clipField(sel.pageTitle, 300).trim(),
+  };
+  if (contentType === "code" && sel.codeBlock && typeof sel.codeBlock === "object") {
+    out.codeBlock = {
+      language: clipField(sel.codeBlock.language, 40).trim() || "code",
+      fullCode: clipField(sel.codeBlock.fullCode, SELECTION_LIMITS.code),
+    };
+  }
+  if (contentType === "table" && typeof sel.tableBlock === "string" && sel.tableBlock) {
+    out.tableBlock = clipField(sel.tableBlock, SELECTION_LIMITS.table);
+  }
+  return out;
 }
 
 // The wire message. context, attachments and model keys are absent (not
@@ -161,7 +212,7 @@ export function buildChatMessage(opts) {
   };
   // No model = adapter default. Only a non-empty id goes on the wire.
   if (opts.model) msg.model = String(opts.model);
-  const context = buildContext(opts.currentTab, opts.taggedTabs);
+  const context = buildContext(opts.currentTab, opts.taggedTabs, opts.selection);
   if (context) msg.context = context;
   const files = [];
   for (const a of opts.attachments || []) {
@@ -671,6 +722,8 @@ function init() {
   let currentTab = null; // {tabId,url,title} or null
   let currentTabOff = false; // user clicked X on the current-tab chip
   let taggedTabs = []; // [{tabId,url,title}] from @ mentions
+  let selectionCtx = null; // normalized selection payload staged for next send
+  let selectionAppliedTs = 0; // timestamp of the pendingSelection already taken
   let attachments = []; // [{name,mimeType,size,base64|null}]
   let reading = 0; // files still being read by FileReader
 
@@ -1798,6 +1851,39 @@ function init() {
     }
   }
 
+  // ----- Selection staging (Ask button / context menu) -----
+
+  // sw.js parks each delivered selection in chrome.storage.session under
+  // pendingSelection; timestamps keep a re-opened panel from applying a stale
+  // one or re-applying the one it already has.
+  function applyPendingSelection(record) {
+    if (!record || typeof record !== "object") return;
+    const ts = Number(record.timestamp) || 0;
+    if (ts <= selectionAppliedTs) return;
+    const sel = normalizeSelection(record.selection);
+    if (!sel) return;
+    selectionAppliedTs = ts;
+    selectionCtx = sel;
+    renderChips();
+    inputEl.focus();
+  }
+
+  function watchSelections() {
+    const store = chrome.storage && chrome.storage.session;
+    if (!store || typeof store.get !== "function") return;
+    store
+      .get("pendingSelection")
+      .then((data) => applyPendingSelection(data && data.pendingSelection))
+      .catch((err) =>
+        console.warn("[agentbrowser] pendingSelection read failed", err)
+      );
+    if (!chrome.storage.onChanged) return;
+    chrome.storage.onChanged.addListener((changes, area) => {
+      if (area !== "session" || !changes.pendingSelection) return;
+      applyPendingSelection(changes.pendingSelection.newValue);
+    });
+  }
+
   // ----- Composer chips -----
 
   function makeChip(cls, mark, label, removeTitle, onRemove) {
@@ -1830,6 +1916,29 @@ function init() {
 
   function renderChips() {
     const nodes = [];
+    if (selectionCtx) {
+      const kind =
+        selectionCtx.contentType === "code"
+          ? "code"
+          : selectionCtx.contentType === "table"
+            ? "table"
+            : "sel";
+      nodes.push(
+        makeChip(
+          "sel",
+          "\u2702",
+          kind + ": \"" + shortTitle(selectionCtx.text, 36) + "\"",
+          "Remove selection context",
+          () => {
+            selectionCtx = null;
+            // Bump past the stored payload's timestamp so a panel reopen
+            // does not resurrect a selection the user threw away.
+            selectionAppliedTs = Date.now();
+            renderChips();
+          }
+        )
+      );
+    }
     if (currentTab && !currentTabOff) {
       nodes.push(
         makeChip(
@@ -2217,6 +2326,9 @@ function init() {
     if (msg.context && msg.context.tabs.length) {
       parts.push("tagged: " + msg.context.tabs.map((t) => shortTitle(t.title, 24)).join(", "));
     }
+    if (msg.context && msg.context.selection) {
+      parts.push("sel: \"" + shortTitle(msg.context.selection.text, 24) + "\"");
+    }
     if (msg.attachments) {
       parts.push("files: " + msg.attachments.map((a) => a.name).join(", "));
     }
@@ -2242,6 +2354,7 @@ function init() {
     autoGrow();
     taggedTabs = [];
     currentTabOff = false;
+    selectionCtx = null; // one send carries the selection, then it is spent
     renderChips();
     showComposerError("");
     streaming = true;
@@ -2350,6 +2463,7 @@ function init() {
       model: currentModel(),
       currentTab: currentTabOff ? null : currentTab,
       taggedTabs,
+      selection: selectionCtx,
       attachments,
     });
 
@@ -2391,6 +2505,7 @@ function init() {
     attachments = [];
     taggedTabs = [];
     currentTabOff = false;
+    selectionCtx = null;
     reading = 0;
     inputEl.value = "";
     if (listening) stopMic();
@@ -2564,6 +2679,7 @@ function init() {
   loadPrefs();
   connectPort();
   watchTabs();
+  watchSelections();
   refreshCurrentTab();
   renderChips();
   renderAttachments();

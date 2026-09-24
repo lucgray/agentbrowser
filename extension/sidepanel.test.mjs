@@ -28,6 +28,10 @@ const {
   laneLabel,
   makeLaneGrouper,
   CLIENT_COMMANDS,
+  buildContext,
+  buildChatMessage,
+  normalizeSelection,
+  SELECTION_LIMITS,
 } = mod;
 
 let pass = 0;
@@ -421,6 +425,98 @@ t("a lane whose first event carries no title takes one from a later event", () =
   assert.equal(lane.tabId, 3);
   assert.equal(lane.count, 2);
   assert.equal(lane.view, null); // the panel owns the DOM slot, not the grouper
+});
+
+// --- selection context (v1.4) -----------------------------------------------
+
+const SEL = {
+  text: "const x = await fetch(url)",
+  contentType: "code",
+  surroundingBefore: "Example usage:",
+  surroundingAfter: "Then handle the response.",
+  parentHeading: "H2: Usage",
+  semanticPath: "main > article > section",
+  codeBlock: { language: "js", fullCode: "const x = await fetch(url);\nconsole.log(x);" },
+  tableBlock: null,
+  pageUrl: "https://example.com/docs",
+  pageTitle: "Docs",
+};
+
+t("normalizeSelection keeps a code selection whole", () => {
+  const sel = normalizeSelection(SEL);
+  assert.equal(sel.text, SEL.text);
+  assert.equal(sel.contentType, "code");
+  assert.equal(sel.codeBlock.language, "js");
+  assert.ok(sel.codeBlock.fullCode.includes("console.log"));
+  assert.equal(sel.parentHeading, "H2: Usage");
+  assert.equal(sel.semanticPath, "main > article > section");
+  assert.equal(sel.pageUrl, "https://example.com/docs");
+  assert.equal("tableBlock" in sel, false); // no block for a code selection
+});
+
+t("normalizeSelection drops empty and non-selection payloads", () => {
+  assert.equal(normalizeSelection(null), null);
+  assert.equal(normalizeSelection({}), null);
+  assert.equal(normalizeSelection({ text: "   " }), null);
+  assert.equal(normalizeSelection("a string"), null);
+});
+
+t("normalizeSelection clamps fields and falls back to text type", () => {
+  const big = normalizeSelection({
+    text: "x".repeat(SELECTION_LIMITS.text + 10),
+    contentType: "weird",
+    surroundingBefore: "b".repeat(2000),
+    codeBlock: { language: "js", fullCode: "c".repeat(SELECTION_LIMITS.code + 10) },
+  });
+  assert.equal(big.text.length, SELECTION_LIMITS.text);
+  assert.equal(big.contentType, "text");
+  assert.equal(big.surroundingBefore.length, SELECTION_LIMITS.surrounding);
+  assert.equal("codeBlock" in big, false); // non-code types carry no codeBlock
+});
+
+t("normalizeSelection keeps the table markdown only for table selections", () => {
+  const sel = normalizeSelection({
+    text: "42",
+    contentType: "table",
+    tableBlock: "| k | v |\n| --- | --- |\n| answer | 42 |",
+  });
+  assert.equal(sel.contentType, "table");
+  assert.ok(sel.tableBlock.includes("| answer | 42 |"));
+  assert.equal("codeBlock" in sel, false);
+});
+
+t("buildContext carries the selection and still returns null when empty", () => {
+  const ctx = buildContext(null, [], SEL);
+  assert.equal(ctx.currentTab, null);
+  assert.deepEqual(ctx.tabs, []);
+  assert.equal(ctx.selection.contentType, "code");
+  assert.equal(buildContext(null, []), null);
+  assert.equal(buildContext(null, [], { text: "" }), null);
+});
+
+t("buildChatMessage puts the selection on the wire next to the tab", () => {
+  const msg = buildChatMessage({
+    chatId: "c1",
+    text: "explain this",
+    adapter: "claude-agent-sdk",
+    currentTab: { tabId: 5, url: "https://example.com/docs", title: "Docs" },
+    taggedTabs: [],
+    selection: SEL,
+    attachments: [],
+  });
+  assert.equal(msg.context.currentTab.tabId, 5);
+  assert.equal(msg.context.selection.text, SEL.text);
+  assert.equal(msg.context.selection.codeBlock.language, "js");
+});
+
+t("buildCommandMessage never carries a selection", () => {
+  const msg = buildCommandMessage({
+    chatId: "c1",
+    name: "/tabs",
+    args: "",
+    adapter: "claude-agent-sdk",
+  });
+  assert.equal(msg.context === undefined || !("selection" in msg.context), true);
 });
 
 console.log(`${pass} passed, ${fails.length} failed`);

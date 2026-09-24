@@ -859,6 +859,12 @@ button:disabled {
   font-style: italic;
 }
 
+.tab-chip.sel {
+  border-color: var(--ac-accent-pressed);
+  background: var(--ac-accent-tint);
+  color: var(--ac-text);
+}
+
 .tab-chip .tab-chip-mark {
   color: var(--ac-accent);
   flex: none;

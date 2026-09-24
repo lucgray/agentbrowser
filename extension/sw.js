@@ -14,6 +14,137 @@ let lastCapabilities = null; // last {type:'capabilities'} from the hub, replaye
 
 chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => {});
 
+// --- selection -> side panel -------------------------------------------------
+//
+// The content script reports two things: a completed text selection the user
+// clicked "Ask" on (selection_ask), and the context of whatever was
+// right-clicked (selection_context_cache). The context-menu item uses the
+// cache when it is fresh and falls back to asking the frame directly. Either
+// way the payload lands in chrome.storage.session.pendingSelection, which the
+// panel reads on open and watches live via storage.onChanged.
+
+const CONTEXT_MENU_ID = 'ask-agentbrowser';
+const SELECTION_CACHE_MS = 5000;
+const rightClickContexts = new Map(); // tabId -> {selection, timestamp}
+
+function registerContextMenu() {
+  chrome.contextMenus.create(
+    {
+      id: CONTEXT_MENU_ID,
+      title: 'Ask AgentBrowser',
+      contexts: ['all'],
+    },
+    () => void chrome.runtime.lastError
+  );
+}
+
+registerContextMenu();
+chrome.runtime.onInstalled.addListener(() => {
+  // Registrations survive worker restarts; rebuild only on install so a second
+  // copy of the item is never created.
+  chrome.contextMenus.removeAll(() => registerContextMenu());
+});
+
+// Writes only; opening the panel happens in the caller while the user gesture
+// is still live (sidePanel.open rejects outside a gesture).
+function deliverSelection(tabId, selection) {
+  return chrome.storage.session
+    .set({
+      pendingSelection: {
+        tabId,
+        selection,
+        timestamp: Date.now(),
+      },
+    })
+    .then(() => true)
+    .catch((err) => {
+      console.warn('[agentbrowser] pendingSelection write failed', err);
+      return false;
+    });
+}
+
+async function resolveMenuSelection(info, tab) {
+  const cached = rightClickContexts.get(tab.id);
+  if (cached && Date.now() - cached.timestamp < SELECTION_CACHE_MS) {
+    return cached.selection;
+  }
+
+  // Ask the frame that was clicked; when it has no listener yet (page predates
+  // the extension), inject the content script and retry once.
+  const frameId = info.frameId || 0;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const response = await chrome.tabs.sendMessage(
+        tab.id,
+        { type: 'agentbrowser_get_selection_context' },
+        { frameId }
+      );
+      if (response && response.success && response.selection) {
+        return response.selection;
+      }
+      if (attempt > 0) break;
+    } catch (err) {
+      if (attempt > 0) break;
+      try {
+        await chrome.scripting.executeScript({
+          target: { tabId: tab.id, frameIds: [frameId] },
+          files: ['selection.js'],
+        });
+        await chrome.scripting.insertCSS({
+          target: { tabId: tab.id, frameIds: [frameId] },
+          files: ['selection.css'],
+        });
+      } catch (injectErr) {
+        console.warn(
+          '[agentbrowser] selection script injection failed',
+          injectErr,
+          'after message error:',
+          err
+        );
+        break; // chrome:// and friends reject injection entirely
+      }
+    }
+  }
+
+  // Last resort: whatever the context menu event itself carried.
+  if (info.selectionText) {
+    return {
+      text: info.selectionText.trim(),
+      contentType: 'text',
+      surroundingBefore: '',
+      surroundingAfter: '',
+      parentHeading: '',
+      semanticPath: '',
+      codeBlock: null,
+      tableBlock: null,
+      pageUrl: info.pageUrl || tab.url || '',
+      pageTitle: tab.title || '',
+      isSelection: true,
+    };
+  }
+  return null;
+}
+
+chrome.contextMenus.onClicked.addListener((info, tab) => {
+  if (info.menuItemId !== CONTEXT_MENU_ID || !tab || tab.id == null) return;
+  // Open synchronously: sidePanel.open only works inside the user gesture.
+  chrome.sidePanel.open({ tabId: tab.id }).catch((err) => {
+    console.warn('[agentbrowser] sidePanel.open failed', err);
+  });
+  resolveMenuSelection(info, tab)
+    .then((selection) => {
+      if (selection) return deliverSelection(tab.id, selection);
+      return false;
+    })
+    .catch((err) => {
+      console.warn('[agentbrowser] menu selection resolution failed', err);
+    });
+});
+
+chrome.tabs.onRemoved.addListener((tabId) => {
+  rightClickContexts.delete(tabId);
+});
+
 // --- offscreen document -----------------------------------------------------
 
 let creatingOffscreen = null;
@@ -82,8 +213,35 @@ function postToPanel(message) {
   }
 }
 
-chrome.runtime.onMessage.addListener((message) => {
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!message || message.target !== 'sw') return;
+  if (message.cmd === 'selection_context_cache') {
+    const tabId = sender && sender.tab && sender.tab.id;
+    if (tabId != null && message.selection) {
+      rightClickContexts.set(tabId, {
+        selection: message.selection,
+        timestamp: Date.now(),
+      });
+    }
+    sendResponse({ success: true });
+    return true;
+  }
+  if (message.cmd === 'selection_ask') {
+    const tabId = sender && sender.tab && sender.tab.id;
+    if (tabId == null || !message.selection) {
+      sendResponse({ success: false, error: 'no tab' });
+      return true;
+    }
+    // Open first, still inside the click's user gesture.
+    chrome.sidePanel.open({ tabId }).catch((err) => {
+      console.warn('[agentbrowser] sidePanel.open failed', err);
+    });
+    deliverSelection(tabId, message.selection).then(
+      (ok) => sendResponse({ success: ok }),
+      () => sendResponse({ success: false })
+    );
+    return true;
+  }
   if (message.cmd === 'ws_status') {
     hubConnected = !!message.connected;
     if (hubConnected) {

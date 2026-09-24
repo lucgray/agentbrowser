@@ -18,9 +18,13 @@ editors (Lexical, React composers) ignore them. Input dispatched via
 `chrome.debugger` is trusted: CDP clicks and `Input.insertText` land exactly
 like a human's, verified against the Threads composer on 2026-08-01. Because
 the extension attaches to your existing profile, there is no separate
-automation profile, no re-login, and no content scripts or host permissions
-at all. The manifest asks for `debugger, tabs, storage, offscreen, sidePanel`
-and nothing else.
+automation profile, and no re-login. The agent loop itself never touches page
+DOM — everything it does goes through `chrome.debugger`. One small content
+script (`extension/selection.js`) does exist, but it only watches text
+selections for the floating Ask button and the context-menu item; it never
+drives the page. For it the manifest adds `contextMenus, scripting` and
+`*://*/*` host access on top of `debugger, tabs, storage, offscreen,
+sidePanel`.
 
 ## Architecture
 
@@ -108,6 +112,15 @@ The panel sends more than your text with each message.
   "summarize this page" or "fill this form" works without you pasting a URL.
   The harness gets its tabId and uses it for `read_page`, `screenshot`, and
   `eval_js`.
+- Ask about a selection: highlight text on a page and a floating Ask button
+  appears at the caret, or right-click and pick "Ask AgentBrowser". Either way
+  the side panel opens with the selection staged as a chip; the next message
+  carries it as `context.selection` with the surrounding paragraphs, the
+  nearest section heading, the DOM path, and — when the selection sits inside
+  a code block or a table — the whole enclosing block (code with its detected
+  language, or the table's headers + active row as markdown). The agent sees
+  all of it, so "explain this" or "what does this regex do" works on exactly
+  what you highlighted.
 - `@` tagging: type `@` in the composer to pick other open tabs by title. Each
   tagged tab is sent with the message and the harness can read any of them.
   Tag two tabs to ask for a comparison.
