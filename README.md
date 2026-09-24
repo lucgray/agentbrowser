@@ -34,6 +34,7 @@ error-handling standard.
 - [Architecture](#architecture)
 - [Install](#install)
 - [Ask about a selection](#ask-about-a-selection)
+- [Page annotations](#page-annotations)
 - [Tabs, files & voice](#tabs-files--voice)
 - [Picking a model](#picking-a-model)
 - [API keys](#using-an-api-key-instead-of-a-cli)
@@ -54,11 +55,14 @@ error-handling standard.
 | **Select text → floating "Ask" button at the caret** | — | ✓ |
 | **Right-click → "Ask AgentBrowser" context menu** | — | ✓ |
 | **Rich selection context** — semantic DOM path, nearest heading, ±800 chars, enclosing `<pre>`/code block + language, table headers + active row as markdown → `context.selection` (protocol v1.4) | — | ✓ |
+| **Page annotations** — `annotate`/`annotations_list`/`annotate_reply`/`annotate_clear` tools; underline, highlight, circle on quoted text; per-mark comment cards that run as their own chat turns (protocol v1.5) | — | ✓ |
+| **Proactive co-reading pass** — opt-in `proactiveAnnotation` config: one background turn per page flags confusing passages with a why-note | — | ✓ |
 | **No-silent-catch rule** — every catch logs or propagates, leveled by impact | — | ✓ |
 
 > Upstream credit: the entire side-panel ↔ hub ↔ adapter architecture, the
-> ten browser tools, and all adapters are the work of the upstream project.
-> This fork adds the selection-interaction layer and the conventions doc.
+> original ten browser tools, and all adapters are the work of the upstream
+> project. This fork adds the selection-interaction and annotation layers
+> and the conventions doc.
 >
 > Third-party credit: the selection-extraction code in
 > `extension/selection.js` (heading/table/code-block capture, semantic path,
@@ -74,11 +78,12 @@ editors (Lexical, React composers) ignore them. Input dispatched via
 like a human's, verified against the Threads composer on 2026-08-01. Because
 the extension attaches to your existing profile, there is no separate
 automation profile and no re-login. The agent loop itself never touches page
-DOM — everything it does goes through `chrome.debugger`. One small content
-script (`extension/selection.js`) only watches text selections for the
-floating Ask button and the context-menu item; it never drives the page. For
-it the manifest adds `contextMenus, scripting` and `*://*/*` host access on
-top of `debugger, tabs, storage, offscreen, sidePanel`.
+DOM — everything it does goes through `chrome.debugger`. Two small content
+scripts (`extension/selection.js`, `extension/annotation.js`) watch text
+selections and render annotation marks plus their comment cards; neither
+drives the page. For them the manifest adds `contextMenus, scripting` and
+`*://*/*` host access on top of
+`debugger, tabs, storage, offscreen, sidePanel`.
 
 ## Architecture
 
@@ -151,6 +156,40 @@ compact chips in the transcript.
 The agent sees all of it, so "explain this", "what does this regex do", or
 "summarize this table" works on exactly what you highlighted.
 
+## Page annotations
+
+*The agent reads with you, not just for you.*
+
+- **Three marks** — the agent can call `annotate` to leave an underline, a
+  highlight, or a circle on any passage it can quote from the page
+  (protocol v1.5). Marks render live: styled spans for underline and
+  highlight, an SVG overlay ellipse for circle.
+- **Comment threads on the page** — click a mark to open its comment card.
+  Your comment becomes a chat turn on the adapter the panel is currently
+  using; the reply streams back into the same card, so every mark grows
+  its own thread. `annotate_reply` lets the agent post a targeted reply
+  inside a thread instead of streaming a full turn.
+- **Proactive marks, opt-in** — set `proactiveAnnotation` in
+  `server/config.json` and the agent runs one background pass per page:
+  it reads the tab and flags the passages it thinks are confusing — each
+  mark carries a note saying why, in a color distinct from yours.
+
+```jsonc
+// server/config.json
+{
+  "adapter": "claude-agent-sdk",
+  "proactiveAnnotation": {
+    "enabled": true,
+    "adapter": "devin",   // any adapter name; defaults to the chat's adapter
+    "prompt": "..."       // optional override of the built-in co-reading prompt
+  }
+}
+```
+
+`annotations_list` returns every mark and thread on a tab — handy to ask
+for a digest ("give me all the notes we left on this page") — and
+`annotate_clear` removes one mark or all of them.
+
 ## Tabs, files & voice
 
 The panel sends more than your text with each message.
@@ -198,7 +237,7 @@ the request to the provider you gave it for, never comes back to the panel
 hub's log, in a chat message, or in an error. Clearing the field deletes the
 key.
 
-API adapters get the same ten browser tools the CLI adapters get, so
+API adapters get the same fourteen browser tools the CLI adapters get, so
 "summarize this page" or "fill this form" works the same way. What they
 don't get is a CLI's file and shell tools, so attachments arrive as paths
 they can't open. Use a CLI adapter when a turn needs to read files off disk.

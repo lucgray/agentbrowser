@@ -8,8 +8,8 @@
   "content_scripts": [
     {
       "matches": ["*://*/*"],
-      "js": ["selection.js"],
-      "css": ["selection.css"],
+      "js": ["selection.js", "annotation.js"],
+      "css": ["selection.css", "annotation.css"],
       "run_at": "document_idle",
       "all_frames": true
     }

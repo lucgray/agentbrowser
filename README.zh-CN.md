@@ -33,6 +33,7 @@
 - [架构](#架构)
 - [安装](#安装)
 - [选中即问](#选中即问)
+- [页面标注](#页面标注)
 - [Tab、文件与语音](#tab文件与语音)
 - [选模型](#选模型)
 - [API key](#用-api-key-代替-cli)
@@ -54,11 +55,13 @@
 | **选中文字 → 光标处浮出「Ask」按钮** | — | ✓ |
 | **右键菜单 → "Ask AgentBrowser"** | — | ✓ |
 | **选中内容自动补上下文** — 语义化 DOM 路径、最近章节标题、±800 字符上下文、所在 `<pre>`/代码块（含语言识别）、表格表头+当前行渲染为 markdown → `context.selection`（协议 v1.4） | — | ✓ |
+| **页面标注** — `annotate`/`annotations_list`/`annotate_reply`/`annotate_clear` 工具；下划线、荧光笔、圈选引用文本；每条标注的评论卡片跑自己的会话（协议 v1.5） | — | ✓ |
+| **主动共读标注** — 可选 `proactiveAnnotation` 配置：每页跑一轮后台 pass，标记疑难段落并附原因 | — | ✓ |
 | **禁止静默 catch** — 每个 catch 必须按影响分级记日志或向上抛出 | — | ✓ |
 
-> 致谢上游：侧边栏 ↔ hub ↔ 适配器的整体架构、十个浏览器工具、以及
-> 全部适配器均为上游项目的工作成果。本分支只新增了选中交互层和约定
-> 文档。
+> 致谢上游：侧边栏 ↔ hub ↔ 适配器的整体架构、最初的十个浏览器工具、
+> 以及全部适配器均为上游项目的工作成果。本分支新增了选中交互层、
+> 标注层和约定文档。
 >
 > 第三方致谢：`extension/selection.js` 中的选中内容提取代码（标题/表
 > 格/代码块捕获、语义化路径、浮窗 Ask 按钮）改编自
@@ -73,8 +76,9 @@ Content script 发出的合成事件带有 `isTrusted: false`，现代编辑器
 （已于 2026-08-01 在 Threads 编辑器上验证）。由于扩展附着在你已有的
 浏览器 Profile 上，不存在独立的自动化 Profile，也无需重新登录。
 Agent 主循环本身从不触碰页面 DOM——所有动作都走 `chrome.debugger`。
-唯一的小 content script（`extension/selection.js`）只监听文本选中
-（浮窗 Ask 按钮和右键菜单），从不驱动页面；为此 manifest 在
+两个小 content script（`extension/selection.js` 监听文本选中，
+`extension/annotation.js` 渲染标注与评论卡片）都不驱动页面。
+为此 manifest 在
 `debugger, tabs, storage, offscreen, sidePanel` 之外追加了
 `contextMenus, scripting` 和 `*://*/*` 主机权限。
 
@@ -145,6 +149,38 @@ npm start          # 监听 ws://127.0.0.1:9010
 Agent 能完整看到这些信息，所以「解释一下这个」「这个正则做什么」
 「总结这张表」都精确作用于你划选的内容。
 
+## 页面标注
+
+*Agent 陪你一起读，而不只是替你读。*
+
+- **三种标注** — Agent 可调用 `annotate` 在任意引用文本上留下下划线、
+  荧光笔或圈选（协议 v1.5）。标注实时渲染到页面：下划线和荧光笔是
+  带样式的 span，圈选是 SVG 覆盖层上的椭圆。
+- **标注上的评论串** — 点击标注打开评论卡片。你的评论会作为一次会话
+  发到面板当前使用的适配器（可在配置中指定）；回复流式回写到同一张
+  卡片，每条标注长出自己的讨论串。`annotate_reply` 让 Agent 在串内
+  定向回复，不必走完一整轮。
+- **主动标注（可选）** — 在 `server/config.json` 里设置
+  `proactiveAnnotation`，Agent 会对每个页面跑一轮后台 pass：读完
+  标签页后标出它认为难懂的段落，每条标注带上「为什么标」的说明，
+  并用与你不同的颜色区分。
+
+```jsonc
+// server/config.json
+{
+  "adapter": "claude-agent-sdk",
+  "proactiveAnnotation": {
+    "enabled": true,
+    "adapter": "devin",   // 任意适配器名；默认沿用当前会话的适配器
+    "prompt": "..."       // 可选：覆盖内置的共读提示词
+  }
+}
+```
+
+`annotations_list` 返回某个标签页上所有标注与评论串——方便让它生成
+「我们在这页留下的所有批注」摘要；`annotate_clear` 删除单条或全部
+标注。
+
 ## Tab、文件与语音
 
 每次发送的不只是你打的字。
@@ -181,7 +217,7 @@ Agent 能完整看到这些信息，所以「解释一下这个」「这个正�
 绝不离开本机，不会回传给面板（面板只能知道 key 有没有设置过），也
 不会出现在 hub 日志、聊天消息或报错里。清空输入框即删除 key。
 
-API 适配器拿到的十个浏览器工具与 CLI 适配器相同，所以「总结页面」
+API 适配器拿到的十四个浏览器工具与 CLI 适配器相同，所以「总结页面」
 「填表单」行为一致。但它们没有 CLI 的文件和 shell 工具，附件对它们
 来说只是打不开的路径——需要读本地文件的轮次请用 CLI 适配器。
 
@@ -243,7 +279,7 @@ WebSocket 转发给 hub。任何支持 MCP 的 harness 只要在 MCP 配置里�
 }
 ```
 
-启动 hub、保持扩展加载，harness 就拿到与内置适配器相同的十个工
+启动 hub、保持扩展加载，harness 就拿到与内置适配器相同的十四个工
 具，无需专属适配器。Cursor、Cline、Qwen CLI、Codex、Gemini CLI、
 Claude Code 都接受这种形态的配置，只是文件名不同（Codex 用
 `config.toml`，Gemini 用 `settings.json`，Claude Code 用 `.mcp.json`）。

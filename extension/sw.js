@@ -11,6 +11,7 @@ let panelPort = null;
 let panelChatIds = new Set(); // chatIds started by the current panel Port
 let hubConnected = false;
 let lastCapabilities = null; // last {type:'capabilities'} from the hub, replayed on panel connect
+let lastPanelAdapter = null; // adapter of the panel's most recent chat; default for annotation threads
 
 chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch((err) => {
   console.warn('[agentbrowser] setPanelBehavior failed', err);
@@ -178,6 +179,53 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   rightClickContexts.delete(tabId);
 });
 
+// --- annotations -------------------------------------------------------------
+//
+// The annotate* tools and annotation comments ride the content script in
+// annotation.js. Comments become chat turns whose chatId starts with "ann-";
+// annChats maps them back to their tab so the streamed reply is delivered to
+// the card on the page instead of the panel.
+
+const annChats = new Map(); // chatId -> { tabId, annId }
+
+chrome.tabs.onRemoved.addListener((tabId) => {
+  for (const [chatId, ann] of annChats) {
+    if (ann.tabId === tabId) annChats.delete(chatId);
+  }
+});
+
+// The annotation script is declared in the manifest, but a page that predates
+// the extension (or a frame that missed injection) has no listener; inject it
+// and retry once, same pattern as the context-menu path.
+async function sendToAnnotationScript(tabId, payload) {
+  let lastErr = null;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      return await chrome.tabs.sendMessage(tabId, payload);
+    } catch (err) {
+      lastErr = err;
+      if (attempt > 0) break;
+      try {
+        await chrome.scripting.executeScript({
+          target: { tabId },
+          files: ['annotation.js'],
+        });
+        await chrome.scripting.insertCSS({
+          target: { tabId },
+          files: ['annotation.css'],
+        });
+      } catch (injectErr) {
+        console.warn(
+          '[agentbrowser] annotation script injection failed',
+          injectErr
+        );
+        break;
+      }
+    }
+  }
+  throw lastErr || new Error('annotation script unreachable');
+}
+
 // --- offscreen document -----------------------------------------------------
 
 let creatingOffscreen = null;
@@ -282,6 +330,43 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     );
     return true;
   }
+  if (message.cmd === 'annotation_comment') {
+    const tabId = sender && sender.tab && sender.tab.id;
+    if (tabId == null || !message.annId || !message.text) {
+      sendResponse({ success: false, error: 'missing tabId/annId/text' });
+      return true;
+    }
+    // Same annotation, same chatId — a second comment continues the thread.
+    const chatId = `ann-${message.annId}-${tabId}`;
+    annChats.set(chatId, { tabId, annId: message.annId });
+    const ann = message.annotation || {};
+    const text =
+      'The user commented on an annotation on the page you are reading together.\n' +
+      `Mark: ${ann.style || 'annotation'} on """${ann.quote || ''}"""\n` +
+      (ann.comment ? `The mark's note: ${ann.comment}\n` : '') +
+      `User's comment: ${message.text}\n` +
+      'Reply conversationally — your answer streams back onto the annotation card on the page. ' +
+      'Use annotate_reply for a short targeted reply, or just answer directly.';
+    sendToOffscreen({
+      target: 'offscreen',
+      cmd: 'send',
+      payload: {
+        type: 'chat',
+        chatId,
+        text,
+        adapter: lastPanelAdapter || undefined,
+        context: {
+          currentTab: {
+            tabId,
+            url: sender.tab.url || '',
+            title: sender.tab.title || '',
+          },
+        },
+      },
+    });
+    sendResponse({ success: true });
+    return true;
+  }
   if (message.cmd === 'ws_status') {
     hubConnected = !!message.connected;
     if (hubConnected) {
@@ -302,7 +387,22 @@ function handleHubMessage(payload) {
   if (payload.type === 'tool_call') {
     handleToolCall(payload);
   } else if (payload.type === 'chat_event') {
-    // Events for chatIds the current panel did not start are dropped.
+    // Annotation threads (chatId 'ann-*') stream to the page card, not the
+    // panel. Events for chatIds the current panel did not start are dropped.
+    const ann = annChats.get(payload.chatId);
+    if (ann) {
+      chrome.tabs
+        .sendMessage(ann.tabId, {
+          target: 'annotation',
+          cmd: 'event',
+          annId: ann.annId,
+          event: payload.event,
+        })
+        .catch((err) => {
+          console.warn('[agentbrowser] annotation event delivery failed', err);
+        });
+      return;
+    }
     if (panelPort && panelChatIds.has(payload.chatId)) {
       postToPanel({ type: 'chat_event', chatId: payload.chatId, event: payload.event });
     }
@@ -342,6 +442,10 @@ chrome.runtime.onConnect.addListener((port) => {
       // (PROTOCOL v1.3 B), so its chatId has to be registered the same way or
       // every event it produces would be dropped on the way back.
       panelChatIds.add(msg.chatId);
+      // Annotation comments default to whatever backend the panel is using.
+      if (typeof msg.adapter === 'string' && msg.adapter) {
+        lastPanelAdapter = msg.adapter;
+      }
       // Verbatim, every field: picking fields out would drop model, context
       // and attachments.
       sendToOffscreen({ target: 'offscreen', cmd: 'send', payload: msg });
@@ -454,6 +558,54 @@ const TOOLS = {
   async eval_js(args) {
     const tabId = await resolveTabId(args.tabId);
     return cdp.evalJs(tabId, args.expression);
+  },
+
+  async annotate(args) {
+    const tabId = await resolveTabId(args.tabId);
+    const res = await sendToAnnotationScript(tabId, {
+      target: 'annotation',
+      cmd: 'annotate',
+      quote: String(args.quote || ''),
+      style: String(args.style || ''),
+      comment: String(args.comment || ''),
+      color: args.color ? String(args.color) : '',
+      author: 'agent',
+    });
+    if (!res || !res.ok) throw new Error((res && res.error) || 'annotate failed');
+    return { id: res.id, style: res.style, quote: res.quote };
+  },
+
+  async annotations_list(args) {
+    const tabId = await resolveTabId(args.tabId);
+    const res = await sendToAnnotationScript(tabId, {
+      target: 'annotation',
+      cmd: 'list',
+    });
+    if (!res || !res.ok) throw new Error((res && res.error) || 'annotations_list failed');
+    return { annotations: res.annotations || [] };
+  },
+
+  async annotate_reply(args) {
+    const tabId = await resolveTabId(args.tabId);
+    const res = await sendToAnnotationScript(tabId, {
+      target: 'annotation',
+      cmd: 'reply',
+      id: String(args.id || ''),
+      text: String(args.text || ''),
+    });
+    if (!res || !res.ok) throw new Error((res && res.error) || 'annotate_reply failed');
+    return { id: res.id, replied: true };
+  },
+
+  async annotate_clear(args) {
+    const tabId = await resolveTabId(args.tabId);
+    const res = await sendToAnnotationScript(tabId, {
+      target: 'annotation',
+      cmd: 'clear',
+      id: args.id ? String(args.id) : '',
+    });
+    if (!res || !res.ok) throw new Error((res && res.error) || 'annotate_clear failed');
+    return { cleared: res.cleared || 0 };
   },
 };
 
