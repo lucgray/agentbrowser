@@ -956,6 +956,17 @@ function init() {
       const row = makeBackendRow(a.name, null);
       if (models.length) row.classList.add("has-models");
       row.firstChild.textContent = a.label || a.name;
+      if (a.status && a.status !== "ready") {
+        row.classList.add("unavailable");
+        const hint = document.createElement("span");
+        hint.className = "backend-row-status";
+        hint.textContent =
+          a.status === "missing-cli" ? "cli missing"
+          : a.status === "missing-key" ? "needs key"
+          : "unavailable";
+        row.appendChild(hint);
+        if (a.detail) row.title = a.detail;
+      }
       backendAdaptersEl.appendChild(row);
     }
   }

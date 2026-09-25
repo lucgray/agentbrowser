@@ -41,7 +41,7 @@ function logWarn(context, err) {
   console.error('[generic-cli]', context + ':', (err && err.message) || err);
 }
 
-function resolveBin(name) {
+export function resolveBin(name) {
   const override = process.env[`AGENTCHAT_BIN_${name.toUpperCase()}`];
   if (override) return override;
   const dirs = [...(process.env.PATH || '').split(path.delimiter), ...EXTRA_BIN_DIRS];
@@ -222,6 +222,8 @@ function listAgyConversations() {
 //   setup(state)          once per session: temp MCP config / registration
 //   beforeTurn(state)     before each spawn
 //   buildArgs(prompt, state)
+//   modelArgs(model)      extra argv appended after buildArgs when the caller
+//                         picked a model; presets without a model flag omit it
 //   onLine(msg, state, emit)        stream presets
 //   parseOutput(text, state, emit)  buffered presets (text is ANSI-stripped)
 //   afterExit(state)      after a successful exit
@@ -244,6 +246,9 @@ export const HARNESSES = {
       args.push(prompt);
       return args;
     },
+    // `model` is a codex config key, so a -c override rides the same channel
+    // as the MCP wiring and can land anywhere in argv.
+    modelArgs: (model) => ['-c', `model="${model}"`],
     onLine(msg, state, emit) {
       if (msg.type === 'thread.started') {
         const id = msg.thread_id || msg.threadId || msg.session_id ||
@@ -323,6 +328,8 @@ export const HARNESSES = {
       args.push(prompt);
       return args;
     },
+    // -m takes a provider/model selector like anthropic/claude-sonnet-4-5.
+    modelArgs: (model) => ['-m', model],
     onLine(msg, state, emit) {
       if (msg.sessionID && !state.sessionId) state.sessionId = msg.sessionID;
       const part = msg.part || {};
@@ -397,6 +404,7 @@ export const HARNESSES = {
         '--session-id', state.copilotSession
       ];
     },
+    modelArgs: (model) => ['--model', model],
     parseOutput(text, state, emit) {
       emitPlainReply(text, emit);
     }
@@ -428,6 +436,7 @@ export const HARNESSES = {
       if (state.sessionId) args.push('--resume', state.sessionId);
       return args;
     },
+    modelArgs: (model) => ['--model', model],
     parseOutput(text, state, emit) {
       const obj = parseLooseJson(text);
       if (!obj) {
@@ -527,6 +536,7 @@ export const HARNESSES = {
       if (state.sessionId) args.push('-r', state.sessionId);
       return args;
     },
+    modelArgs: (model) => ['-m', model],
     onLine(msg, state, emit) {
       if (msg.type === 'init') {
         if (msg.session_id) state.sessionId = msg.session_id;
@@ -734,6 +744,7 @@ export function createGenericCliSession(name, ctx) {
       let args;
       try {
         args = preset.buildArgs(text, state);
+        if (preset.modelArgs && ctx && ctx.model) args.push(...preset.modelArgs(ctx.model));
       } catch (err) {
         emit({ kind: 'error', message: err && err.message ? err.message : String(err) });
         emit({ kind: 'done' });

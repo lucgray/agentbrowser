@@ -26,7 +26,7 @@ import * as apiOpenAi from './api-openai.mjs';
 
 import { TOOLS } from '../hub/tools.mjs';
 import { getKey, hasKey } from './keystore.mjs';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
@@ -40,7 +40,7 @@ const CONFIG = (() => {
   }
 })();
 
-const { GENERIC_CLI_NAMES, createGenericCliSession } = genericCli;
+const { GENERIC_CLI_NAMES, HARNESSES, createGenericCliSession, resolveBin } = genericCli;
 
 const registry = {
   'claude-agent-sdk': claudeAgentSdk.createClaudeAgentSdkSession,
@@ -83,7 +83,15 @@ const FALLBACK_DESCRIPTORS = {
     defaultModel: 'claude-opus-5',
     provider: null
   },
-  codex: { label: 'Codex CLI', models: [], defaultModel: null, provider: null },
+  codex: {
+    label: 'Codex CLI',
+    models: [
+      { id: 'gpt-5.6-luna', label: 'GPT-5.6 Luna' },
+      { id: 'gpt-5.6-terra', label: 'GPT-5.6 Terra' }
+    ],
+    defaultModel: null,
+    provider: null
+  },
   opencode: { label: 'opencode', models: [], defaultModel: null, provider: null },
   copilot: { label: 'GitHub Copilot CLI', models: [], defaultModel: null, provider: null },
   grok: { label: 'Grok CLI', models: [], defaultModel: null, provider: null },
@@ -114,10 +122,49 @@ function descriptorFor(name) {
   };
 }
 
+// config.json `adapterModels` replaces a descriptor's built-in model list —
+// the source of truth for what a CLI actually accepts drifts faster than this
+// table does, so deployments name their own ids:
+//   {"adapterModels": {"opencode": ["anthropic/claude-sonnet-4-5"], "grok": [...]}}
+function configuredModels(name) {
+  const list = CONFIG && CONFIG.adapterModels ? CONFIG.adapterModels[name] : null;
+  if (!Array.isArray(list)) return null;
+  return list
+    .filter((m) => typeof m === 'string' || (m && typeof m === 'object' && m.id != null))
+    .map((m) => (typeof m === 'string' ? { id: m, label: m } : { id: String(m.id), label: String(m.label == null ? m.id : m.label) }));
+}
+
 // name -> {label, models, defaultModel, provider}
 export const DESCRIPTORS = Object.fromEntries(
-  ADAPTERS.map((name) => [name, descriptorFor(name)])
+  ADAPTERS.map((name) => {
+    const d = descriptorFor(name);
+    const models = configuredModels(name);
+    return [name, models ? { ...d, models } : d];
+  })
 );
+
+// Can this adapter actually run right now? API adapters need a key in the
+// keystore; CLI adapters need their binary on PATH (or AGENTCHAT_BIN_<NAME>);
+// in-process adapters are always ready. Returns {status, detail} where status
+// is 'ready' | 'missing-cli' | 'missing-key'.
+export function probeAdapter(name) {
+  const d = DESCRIPTORS[name] || {};
+  if (d.provider) {
+    return hasKey(d.provider)
+      ? { status: 'ready' }
+      : { status: 'missing-key', detail: `${d.provider} API key not configured` };
+  }
+  const bin =
+    name === 'claude-cli' ? 'claude'
+    : HARNESSES[name] ? HARNESSES[name].bin
+    : null;
+  if (!bin) return { status: 'ready' };
+  const resolved = resolveBin(bin);
+  const found = resolved !== bin && existsSync(resolved) && statSync(resolved).isFile();
+  return found
+    ? { status: 'ready' }
+    : { status: 'missing-cli', detail: `${bin} not found on PATH` };
+}
 
 // The `adapters` array for the hub's {type:"capabilities"} message. Only ever
 // carries keyConfigured:<bool> — never the key itself.
@@ -130,7 +177,8 @@ export function buildCapabilities(keyChecker = hasKey) {
       models: d.models,
       defaultModel: d.defaultModel,
       provider: d.provider,
-      keyConfigured: d.provider ? Boolean(keyChecker(d.provider)) : false
+      keyConfigured: d.provider ? Boolean(keyChecker(d.provider)) : false,
+      ...probeAdapter(name)
     };
   });
 }

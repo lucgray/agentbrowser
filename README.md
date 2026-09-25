@@ -239,8 +239,28 @@ The panel sends more than your text with each message.
 The adapter dropdown is filled from the hub, not hardcoded: on connect the
 hub tells the panel which adapters exist, what each one is called, which
 models it can run, and which model it uses by default. Adapters with no
-model switch (most CLIs, which read their own config) show an empty model
-list.
+model switch (`agy`, `devin`, or any CLI you leave unlisted) show an empty
+model list.
+
+`codex`, `opencode`, `copilot`, `grok` and `gemini` do take a model per
+chat — passed as their `-m`/`--model` flag (codex uses a `-c model="…"`
+config override). `codex` ships a small built-in list; every other list
+comes from `config.json`:
+
+```json
+{"adapterModels": {"opencode": ["anthropic/claude-sonnet-4-5"], "gemini": [{"id": "gemini-3-pro", "label": "Gemini 3 Pro"}]}}
+```
+
+`adapterModels` replaces the adapter's model list entirely, so only put ids
+your CLI actually accepts.
+
+The hub also probes each adapter when it builds that list: API adapters show
+`needs key` until the keystore holds one, CLI adapters show `cli missing`
+until their binary resolves on `PATH` (or `AGENTCHAT_BIN_<NAME>`).
+Unavailable adapters are dimmed in the picker with the reason, and
+`agentbrowser backends` prints the same table on the command line. The probe
+only checks reachability — whether you are logged in to the CLI itself is
+the CLI's own business.
 
 Changing the model mid-chat restarts that chat's session, because the model
 is fixed when the session is created. You get a "session restarted with

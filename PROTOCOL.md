@@ -1,4 +1,4 @@
-# AgentBrowser protocol v1.9
+# AgentBrowser protocol v2.0
 
 AgentBrowser is a Chrome MV3 extension with a side-panel chat UI, plus a local hub
 server. The chat is backed by a pluggable "harness" (Claude Agent SDK, Claude
@@ -148,7 +148,8 @@ Chat (extension -> hub, streamed events back):
 - `{type:"command", chatId, name, args, adapter, model, context}` — v1.3, a
   server-scope slash command. Answered on the same `chat_event` stream.
 - panel -> hub: `{type:"set_key", provider, key}` and
-  `{type:"get_capabilities"}` (v1.2, see below).
+  `{type:"get_capabilities"}` (v1.2, see below). v2.0: harness sockets may
+  send `get_capabilities` too — read-only, same reply the panel gets.
 - panel -> hub, v1.8: `{type:"chat_list"}` ->
   `{type:"chat_list", chats:[{chatId,title,adapter,model,updatedAt,msgs,live}, ...]}`
   and `{type:"chat_resume", chatId}` ->
@@ -270,7 +271,9 @@ the hub sends:
    models:[{id:"claude-opus-5", label:"Opus 5"}, ...],   // may be [] for adapters with no model switch
    defaultModel:"<id or null>",
    provider:"anthropic"|"openai"|null,                    // non-null = needs an API key
-   keyConfigured:<bool>                                   // true when the hub holds a key for that provider
+   keyConfigured:<bool>,                                 // true when the hub holds a key for that provider
+   status:"ready"|"missing-cli"|"missing-key"|"unknown", // v2.0 hub probe (see below)
+   detail:"<why not ready>"                              // only when status is not ready/unknown
 }],
 commands:[{name, args, summary, scope:"client"|"server"}, ...]}   // v1.3, see "Slash commands"
 ```
@@ -279,6 +282,24 @@ The hub builds the list from the ten names above unioned with whatever
 `adapters/base.mjs` exports as `DESCRIPTORS`; per-adapter fields come from the
 descriptor, and `keyConfigured` from the key store. `commands` is the registry
 from `server/hub/commands.mjs` (v1.3).
+
+`status`/`detail` (v2.0) come from `probeAdapter` in adapters/base.mjs: API
+adapters report `missing-key` until the keystore holds their provider key; CLI
+adapters report `missing-cli` until their binary resolves on PATH (or via
+`AGENTCHAT_BIN_<NAME>`); in-process adapters are `ready`. The probe checks
+reachability only — it does not verify the CLI's own login state, which no
+adapter CLI exposes uniformly.
+
+`models` may be overridden wholesale per adapter via `config.json`
+`adapterModels` (v2.0):
+
+```json
+{"adapterModels": {"opencode": ["anthropic/claude-sonnet-4-5"], "gemini": [{"id": "gemini-3-pro"}]}}
+```
+
+A listed adapter's built-in list is replaced entirely; unlisted adapters keep
+theirs. `resolveModel` treats `config.model` the same way for both lists: it
+only applies when the id is in the adapter's list.
 
 sw.js relays the whole capabilities message to the panel Port VERBATIM, every
 field. It must not pick fields out of it or the panel loses `commands` and its

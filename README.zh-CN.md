@@ -224,7 +224,24 @@ Agent 能完整看到这些信息，所以「解释一下这个」「这个正�
 
 适配器下拉框由 hub 填充，不是写死的：连接时 hub 会告诉面板有哪些
 适配器、各自的名字、能跑哪些模型、默认用哪个。无模型切换的适配器
-（多数 CLI 读自己的配置）模型列表为空。
+（`agy`、`devin`，或你没在配置里列出的 CLI）模型列表为空。
+
+`codex`、`opencode`、`copilot`、`grok`、`gemini` 支持按会话指定
+模型——经各自的 `-m`/`--model` 参数传给 CLI（codex 用 `-c model="…"`
+配置覆盖）。`codex` 内置了一小组模型，其余列表来自 `config.json`：
+
+```json
+{"adapterModels": {"opencode": ["anthropic/claude-sonnet-4-5"], "gemini": [{"id": "gemini-3-pro", "label": "Gemini 3 Pro"}]}}
+```
+
+`adapterModels` 会整体替换该适配器的模型列表，所以只填你的 CLI 真实
+支持的 id。
+
+hub 构建列表时还会探测每个适配器的可用性：API 适配器在 keystore 有
+key 之前显示 `needs key`，CLI 适配器在 `PATH`（或 `AGENTCHAT_BIN_<NAME>`）
+找不到二进制时显示 `cli missing`。不可用的适配器在选择器里变灰并
+标出原因，命令行上 `agentbrowser backends` 打印同一张表。探测只验证
+可达性——CLI 本身登录没登录是它自己的事。
 
 会话中换模型会重启该 chat 的 session——因为模型在 session 创建时
 定死。对话流会出现一行 "session restarted with model X"，下一轮从
