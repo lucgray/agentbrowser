@@ -3,6 +3,7 @@
 // Usage:
 //   agentbrowser <tool> [json-args]   call a browser tool, print JSON result
 //   agentbrowser tools                list available tools + arg schemas
+//   agentbrowser backends             list adapters with readiness + models
 //   agentbrowser <tool> --help        show one tool's schema
 //
 // The CLI is a thin WebSocket client of the hub (ws://127.0.0.1:9010 by
@@ -21,6 +22,7 @@ function usage(exitCode) {
   console.log(`Usage:
   agentbrowser <tool> [json-args] [--hub <url>] [--timeout <ms>]
   agentbrowser tools
+  agentbrowser backends
   agentbrowser <tool> --help`);
   process.exit(exitCode);
 }
@@ -89,6 +91,46 @@ async function callTool(hub, tool, args, timeoutMs) {
   }
 }
 
+async function listBackends(hub, timeoutMs) {
+  const ws = new WebSocket(hub);
+  try {
+    await new Promise((resolve, reject) => {
+      ws.once('open', resolve);
+      ws.once('error', reject);
+      setTimeout(() => reject(new Error(`cannot reach hub at ${hub}`)), 5000);
+    });
+    ws.send(JSON.stringify({ type: 'hello', role: 'harness', name: 'agentbrowser-cli' }));
+    const caps = await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error(`timeout after ${timeoutMs}ms`)), timeoutMs);
+      ws.on('message', (data) => {
+        let msg;
+        try {
+          msg = JSON.parse(data.toString());
+        } catch (err) {
+          console.warn(`[agentbrowser-cli] non-JSON frame ignored: ${String(err && err.message)}`);
+          return;
+        }
+        if (msg.type === 'capabilities') {
+          clearTimeout(timer);
+          resolve(msg);
+        }
+      });
+      ws.on('error', (err) => {
+        clearTimeout(timer);
+        reject(new Error(`hub socket error: ${String((err && err.message) || err)}`));
+      });
+      ws.send(JSON.stringify({ type: 'get_capabilities' }));
+    });
+    return caps;
+  } finally {
+    try {
+      ws.close();
+    } catch (err) {
+      console.warn(`[agentbrowser-cli] socket close failed: ${String(err && err.message)}`);
+    }
+  }
+}
+
 async function main() {
   const { opts, positional } = parseArgs(process.argv.slice(2));
   const [toolName, argsJson] = positional;
@@ -106,6 +148,24 @@ async function main() {
   if (toolName === 'tools') {
     for (const t of TOOLS) console.log(`${t.name} — ${t.description.split('.')[0]}.`);
     process.exit(0);
+  }
+  if (toolName === 'backends') {
+    try {
+      const caps = await listBackends(opts.hub, opts.timeout);
+      for (const a of caps.adapters || []) {
+        const status =
+          a.status === 'ready' ? 'ready'
+          : a.status === 'missing-cli' ? `missing CLI${a.detail ? ` (${a.detail})` : ''}`
+          : a.status === 'missing-key' ? `missing key${a.detail ? ` (${a.detail})` : ''}`
+          : a.status || 'unknown';
+        const models = (a.models || []).map((m) => m.id).join(', ');
+        console.log(`${a.name}\n  ${status}${models ? `\n  models: ${models}` : ''}`);
+      }
+      process.exit(0);
+    } catch (err) {
+      console.error(String((err && err.message) || err));
+      process.exit(1);
+    }
   }
   if (!TOOLS.some((t) => t.name === toolName)) {
     console.error(`unknown tool: ${toolName} (run "agentbrowser tools")`);

@@ -343,6 +343,22 @@ img {
   white-space: nowrap;
 }
 
+/* Hub-probed availability: dimmed label plus a small status tag. */
+.backend-row.unavailable .backend-row-label {
+  opacity: 0.55;
+}
+
+.backend-row-status {
+  flex: none;
+  margin-left: var(--ac-space-8);
+  padding: 1px 6px;
+  border-radius: var(--ac-radius-control);
+  background: var(--ac-bg-2);
+  color: var(--ac-text-secondary);
+  font: var(--ac-type-tertiary, 10px/1.4 inherit);
+  white-space: nowrap;
+}
+
 /* A right-pointing chevron on adapters that carry a model list. */
 .backend-row.has-models::after {
   content: "";

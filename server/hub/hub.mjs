@@ -798,7 +798,15 @@ const FALLBACK_DESCRIPTORS = {
     defaultModel: config.model || "claude-opus-5",
     provider: null
   },
-  codex: { label: "Codex CLI", models: [], defaultModel: null, provider: null },
+  codex: {
+    label: "Codex CLI",
+    models: [
+      { id: "gpt-5.6-luna", label: "GPT-5.6 Luna" },
+      { id: "gpt-5.6-terra", label: "GPT-5.6 Terra" }
+    ],
+    defaultModel: null,
+    provider: null
+  },
   opencode: { label: "OpenCode", models: [], defaultModel: null, provider: null },
   copilot: { label: "Copilot CLI", models: [], defaultModel: null, provider: null },
   grok: { label: "Grok CLI", models: [], defaultModel: null, provider: null },
@@ -862,7 +870,13 @@ function normalizeDescriptor(name, descriptor) {
       : typeof fb.label === "string"
         ? fb.label
         : name;
-  return { name, label, models, defaultModel, provider };
+  // config.json `adapterModels` replaces the built-in list (same rule as
+  // adapters/base.mjs) so deployments can name the ids their CLIs accept.
+  const configured =
+    config.adapterModels && Array.isArray(config.adapterModels[name])
+      ? normalizeModels(config.adapterModels[name])
+      : null;
+  return { name, label, models: configured || models, defaultModel, provider };
 }
 
 async function descriptorFor(name) {
@@ -873,15 +887,31 @@ async function descriptorFor(name) {
 async function buildCapabilities() {
   const descriptors = await loadDescriptors();
   const names = [...new Set([...ADAPTER_NAMES, ...Object.keys(descriptors)])];
+  let probe = null;
+  try {
+    const mod = await loadAdapterModule();
+    if (mod && typeof mod.probeAdapter === "function") probe = mod.probeAdapter;
+  } catch (err) {
+    log("adapter probe unavailable:", err.message);
+  }
   const adapters = names.map((name) => {
     const d = normalizeDescriptor(name, descriptors[name]);
+    let status = { status: "unknown" };
+    if (probe) {
+      try {
+        status = probe(name);
+      } catch (err) {
+        log(`adapter probe failed for ${name}:`, err.message);
+      }
+    }
     return {
       name: d.name,
       label: d.label,
       models: d.models,
       defaultModel: d.defaultModel,
       provider: d.provider,
-      keyConfigured: d.provider ? hasKey(d.provider) : false
+      keyConfigured: d.provider ? hasKey(d.provider) : false,
+      ...status
     };
   });
   // The command registry rides along so the panel's autocomplete can never
@@ -1469,6 +1499,9 @@ function handleMessage(ws, msg) {
 
   if (ws.agentchatRole === "harness") {
     if (msg.type === "tool_call") handleHarnessToolCall(ws, msg);
+    // Read-only: lets `agentbrowser backends` show adapter readiness to
+    // harness-side tooling, same payload the extension gets.
+    else if (msg.type === "get_capabilities") sendCapabilities(ws);
     return;
   }
 
