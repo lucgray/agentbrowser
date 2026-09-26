@@ -1583,20 +1583,23 @@ async function init() {
     return s;
   }
 
-  // Chips name the action by the label the agent chose (v2.2 `label` arg, or
-  // a harness-native `description` like Claude Code's Bash input) — falling
-  // back to the raw tool name when neither exists.
-  function makeChipNode(tool, args) {
+  // Chips name the action by the label the agent chose: an explicit event
+  // label emitted by the adapter (v2.3), the `label` arg (v2.2), or a
+  // harness-native `description` like Claude Code's Bash input — falling
+  // back to the raw tool name when none exists.
+  function makeChipNode(tool, args, eventLabel) {
     const chip = document.createElement("div");
     chip.className = "chip";
 
     const gear = document.createTextNode("⚙ ");
     const name = document.createElement("span");
     name.className = "chip-name";
-    const label =
+    const argLabel =
       args && typeof args === "object" && typeof (args.label || args.description) === "string"
         ? args.label || args.description
         : null;
+    const label =
+      typeof eventLabel === "string" && eventLabel.trim() ? eventLabel.trim() : argLabel;
     name.textContent = label || String(tool);
     if (label) name.title = String(tool);
     const argsText = document.createTextNode(" " + summarizeArgs(args) + " ");
@@ -1612,8 +1615,8 @@ async function init() {
   // block for this turn (or inside their lane), which is collapsed to a step
   // count by default. A lane keeps its own pending list, so two lanes running
   // the same tool at the same time cannot resolve each other's chips.
-  function addToolChip(tool, args, laneEntry, id) {
-    const { chip, status } = makeChipNode(tool, args);
+  function addToolChip(tool, args, laneEntry, id, eventLabel) {
+    const { chip, status } = makeChipNode(tool, args, eventLabel);
     const record = { tool: String(tool), id: id == null ? null : String(id), statusEl: status, chipEl: chip };
     if (laneEntry) {
       const view = ensureLaneView(laneEntry);
@@ -1845,7 +1848,7 @@ async function init() {
         break;
       }
       case "tool_use":
-        addToolChip(event.tool, event.args, entry, event.id);
+        addToolChip(event.tool, event.args, entry, event.id, event.label);
         break;
       case "tool_result":
         resolveToolChip(event.tool, !!event.ok, event.summary, entry, event.id);
@@ -1976,7 +1979,7 @@ async function init() {
       case "tool_use":
         // The chip lands inside the work block, so the reply text keeps
         // streaming into the same block instead of being split by it.
-        addToolChip(event.tool, event.args, null, event.id);
+        addToolChip(event.tool, event.args, null, event.id, event.label);
         break;
       case "tool_result":
         resolveToolChip(event.tool, !!event.ok, event.summary, null, event.id);
