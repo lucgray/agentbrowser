@@ -490,8 +490,10 @@ the hub at `server/hub/stub-adapter.mjs` via `AGENTCHAT_ADAPTER_MODULE`.
   attached. Dismissing it detaches the debugger; the next tool call
   re-attaches.
 - The hub accepts one extension connection. Loading the extension in a
-  second Chrome profile or window displaces the first: the old socket is
-  closed and its in-flight tool calls fail with "displaced".
+  second Chrome *profile* displaces the first: the old socket is closed and
+  its in-flight tool calls fail with "displaced". Multiple *windows* of the
+  same profile are fine — each window's side panel is an independent port
+  routed by window (v2.1).
 - Tool calls time out at the hub after 60 seconds.
 - Adapter sessions are kept per chat and disposed after 30 minutes idle;
   sending to an old chatId after that starts a fresh session. Switching the

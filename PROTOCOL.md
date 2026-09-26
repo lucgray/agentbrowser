@@ -1,4 +1,4 @@
-# AgentBrowser protocol v2.0
+# AgentBrowser protocol v2.1
 
 AgentBrowser is a Chrome MV3 extension with a side-panel chat UI, plus a local hub
 server. The chat is backed by a pluggable "harness" (Claude Agent SDK, Claude
@@ -23,6 +23,7 @@ agentchat/
     manifest.json          (ext-core agent)
     background/
       sw.js                (ext-core)  service worker: routing + CDP executor
+      panel-router.js      (ext-core)  pure per-window panel port routing (v2.1)
       cdp.js               (ext-core)  ES module with CDP helpers, imported by sw.js
       inspect.js           (ext-core)  per-tab console/network/dialog buffers + patch state (v1.6)
       inspect-core.js      (ext-core)  pure helpers: page-side expressions, HAR builder (v1.6)
@@ -568,7 +569,7 @@ document on startup with reason `WORKERS` justification "persistent WebSocket
 to local agent hub", guarded so a second create call is a no-op. offscreen.js
 reconnects with 3s backoff forever and reports every status change.
 
-sidepanel <-> sw via a long-lived `chrome.runtime.connect({name:"sidepanel"})` Port:
+sidepanel <-> sw via a long-lived `chrome.runtime.connect({name:"sidepanel:<windowId>"})` Port — one per browser window (v2.1; a bare `sidepanel` name falls back to a shared slot): 
 
 - panel -> sw: `{type:"chat", chatId, text, adapter, model?, context?, attachments?}` /
   `{type:"chat_abort", chatId}` — same shape as the hub message above
@@ -605,6 +606,29 @@ and `attachments`. It must also work when the panel reconnects (new Port)
 mid-chat: events for unknown chatIds are dropped silently. A panel that
 reconnects sends `get_capabilities` to repopulate its picker; sw.js may also
 cache the last capabilities message and replay it on connect.
+
+## Multi-window panels, v2.1
+
+Each browser window's side panel is an independent Port named
+`sidepanel:<windowId>` (the panel resolves its hosting window with
+`chrome.windows.getCurrent()` before connecting). `background/panel-router.js`
+is the pure routing table: it keeps `windowId -> Port` and `chatId -> owning
+windowId`, binding a chatId on `chat`, `command` and `chat_resume`.
+
+Outbound routing:
+- `status`, `capabilities`, `chat_list` broadcast to every connected panel —
+  history is hub-global, so all panels share one list.
+- `chat_event` / `chat_resumed` go to the owning window only; events for a
+  chatId no panel owns (or whose window closed) are dropped, and a chat
+  resumed from a different window rebinds to it.
+- Anything unaddressed goes to the window whose panel talked most recently.
+
+Inbound default-tab resolution follows the same ownership: a tool call with
+no `tabId` resolves against the active tab of the most recent sender's
+window before falling back to the focused window. The panel's own
+current-tab chip and `pendingSelection` consumption are likewise scoped to
+its hosting window, so two open panels no longer report (or steal) each
+other's tab.
 
 ## Browser tools
 

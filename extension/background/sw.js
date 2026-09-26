@@ -6,11 +6,13 @@
 import * as cdp from './cdp.js';
 import * as inspect from './inspect.js';
 import * as consent from './consent.js';
+import { createPanelRouter, windowIdFromPortName } from './panel-router.js';
 
 const DEFAULT_HUB_URL = 'ws://127.0.0.1:9010';
 
-let panelPort = null;
-let panelChatIds = new Set(); // chatIds started by the current panel Port
+// One panel Port per browser window, keyed by windowId (v2.1 — the single
+// panelPort this replaced let the last-opened window steal every chat event).
+const panelRouter = createPanelRouter();
 let hubConnected = false;
 let lastCapabilities = null; // last {type:'capabilities'} from the hub, replayed on panel connect
 let lastPanelAdapter = null; // adapter of the panel's most recent chat; default for annotation threads
@@ -294,12 +296,15 @@ chrome.storage.onChanged.addListener((changes, area) => {
 // --- hub <-> panel routing --------------------------------------------------
 
 function postToPanel(message) {
-  if (!panelPort) return;
-  try {
-    panelPort.postMessage(message);
-  } catch (err) {
-    console.warn('[agentbrowser] postToPanel failed, dropping port', err);
-    panelPort = null;
+  for (const windowId of panelRouter.route(message)) {
+    const port = panelRouter.ports.get(windowId);
+    if (!port) continue;
+    try {
+      port.postMessage(message);
+    } catch (err) {
+      console.warn('[agentbrowser] postToPanel failed, dropping port', err);
+      panelRouter.disconnect(windowId, port);
+    }
   }
 }
 
@@ -405,9 +410,7 @@ function handleHubMessage(payload) {
         });
       return;
     }
-    if (panelPort && panelChatIds.has(payload.chatId)) {
-      postToPanel({ type: 'chat_event', chatId: payload.chatId, event: payload.event });
-    }
+    postToPanel({ type: 'chat_event', chatId: payload.chatId, event: payload.event });
   } else if (payload.type === 'capabilities') {
     // Relayed verbatim. Cached so a panel that reconnects gets its picker back
     // without waiting for the round trip its own get_capabilities makes.
@@ -447,9 +450,17 @@ async function handleToolCall({ id, tool, args, permissions }) {
 }
 
 chrome.runtime.onConnect.addListener((port) => {
-  if (port.name !== 'sidepanel') return;
-  panelPort = port;
-  panelChatIds = new Set();
+  const windowId = windowIdFromPortName(port.name);
+  if (windowId === null) return;
+  const stale = panelRouter.ports.get(windowId);
+  if (stale && stale !== port) {
+    try {
+      stale.disconnect();
+    } catch (err) {
+      console.warn('[agentbrowser] stale panel port disconnect failed', err);
+    }
+  }
+  panelRouter.connect(windowId, port);
   port.postMessage({ type: 'status', connected: hubConnected });
   if (lastCapabilities) port.postMessage(lastCapabilities);
   connectHub().catch((err) => {
@@ -457,11 +468,9 @@ chrome.runtime.onConnect.addListener((port) => {
   });
   port.onMessage.addListener((msg) => {
     if (!msg || typeof msg !== 'object') return;
+    // Binds chat/command/chat_resume chatIds to this window for reply routing.
+    panelRouter.noteInbound(windowId, msg);
     if (msg.type === 'chat' || msg.type === 'command') {
-      // A command answers on the same chat_event stream as a chat turn
-      // (PROTOCOL v1.3 B), so its chatId has to be registered the same way or
-      // every event it produces would be dropped on the way back.
-      panelChatIds.add(msg.chatId);
       // Annotation comments default to whatever backend the panel is using.
       if (typeof msg.adapter === 'string' && msg.adapter) {
         lastPanelAdapter = msg.adapter;
@@ -469,12 +478,8 @@ chrome.runtime.onConnect.addListener((port) => {
       // Verbatim, every field: picking fields out would drop model, context
       // and attachments.
       sendToOffscreen({ target: 'offscreen', cmd: 'send', payload: msg });
-    } else if (msg.type === 'chat_resume') {
-      // Register the resumed chatId so its chat_events reach the panel: a live
-      // chat keeps streaming to whoever re-opened it.
-      if (msg.chatId) panelChatIds.add(msg.chatId);
-      sendToOffscreen({ target: 'offscreen', cmd: 'send', payload: msg });
     } else if (
+      msg.type === 'chat_resume' ||
       msg.type === 'chat_abort' ||
       msg.type === 'set_key' ||
       msg.type === 'get_capabilities' ||
@@ -484,7 +489,7 @@ chrome.runtime.onConnect.addListener((port) => {
     }
   });
   port.onDisconnect.addListener(() => {
-    if (panelPort === port) panelPort = null;
+    panelRouter.disconnect(windowId, port);
   });
 });
 
@@ -492,6 +497,14 @@ chrome.runtime.onConnect.addListener((port) => {
 
 async function resolveTabId(tabId) {
   if (tabId != null) return tabId;
+  // Prefer the window whose panel most recently talked — with several windows
+  // open, 'currentWindow' inside a worker resolves to the focused one, which
+  // is not necessarily the one that asked.
+  const hint = panelRouter.lastWindow();
+  if (typeof hint === 'number') {
+    const [tab] = await chrome.tabs.query({ active: true, windowId: hint });
+    if (tab) return tab.id;
+  }
   let [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab) [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
   if (!tab) throw new Error('no active tab');
