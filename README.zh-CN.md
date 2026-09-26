@@ -454,9 +454,10 @@ node --test ../tests/extension/*.test.mjs
   断开。换个标签页或关掉 DevTools 即可。
 - debugger attach 期间 Chrome 会显示 "is being debugged" 提示条；把
   它关掉会断开 debugger，下一次工具调用会自动重连。
-- hub 只接受一个扩展连接。在第二个 Chrome Profile 或窗口里加载扩展
-  会挤掉前一个：旧 socket 被关闭，其未完成的工具调用以
-  "displaced" 失败。
+- hub 只接受一个扩展连接。在第二个 Chrome *Profile* 里加载扩展会挤掉
+  前一个：旧 socket 被关闭，其未完成的工具调用以 "displaced" 失败。
+  同一 Profile 下的多个窗口没有问题——每个窗口的侧栏是独立端口，按
+  窗口路由（v2.1）。
 - 工具调用在 hub 侧 60 秒超时。
 - 适配器 session 按 chat 保留，空闲 30 分钟后销毁；之后用旧 chatId
   发消息会新建 session。会话中切换适配器或模型下拉框也会结束旧

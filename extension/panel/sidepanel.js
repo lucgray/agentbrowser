@@ -648,7 +648,7 @@ export function buildSetKeyMessage(provider, key) {
 // Panel (browser only)
 // ---------------------------------------------------------------------------
 
-function init() {
+async function init() {
   const statusDot = document.getElementById("status-dot");
   const backendEl = document.getElementById("backend");
   const backendBtn = document.getElementById("backend-btn");
@@ -698,6 +698,7 @@ function init() {
   const BASE_PLACEHOLDER = inputEl.placeholder;
 
   let port = null;
+  let ownWindowId = null; // browser window hosting this panel (v2.1)
   let connected = false;
   let chatId = crypto.randomUUID();
   let streaming = false;
@@ -750,7 +751,11 @@ function init() {
   // ----- Port lifecycle -----
 
   function connectPort() {
-    port = chrome.runtime.connect({ name: "sidepanel" });
+    // Name carries this panel's window so the service worker can keep one
+    // port per window and route each chat's events back to its owner.
+    const name =
+      ownWindowId != null ? `sidepanel:${ownWindowId}` : "sidepanel";
+    port = chrome.runtime.connect({ name });
     port.onMessage.addListener(onPortMessage);
     port.onDisconnect.addListener(() => {
       port = null;
@@ -1997,7 +2002,13 @@ function init() {
   async function refreshCurrentTab() {
     let next = null;
     try {
-      const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+      // Scope to the window hosting this panel — lastFocusedWindow would
+      // report another window's tab whenever that window has focus.
+      const query =
+        ownWindowId != null
+          ? { active: true, windowId: ownWindowId }
+          : { active: true, lastFocusedWindow: true };
+      const [tab] = await chrome.tabs.query(query);
       if (tab && tab.id != null && isContextUrl(tab.url)) {
         next = { tabId: tab.id, url: tab.url, title: tab.title || tab.url };
       }
@@ -2013,7 +2024,9 @@ function init() {
   }
 
   function watchTabs() {
-    chrome.tabs.onActivated.addListener(() => refreshCurrentTab());
+    chrome.tabs.onActivated.addListener((info) => {
+      if (ownWindowId == null || info.windowId === ownWindowId) refreshCurrentTab();
+    });
     chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
       if (changeInfo.url === undefined && changeInfo.title === undefined) return;
       if (tab && tab.active) refreshCurrentTab();
@@ -2035,12 +2048,23 @@ function init() {
   // sw.js parks each delivered selection in chrome.storage.session under
   // pendingSelection; timestamps keep a re-opened panel from applying a stale
   // one or re-applying the one it already has.
-  function applyPendingSelection(record) {
+  async function applyPendingSelection(record) {
     if (!record || typeof record !== "object") return;
     const ts = Number(record.timestamp) || 0;
     if (ts <= selectionAppliedTs) return;
     const sel = normalizeSelection(record.selection);
     if (!sel) return;
+    // Selections are stored globally; only the panel in the window that owns
+    // the tab should consume one.
+    if (ownWindowId != null && record.tabId != null) {
+      try {
+        const tab = await chrome.tabs.get(record.tabId);
+        if (!tab || tab.windowId !== ownWindowId) return;
+      } catch (err) {
+        console.warn("[agentbrowser] pendingSelection tab lookup failed", err);
+        return;
+      }
+    }
     selectionAppliedTs = ts;
     selectionCtx = sel;
     renderChips();
@@ -2936,6 +2960,13 @@ function init() {
   setConnected(false);
   renderKeyState();
   loadPrefs();
+  // Resolve the hosting window before connecting: the port name carries it.
+  try {
+    const w = await chrome.windows.getCurrent();
+    ownWindowId = w && typeof w.id === "number" ? w.id : null;
+  } catch (err) {
+    console.warn("[agentbrowser] window id lookup failed", err);
+  }
   connectPort();
   watchTabs();
   watchSelections();
