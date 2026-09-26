@@ -17,8 +17,10 @@
 // informational tools never gate.
 export const WRITE_TOOLS = [
   'click', 'click_element', 'type_text', 'press_key', 'navigate',
-  'eval_js', 'patch_apply',
+  'eval_js', 'patch_apply', 'fill',
   'annotate', 'annotate_batch', 'annotate_reply', 'annotate_clear',
+  // `batch` is intentionally absent: it gates every inner step under that
+  // step's own tool name instead, so nothing double-asks.
 ];
 
 // "Allow on this domain for this session" grants live for the service
@@ -104,6 +106,13 @@ export function resetSessionAllows() {
 // appended by consent.js's describeTarget when a page evaluation can name the
 // target; this function is the pure-args fallback.
 export function summarizeArgs(tool, a = {}) {
+  // An agent-chosen label names the call in the user's words (v2.2); show it
+  // ahead of the args summary so the card reads as an action, not a payload.
+  const base = summarize(tool, a);
+  return typeof a.label === 'string' && a.label ? `${a.label} — ${base}` : base;
+}
+
+function summarize(tool, a) {
   switch (tool) {
     case 'click':
       return `click at (${Math.round(a.x || 0)}, ${Math.round(a.y || 0)})`;
@@ -119,6 +128,10 @@ export function summarizeArgs(tool, a = {}) {
       return `run JavaScript (${String(a.expression || '').length} chars)`;
     case 'patch_apply':
       return `live-patch ${Array.isArray(a.patches) ? a.patches.length : 0} node(s)`;
+    case 'fill':
+      return `fill '${String(a.selector || '')}' with "${clip(a.text)}"`;
+    case 'batch':
+      return `run ${Array.isArray(a.steps) ? a.steps.length : 0} step(s)`;
     case 'annotate':
       return `annotate (${String(a.style || 'underline')}) "${clip(a.quote)}"`;
     case 'annotate_batch':
