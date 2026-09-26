@@ -328,7 +328,94 @@ export const TOOLS = [
       },
       required: ["patchId"]
     }
+  },
+
+  // --- composite wrappers (v2.2): one call replaces several, so the model
+  // spends fewer tokens on tool envelopes and the user sees fewer chips.
+
+  {
+    name: "fill",
+    description: "Focus an input and type text in one call: click_element + type_text fused. submit:true also presses Enter after typing. Returns {filled:true, typed, submitted}.",
+    args: {
+      type: "object",
+      properties: {
+        selector: { type: "string", description: "CSS selector of the field to fill" },
+        text: { type: "string", description: "Text to type into the field" },
+        submit: { type: "boolean", description: "Press Enter after typing (default false)" },
+        tabId: { type: "number", description: "Target tab id; omit for the active tab" }
+      },
+      required: ["selector", "text"]
+    }
+  },
+  {
+    name: "wait_for",
+    description: "Wait until a CSS selector exists or text appears on the page — instead of polling read_page/screenshot (token-heavy). Returns {found, waited}. Times out gracefully: check found rather than treating timeout as an error.",
+    args: {
+      type: "object",
+      properties: {
+        selector: { type: "string", description: "CSS selector to wait for" },
+        text: { type: "string", description: "Text to wait for (page innerText match)" },
+        timeoutMs: { type: "number", description: "Max wait in ms (default 10000, cap 60000)" },
+        tabId: { type: "number", description: "Target tab id; omit for the active tab" }
+      },
+      required: []
+    }
+  },
+  {
+    name: "read_elements",
+    description: "Read only the elements matching a selector — a compact alternative to read_page when you already know what you need. Returns {count, elements:[{text, value?}]} with value from attr when attr is passed.",
+    args: {
+      type: "object",
+      properties: {
+        selector: { type: "string", description: "CSS selector of the elements to read" },
+        attr: { type: "string", description: "Optional attribute to include as value (e.g. 'href', 'value')" },
+        max: { type: "number", description: "Max elements to return (default 50, cap 200)" },
+        maxChars: { type: "number", description: "Max chars per element's text (default 300, cap 2000)" },
+        tabId: { type: "number", description: "Target tab id; omit for the active tab" }
+      },
+      required: ["selector"]
+    }
+  },
+  {
+    name: "batch",
+    description: "Run several tool calls in one request, sequentially: steps is an array of {tool, args}. Stops at the first failing step unless stopOnError:false. Nesting batch inside batch is rejected. Returns {results:[{step, ok, result|error}], completed, total}.",
+    args: {
+      type: "object",
+      properties: {
+        steps: {
+          type: "array",
+          description: "Sequential calls: [{tool: '<tool name>', args: {...}}]",
+          items: {
+            type: "object",
+            properties: {
+              tool: { type: "string" },
+              args: { type: "object" }
+            },
+            required: ["tool"]
+          }
+        },
+        stopOnError: { type: "boolean", description: "Stop after the first failed step (default true)" },
+        tabId: { type: "number", description: "Default tab id for steps that omit one" }
+      },
+      required: ["steps"]
+    }
   }
 ];
+
+// `label` (v2.2): an optional, agent-chosen display name for a call — the
+// side panel shows it on the chip instead of the raw tool name, so the user
+// reads "搜索订单接口" rather than "eval_js {...}". Injected on every tool.
+const LABEL_ARG = {
+  label: {
+    type: "string",
+    description:
+      "Optional short name for this call, shown to the user in the side panel (e.g. 'search issues for flaky login'). Keep it under ~8 words.",
+  },
+};
+
+for (const t of TOOLS) {
+  t.args = t.args || { type: "object", properties: {}, required: [] };
+  t.args.properties = Object.assign({}, LABEL_ARG, t.args.properties);
+}
 
 export const TOOL_NAMES = TOOLS.map((t) => t.name);

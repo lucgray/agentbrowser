@@ -421,26 +421,30 @@ function handleHubMessage(payload) {
   }
 }
 
+// Consent gate (PROTOCOL v1.7): the hub attaches config.json's `permissions`
+// to each forwarded call. Only gated tools pay the tab lookup; an absent
+// policy or allowAll:true means the gate is off. Extracted so `batch` can gate
+// every inner step individually.
+async function gateToolCall(tool, args, permissions) {
+  if (!consent.shouldCheck(tool, permissions)) return;
+  const tabId = await resolveTabId(args && args.tabId);
+  const tab = await chrome.tabs.get(tabId).catch((err) => {
+    console.warn('[agentbrowser] consent tab lookup failed', err);
+    return null;
+  });
+  // navigate is judged by where it is going, not where the tab is now.
+  const gateUrl =
+    tool === 'navigate' && args && args.url
+      ? String(args.url)
+      : (tab && tab.url) || '';
+  await consent.authorize(tool, args, tabId, gateUrl, permissions);
+}
+
 async function handleToolCall({ id, tool, args, permissions }) {
   let reply;
   try {
-    // Consent gate (PROTOCOL v1.7): the hub attaches config.json's
-    // `permissions` object to each forwarded call. Only gated tools pay the
-    // tab lookup; an absent policy or allowAll:true means the gate is off.
-    if (consent.shouldCheck(tool, permissions)) {
-      const tabId = await resolveTabId(args && args.tabId);
-      const tab = await chrome.tabs.get(tabId).catch((err) => {
-        console.warn('[agentbrowser] consent tab lookup failed', err);
-        return null;
-      });
-      // navigate is judged by where it is going, not where the tab is now.
-      const gateUrl =
-        tool === 'navigate' && args && args.url
-          ? String(args.url)
-          : (tab && tab.url) || '';
-      await consent.authorize(tool, args, tabId, gateUrl, permissions);
-    }
-    const result = await executeTool(tool, args || {});
+    await gateToolCall(tool, args, permissions);
+    const result = await executeTool(tool, args || {}, permissions);
     reply = { type: 'tool_result', id, ok: true, result };
   } catch (err) {
     console.warn('[agentbrowser] tool call failed:', tool, err);
@@ -711,10 +715,104 @@ const TOOLS = {
     const tabId = await resolveTabId(args.tabId);
     return inspect.patchRevert(tabId, args);
   },
+
+  // --- composite wrappers (v2.2) -----------------------------------------
+
+  async fill(args) {
+    const tabId = await resolveTabId(args.tabId);
+    await cdp.clickElement(tabId, String(args.selector || ''));
+    const res = await cdp.typeText(tabId, String(args.text || ''));
+    let submitted = false;
+    if (args.submit) {
+      await cdp.pressKey(tabId, 'Enter');
+      submitted = true;
+    }
+    return { filled: true, typed: res && res.typed, submitted };
+  },
+
+  // Polling here (one eval per 250ms inside the extension) replaces the
+  // model's own read_page/screenshot loops, which cost a tool round trip and
+  // a big payload each iteration.
+  async wait_for(args) {
+    const tabId = await resolveTabId(args.tabId);
+    const timeoutMs = Math.min(Math.max(Number(args.timeoutMs) || 10000, 0), 60000);
+    const sel = args.selector ? String(args.selector) : '';
+    const text = args.text ? String(args.text) : '';
+    if (!sel && !text) throw new Error('wait_for needs selector or text');
+    const t0 = Date.now();
+    while (Date.now() - t0 < timeoutMs) {
+      const expr = sel
+        ? `!!document.querySelector(${JSON.stringify(sel)})`
+        : `!!(document.body && document.body.innerText.includes(${JSON.stringify(text)}))`;
+      const r = await cdp.evalJs(tabId, expr);
+      if (r && r.value) return { found: true, waited: Date.now() - t0 };
+      await new Promise((res) => setTimeout(res, 250));
+    }
+    return { found: false, waited: Date.now() - t0 };
+  },
+
+  async read_elements(args) {
+    const tabId = await resolveTabId(args.tabId);
+    const sel = String(args.selector || '');
+    if (!sel) throw new Error('read_elements needs selector');
+    const max = Math.min(Math.max(Number(args.max) || 50, 1), 200);
+    const maxChars = Math.min(Math.max(Number(args.maxChars) || 300, 1), 2000);
+    const attr = args.attr ? String(args.attr) : '';
+    const expr =
+      `[...document.querySelectorAll(${JSON.stringify(sel)})].slice(0, ${max})` +
+      `.map((el) => ({ text: String(el.innerText || el.textContent || '').trim().slice(0, ${maxChars})` +
+      (attr ? `, value: el.getAttribute(${JSON.stringify(attr)})` : '') +
+      ' }))';
+    const r = await cdp.evalJs(tabId, expr);
+    const elements = Array.isArray(r && r.value) ? r.value : [];
+    return { count: elements.length, elements };
+  },
+
+  // Sequential steps in one call (v2.2). Each step gates under its own tool
+  // name — batch itself is never in the gate list, so nothing double-asks.
+  async batch(args, permissions) {
+    const steps = Array.isArray(args.steps) ? args.steps : [];
+    if (!steps.length) throw new Error('batch needs steps');
+    const stopOnError = args.stopOnError !== false;
+    const results = [];
+    for (const step of steps) {
+      const name = step && typeof step === 'object' ? String(step.tool || '') : '';
+      if (name === 'batch') {
+        results.push({ step: name, ok: false, error: 'nested batch not allowed' });
+        if (stopOnError) break;
+        continue;
+      }
+      const fn = TOOLS[name];
+      if (!fn) {
+        results.push({ step: name, ok: false, error: `unknown tool: ${name}` });
+        if (stopOnError) break;
+        continue;
+      }
+      const innerArgs = Object.assign({}, step.args);
+      if (innerArgs.tabId == null && args.tabId != null) innerArgs.tabId = args.tabId;
+      try {
+        await gateToolCall(name, innerArgs, permissions);
+        const result = await fn(innerArgs);
+        results.push({ step: name, ok: true, result });
+      } catch (err) {
+        results.push({
+          step: name,
+          ok: false,
+          error: String((err && err.message) || err),
+        });
+        if (stopOnError) break;
+      }
+    }
+    return {
+      results,
+      completed: results.filter((r) => r.ok).length,
+      total: steps.length,
+    };
+  },
 };
 
-async function executeTool(tool, args) {
+async function executeTool(tool, args, permissions) {
   const fn = TOOLS[tool];
   if (!fn) throw new Error(`unknown tool: ${tool}`);
-  return fn(args);
+  return fn(args, permissions);
 }

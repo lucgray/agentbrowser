@@ -96,4 +96,11 @@ test('summarizeArgs renders each gated tool', () => {
   assert.equal(summarizeArgs('eval_js', { expression: 'abc' }), 'run JavaScript (3 chars)');
   assert.equal(summarizeArgs('patch_apply', { patches: [{}, {}] }), 'live-patch 2 node(s)');
   assert.equal(summarizeArgs('annotate_clear', {}), 'remove all annotations');
+  assert.equal(summarizeArgs('fill', { selector: '#q', text: 'hi' }), 'fill \'#q\' with "hi"');
+  assert.equal(summarizeArgs('batch', { steps: [{}, {}, {}] }), 'run 3 step(s)');
+  // v2.2: an agent-chosen label leads the summary.
+  assert.equal(
+    summarizeArgs('click_element', { selector: '#b', label: '提交表单' }),
+    "提交表单 — click '#b'"
+  );
 });

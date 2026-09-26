@@ -1570,7 +1570,10 @@ async function init() {
   function summarizeArgs(args) {
     let s;
     try {
-      s = JSON.stringify(args);
+      // label/description name the action itself — they go on the chip name,
+      // not in the args dump.
+      const { label, description, ...rest } = args && typeof args === "object" ? args : {};
+      s = JSON.stringify(args && typeof args === "object" ? rest : args);
     } catch (err) {
       console.warn("[agentbrowser] arg stringify failed, using String()", err);
       s = String(args);
@@ -1580,6 +1583,9 @@ async function init() {
     return s;
   }
 
+  // Chips name the action by the label the agent chose (v2.2 `label` arg, or
+  // a harness-native `description` like Claude Code's Bash input) — falling
+  // back to the raw tool name when neither exists.
   function makeChipNode(tool, args) {
     const chip = document.createElement("div");
     chip.className = "chip";
@@ -1587,7 +1593,12 @@ async function init() {
     const gear = document.createTextNode("⚙ ");
     const name = document.createElement("span");
     name.className = "chip-name";
-    name.textContent = String(tool);
+    const label =
+      args && typeof args === "object" && typeof (args.label || args.description) === "string"
+        ? args.label || args.description
+        : null;
+    name.textContent = label || String(tool);
+    if (label) name.title = String(tool);
     const argsText = document.createTextNode(" " + summarizeArgs(args) + " ");
     const status = document.createElement("span");
     status.className = "chip-pending";

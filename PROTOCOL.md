@@ -1,4 +1,4 @@
-# AgentBrowser protocol v2.1
+# AgentBrowser protocol v2.2
 
 AgentBrowser is a Chrome MV3 extension with a side-panel chat UI, plus a local hub
 server. The chat is backed by a pluggable "harness" (Claude Agent SDK, Claude
@@ -661,6 +661,18 @@ executor, in the SDK adapter's MCP server, and in mcp-proxy.mjs.
 | `dialog_respond` | `{accept, promptText?, tabId?}` | `{handled:true,type,message}` or `{handled:false}` — v1.6 |
 | `patch_apply` | `{patches:[{selector,styles?,attributes?,insertAdjacentHTML?,remove?}], label?, tabId?}` | `{patchId, applied, results:[{selector,matched,error?}]}` — v1.6 |
 | `patch_revert` | `{patchId, tabId?}` | `{patchId, reverted, missing}` — v1.6 |
+| `fill` | `{selector, text, submit?, tabId?}` | `{filled:true, typed, submitted}` — v2.2; click_element + type_text (+ Enter) fused |
+| `wait_for` | `{selector?, text?, timeoutMs?, tabId?}` | `{found, waited}` — v2.2; polls in-page every 250ms, cap 60s; timeout returns `found:false`, not an error |
+| `read_elements` | `{selector, attr?, max?, maxChars?, tabId?}` | `{count, elements:[{text, value?}]}` — v2.2; compact selector-scoped reads instead of a full read_page |
+| `batch` | `{steps:[{tool, args}], stopOnError?, tabId?}` | `{results:[{step, ok, result|error}], completed, total}` — v2.2; sequential, stops at first failure unless `stopOnError:false`, `tabId` on the call defaults into steps; nesting rejected |
+
+`label` (v2.2): every tool's schema gains an optional `label` string — an
+agent-chosen display name for the call. The side panel shows it as the chip
+name instead of the raw tool name (tool name stays on hover), and the
+consent card leads with it. Harness-native `description` fields (e.g.
+Claude Code's Bash input) render the same way. `label` never affects
+execution. Composite wrappers exist to cut per-call envelope overhead and
+payload size: `fill`, `wait_for`, `read_elements`, `batch`.
 
 `tabId` omitted = active tab of the current window. All tools run in the SW;
 CDP tools attach `chrome.debugger` (version "1.3") on demand, keep a set of
