@@ -308,7 +308,7 @@ const I18N = {
     needsKey: "needs key",
     unavailable: "unavailable",
     workDone: "Thinking complete",
-    resumedLive: t("resumedLive"),
+    resumedLive: "Resumed live conversation.",
   },
   zh: {
     banner: "Hub 未连接。请先启动 hub 服务，消息发送已停用。",
