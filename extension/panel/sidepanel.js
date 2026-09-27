@@ -270,13 +270,127 @@ export function canRetry(connected, streaming, payload) {
 
 // The live block's label when the adapter sends no label of its own. It walks
 // the list so a long turn does not look stuck on one word.
+// ----- i18n (zh-CN / en) -----------------------------------------------------
+// Language is a panel setting ("auto" follows the browser); every static
+// string carries a data-i18n attribute in the HTML and is re-applied here.
+
+const I18N = {
+  en: {
+    banner: "Hub disconnected. Start the hub server, messages are disabled.",
+    chats: "Chats",
+    settings: "Settings",
+    composerPlaceholder: "Message the agent — @ tags tabs, / commands",
+    attachFiles: "Attach files",
+    adapterModel: "Adapter and model",
+    noAdapters: "No adapters",
+    stopBtn: "Stop",
+    dictate: "Dictate",
+    send: "Send",
+    sessionUsage: "Tokens and cost for this conversation only. Cleared by New chat.",
+    settingsTitle: "Settings",
+    languageLabel: "界面语言 / Language",
+    langAuto: "Follow browser / Auto",
+    autoSelectionLabel: "Auto-capture selected text",
+    autoSelectionNote: "Selecting text on a page appends it to the chat context — no Ask click needed.",
+    floatingAskLabel: "Show the floating Ask button on selection",
+    anthropicKeyLabel: "Anthropic API key",
+    openaiKeyLabel: "OpenAI API key",
+    saveBtn: "Save",
+    clearBtn: "Clear",
+    keysNote: "Keys are stored locally on this machine only, by the hub, in a file only your user account can read. The panel never receives a saved key back; it is only told whether one is configured.",
+    doneBtn: "Done",
+    keyConfigured: "configured",
+    keyNotSet: "not set",
+    noAdaptersWaiting: "No adapters — waiting for capabilities",
+    offToggleOne: "1 backend not ready",
+    offToggleMany: (n) => n + " backends not ready",
+    cliMissing: "cli missing",
+    needsKey: "needs key",
+    unavailable: "unavailable",
+    workDone: "Thinking complete",
+    resumedLive: t("resumedLive"),
+  },
+  zh: {
+    banner: "Hub 未连接。请先启动 hub 服务，消息发送已停用。",
+    chats: "对话",
+    settings: "设置",
+    composerPlaceholder: "给 agent 发消息 — @ 引用标签页，/ 命令",
+    attachFiles: "添加附件",
+    adapterModel: "适配器与模型",
+    noAdapters: "暂无适配器",
+    stopBtn: "停止",
+    dictate: "语音输入",
+    send: "发送",
+    sessionUsage: "仅统计当前对话的 token 与费用，新建对话后清零。",
+    settingsTitle: "设置",
+    languageLabel: "界面语言 / Language",
+    langAuto: "跟随浏览器 / Auto",
+    autoSelectionLabel: "自动捕获选中的文字",
+    autoSelectionNote: "在网页上选中文字后自动加入对话上下文，无需点击 Ask。",
+    floatingAskLabel: "选中后显示悬浮 Ask 按钮",
+    anthropicKeyLabel: "Anthropic API 密钥",
+    openaiKeyLabel: "OpenAI API 密钥",
+    saveBtn: "保存",
+    clearBtn: "清除",
+    keysNote: "密钥只保存在本机（由 hub 写入仅当前用户可读的文件），面板只会收到“是否已配置”，不会收到密钥本身。",
+    doneBtn: "完成",
+    keyConfigured: "已配置",
+    keyNotSet: "未配置",
+    noAdaptersWaiting: "暂无适配器 — 等待能力信息",
+    offToggleOne: "1 个后端未就绪",
+    offToggleMany: (n) => n + " 个后端未就绪",
+    cliMissing: "缺少 CLI",
+    needsKey: "需配置密钥",
+    unavailable: "不可用",
+    workDone: "思考完成",
+    resumedLive: "已恢复进行中的对话。",
+  }
+};
+
+let uiLang = "auto";
+
+function t(key, fallback) {
+  const table = I18N[uiLang] || I18N.en;
+  const value = table[key];
+  if (value != null) return value;
+  return I18N.en[key] != null ? I18N.en[key] : (fallback != null ? fallback : key);
+}
+
+function resolveUiLang(stored) {
+  if (stored === "zh" || stored === "en") return stored;
+  return (navigator.language || "en").toLowerCase().startsWith("zh") ? "zh" : "en";
+}
+
+function applyI18n() {
+  uiLang = resolveUiLang(uiLang);
+  document.documentElement.lang = uiLang === "zh" ? "zh-CN" : "en";
+  for (const el of document.querySelectorAll("[data-i18n]")) {
+    el.textContent = t(el.dataset.i18n);
+  }
+  for (const el of document.querySelectorAll("[data-i18n-placeholder]")) {
+    el.placeholder = t(el.dataset.i18nPlaceholder);
+  }
+  for (const el of document.querySelectorAll("[data-i18n-title]")) {
+    el.title = t(el.dataset.i18nTitle);
+  }
+  for (const el of document.querySelectorAll("[data-i18n-aria]")) {
+    el.setAttribute("aria-label", t(el.dataset.i18nAria));
+  }
+  refreshDynamicI18n();
+}
+
+// Strings that live in JS state, re-applied after a language change. init()
+// assigns the real implementation once the DOM refs exist.
+let refreshDynamicI18n = () => {};
+
 export const WORK_LABELS = ["Thinking", "Cooking", "Working"];
 
 export function rotatingLabel(i) {
+  const labels = t("workLabels", WORK_LABELS);
   const n = Number(i);
-  if (!Number.isFinite(n)) return WORK_LABELS[0];
-  const idx = Math.floor(n) % WORK_LABELS.length;
-  return WORK_LABELS[idx < 0 ? idx + WORK_LABELS.length : idx];
+  if (!Number.isFinite(n)) return labels[0];
+  const idx = Math.floor(n) % labels.length;
+  return labels[idx < 0 ? idx + labels.length : idx];
 }
 
 // 12432 -> "12.4s". One decimal below 100s, whole seconds above.
@@ -695,7 +809,39 @@ async function init() {
     },
   ];
 
-  const BASE_PLACEHOLDER = inputEl.placeholder;
+  let BASE_PLACEHOLDER = inputEl.placeholder;
+
+  // Panel language + settings toggles (chrome.storage.local; the content
+  // scripts read the selection toggles directly). applyI18n() re-applies every
+  // data-i18n string, then refreshDynamicI18n() re-renders the JS-state ones.
+  const setLanguage = document.getElementById("set-language");
+  const toggleAutoSelection = document.getElementById("toggle-auto-selection");
+  const toggleFloatingAsk = document.getElementById("toggle-floating-ask");
+  refreshDynamicI18n = () => {
+    BASE_PLACEHOLDER = t("composerPlaceholder");
+    renderBackend();
+    for (const field of KEY_FIELDS) {
+      field.state.textContent = keyState[field.provider] ? t("keyConfigured") : t("keyNotSet");
+    }
+  };
+  chrome.storage.local.get(["panelLanguage", "autoSelectionEnabled", "floatingAskEnabled"]).then((stored) => {
+    uiLang = (stored && stored.panelLanguage) || "auto";
+    applyI18n();
+    setLanguage.value = uiLang;
+    toggleAutoSelection.checked = stored.autoSelectionEnabled !== false;
+    toggleFloatingAsk.checked = stored.floatingAskEnabled !== false;
+  }).catch(() => applyI18n());
+  setLanguage.addEventListener("change", () => {
+    uiLang = setLanguage.value;
+    chrome.storage.local.set({ panelLanguage: uiLang });
+    applyI18n();
+  });
+  toggleAutoSelection.addEventListener("change", () => {
+    chrome.storage.local.set({ autoSelectionEnabled: toggleAutoSelection.checked });
+  });
+  toggleFloatingAsk.addEventListener("change", () => {
+    chrome.storage.local.set({ floatingAskEnabled: toggleFloatingAsk.checked });
+  });
 
   let port = null;
   let ownWindowId = null; // browser window hosting this panel (v2.1)
@@ -855,7 +1001,7 @@ async function init() {
       "system",
       archived
         ? "Archived conversation — sending a message starts a new chat."
-        : "Resumed live conversation."
+        : t("resumedLive")
     );
     if (msg.adapter && adapters.some((a) => a.name === msg.adapter)) {
       selAdapter = msg.adapter;
@@ -918,7 +1064,7 @@ async function init() {
   // otherwise the adapter's own label.
   function shortBackendLabel() {
     const a = adapterEntry(adapters, selAdapter);
-    if (!a) return "No adapters";
+    if (!a) return t("noAdapters");
     if (selModel) {
       const { models } = modelsFor(adapters, selAdapter);
       const m = models.find((mm) => mm.id === selModel);
@@ -961,7 +1107,7 @@ async function init() {
     row.setAttribute("role", "menuitem");
     const label = document.createElement("span");
     label.className = "backend-row-label";
-    label.textContent = count === 1 ? "1 个未就绪后端" : count + " 个未就绪后端";
+    label.textContent = count === 1 ? t("offToggleOne") : t("offToggleMany")(count);
     row.appendChild(label);
     return row;
   }
@@ -1010,9 +1156,9 @@ async function init() {
         const hint = document.createElement("span");
         hint.className = "backend-row-status";
         hint.textContent =
-          a.status === "missing-cli" ? "cli missing"
-          : a.status === "missing-key" ? "needs key"
-          : "unavailable";
+          a.status === "missing-cli" ? t("cliMissing")
+          : a.status === "missing-key" ? t("needsKey")
+          : t("unavailable");
         row.appendChild(hint);
         if (a.detail) row.title = a.detail;
         box.appendChild(row);
@@ -1149,7 +1295,7 @@ async function init() {
   function renderKeyState() {
     for (const field of KEY_FIELDS) {
       const on = !!keyState[field.provider];
-      field.state.textContent = on ? "configured" : "not set";
+      field.state.textContent = on ? t("keyConfigured") : t("keyNotSet");
       field.state.classList.toggle("on", on);
     }
   }
@@ -1550,7 +1696,7 @@ async function init() {
       return;
     }
     if (block.expanded) setWorkExpanded(block, false);
-    block.label.textContent = "思考完成";
+    block.label.textContent = t("workDone");
     block.steps.textContent = block.count > 0 ? stepLabel(block.count) : "";
     block.head.setAttribute("aria-label", "Show or hide the steps in this turn");
   }
