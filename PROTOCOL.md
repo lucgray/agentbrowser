@@ -678,6 +678,10 @@ executor, in the SDK adapter's MCP server, and in mcp-proxy.mjs.
 | `download_configure` | `{directory?, tabId?}` | `{configured:true, directory}` — v2.6; auto-accept downloads into a dir; consent-gated |
 | `downloads_list` | `{tabId?}` | `{downloads:[{guid,url,suggestedFilename,state,receivedBytes,totalBytes}]}` — v2.6 |
 | `print_pdf` | `{landscape?, scale?, printBackground?, tabId?}` | `{base64, mimeType:'application/pdf'}` — v2.6 |
+| `frames_list` | `{tabId?}` | `{frames:[{sessionId,targetId,url}]}` — v2.6; flattened auto-attach child targets (OOPIFs) |
+| `frame_eval` | `{frame, expression, tabId?}` | `{value}` — v2.6; Runtime.evaluate inside the iframe session; consent-gated |
+| `frame_dom_inspect` | `{frame, selector, all?, styles?, max?, tabId?}` | dom_inspect shape — v2.6 |
+| `frame_click_element` | `{frame, selector, dx?, dy?, button?, clickCount?, tabId?}` | `{clicked:true, x, y}` — v2.6; frame-local rect + host iframe offset; consent-gated |
 | `batch` | `{steps:[{tool, args}], stopOnError?, tabId?}` | `{results:[{step, ok, result|error}], completed, total}` — v2.2; sequential, stops at first failure unless `stopOnError:false`, `tabId` on the call defaults into steps; nesting rejected |
 | `breakpoint_set` | `{url\|urlRegex, lineNumber, columnNumber?, condition?, autoResumeMs?, tabId?}` | `{breakpoint:{id,url,lineNumber,locations:[...]}}` — v2.6; consent-gated |
 | `breakpoint_list` | `{tabId?}` | `{breakpoints, paused}` — v2.6 |

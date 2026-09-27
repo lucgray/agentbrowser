@@ -630,3 +630,93 @@ export async function printPdf(tabId, args) {
   const res = await sendUnqueued(tabId, 'Page.printToPDF', params);
   return { base64: res.data, mimeType: 'application/pdf' };
 }
+
+// --- OOPIF frames (v2.6) -----------------------------------------------------
+
+// frames_list forces an attach first (the lazy auto-attach request rides on
+// it), then briefly polls for Target.attachedToTarget events — OOPIF sessions
+// arrive asynchronously after setAutoAttach.
+export async function framesList(tabId) {
+  await cdp.sendCommand(tabId, 'Runtime.evaluate', { expression: '1' });
+  const deadline = Date.now() + 1000;
+  while (Date.now() < deadline && !cdp.frameTargets(tabId).length) {
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  return { frames: cdp.frameTargets(tabId) };
+}
+
+async function evalInFrame(tabId, sessionId, expression) {
+  const res = await cdp.sendCommandSession(tabId, sessionId, 'Runtime.evaluate', {
+    expression: String(expression),
+    returnByValue: true,
+  });
+  if (res.exceptionDetails) {
+    const d = res.exceptionDetails;
+    throw new Error(
+      (d.exception && d.exception.description) || d.text || 'evaluation failed'
+    );
+  }
+  return res.result ? res.result.value : undefined;
+}
+
+export async function frameEval(tabId, args) {
+  const sessionId = cdp.findFrameSession(tabId, args.frame);
+  const value = await evalInFrame(tabId, sessionId, String(args.expression || ''));
+  return { value };
+}
+
+export async function frameDomInspect(tabId, args) {
+  const sessionId = cdp.findFrameSession(tabId, args.frame);
+  const expr = domInspectExpression({
+    selector: args.selector,
+    all: args.all !== false,
+    styles: args.styles,
+    max: args.max,
+  });
+  return evalInFrame(tabId, sessionId, expr);
+}
+
+// frame_click_element: the element's rect inside the OOPIF is iframe-local;
+// Input events need viewport coordinates, so offset by the iframe element's
+// own rect in the top document (matched by src substring).
+export async function frameClickElement(tabId, args) {
+  const sessionId = cdp.findFrameSession(tabId, args.frame);
+  const frame = cdp.frameTargets(tabId).find((f) => f.sessionId === sessionId);
+  const local = await evalInFrame(
+    tabId,
+    sessionId,
+    `(() => {
+      const el = document.querySelector(${JSON.stringify(String(args.selector || ''))});
+      if (!el) return { found: false };
+      el.scrollIntoView({ block: 'center', inline: 'center' });
+      const r = el.getBoundingClientRect();
+      return { found: true, x: r.left + r.width / 2, y: r.top + r.height / 2,
+               tag: el.tagName.toLowerCase() };
+    })()`
+  );
+  if (!local || !local.found) {
+    throw new Error(`no element matches selector in frame: ${args.selector}`);
+  }
+  const host = await evaluate(
+    tabId,
+    `(() => {
+      const url = ${JSON.stringify(String((frame && frame.url) || ''))};
+      const ifr = [...document.querySelectorAll('iframe')].find((f) => f.src === url || (url && f.src.includes(url)) || (f.src && url.includes(f.src)));
+      if (!ifr) return { found: false };
+      const r = ifr.getBoundingClientRect();
+      return { found: true, x: r.left, y: r.top };
+    })()`
+  );
+  if (!host || !host.found) {
+    throw new Error('iframe host element not found in the top document');
+  }
+  const x = host.x + local.x + (Number(args.dx) || 0);
+  const y = host.y + local.y + (Number(args.dy) || 0);
+  const button = ['right', 'middle', 'none'].includes(args.button) ? args.button : 'left';
+  const clickCount = Math.max(1, Math.min(Math.trunc(Number(args.clickCount) || 1), 3));
+  const buttons = button === 'none' ? 0 : 1 << ['left', 'right', 'middle'].indexOf(button);
+  const base = { x, y, button, clickCount, buttons };
+  await cdp.sendCommand(tabId, 'Input.dispatchMouseEvent', { type: 'mousePressed', ...base });
+  await cdp.sendCommand(tabId, 'Input.dispatchMouseEvent', { type: 'mouseReleased', ...base });
+  return { clicked: true, selector: args.selector, tag: local.tag, x, y };
+}

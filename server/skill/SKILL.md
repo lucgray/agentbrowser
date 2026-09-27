@@ -104,6 +104,19 @@ agentbrowser downloads_list '{}'
 agentbrowser print_pdf '{"printBackground":true}' > out.json      # .base64 -> decode to file
 ```
 
+Cross-origin iframes (payment widgets, embedded editors) need their own
+tools — normal selectors can't reach inside an OOPIF:
+
+```bash
+agentbrowser frames_list '{}'                                  # -> sessionId + url
+agentbrowser frame_dom_inspect '{"frame":"pay.stripe","selector":"input"}'
+agentbrowser frame_eval '{"frame":"pay.stripe","expression":"document.title"}'
+agentbrowser frame_click_element '{"frame":"pay.stripe","selector":"button.pay"}'
+```
+
+`frame` accepts a sessionId or a URL substring (unique match required).
+Same-origin iframes don't need these — plain selectors already reach them.
+
 Mark up the page for the user (co-reading):
 
 ```bash
