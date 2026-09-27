@@ -45,6 +45,19 @@ async function ensureAttached(tabId) {
         if (!/already attached/i.test(message)) throw err;
       }
       attached.add(tabId);
+      // Flatten + auto-attach child targets: OOPIF (cross-origin iframe)
+      // sessions arrive as Target.attachedToTarget events and take
+      // sessionId-scoped commands. Older Chrome may reject it — log and
+      // continue in single-frame mode rather than failing the attach.
+      chrome.debugger
+        .sendCommand({ tabId }, 'Target.setAutoAttach', {
+          autoAttach: true,
+          waitForDebuggerOnStart: false,
+          flatten: true,
+        })
+        .catch((err) => {
+          console.warn('[agentbrowser] Target.setAutoAttach failed (no iframe sessions)', err);
+        });
       // Page.enable goes on every attachment, outside the per-tab queue:
       // JS dialogs are routed to the debugger while the domain is on, and
       // enabling it only after a dialog opened would deadlock the session
@@ -92,6 +105,73 @@ export function sendCommand(tabId, method, params = {}) {
     tabId,
     run.catch((err) => {
       console.warn('[agentbrowser] CDP command failed:', method, err);
+    })
+  );
+  return run;
+}
+
+// --- OOPIF (cross-origin iframe) sessions -----------------------------------
+
+// sessionId -> {sessionId,targetId,url} per tab, fed by flattened
+// Target.attachedToTarget/detachedFromTarget events on the root session.
+const frameSessions = new Map(); // tabId -> Map<sessionId, info>
+
+chrome.debugger.onEvent.addListener((source, method, params) => {
+  if (!source || source.tabId == null || !params) return;
+  if (method === 'Target.attachedToTarget') {
+    const t = params.targetInfo || {};
+    if (t.type !== 'iframe' || !params.sessionId) return;
+    let m = frameSessions.get(source.tabId);
+    if (!m) {
+      m = new Map();
+      frameSessions.set(source.tabId, m);
+    }
+    m.set(params.sessionId, {
+      sessionId: params.sessionId,
+      targetId: t.targetId || '',
+      url: String(t.url || ''),
+    });
+  } else if (method === 'Target.detachedFromTarget') {
+    const m = frameSessions.get(source.tabId);
+    if (m) m.delete(params.sessionId);
+  }
+});
+
+chrome.tabs.onRemoved.addListener((tabId) => frameSessions.delete(tabId));
+
+export function frameTargets(tabId) {
+  const m = frameSessions.get(tabId);
+  return m ? [...m.values()] : [];
+}
+
+// `frame` is either a sessionId from frames_list or a URL substring. Exactly
+// one match required — ambiguity is reported, not guessed.
+export function findFrameSession(tabId, frame) {
+  const frames = frameTargets(tabId);
+  const s = String(frame || '');
+  if (!s) throw new Error('frame required (sessionId or url substring from frames_list)');
+  const byId = frames.find((f) => f.sessionId === s);
+  if (byId) return byId.sessionId;
+  const byUrl = frames.filter((f) => f.url.includes(s));
+  if (byUrl.length === 1) return byUrl[0].sessionId;
+  if (byUrl.length === 0) {
+    throw new Error(`no iframe matches "${s}" — list them with frames_list`);
+  }
+  throw new Error(`multiple iframes match "${s}" — pass a sessionId from frames_list`);
+}
+
+// Same per-tab serialization as sendCommand, but the command goes to a child
+// (OOPIF) session.
+export function sendCommandSession(tabId, sessionId, method, params = {}) {
+  const tail = queues.get(tabId) || Promise.resolve();
+  const run = tail.then(async () => {
+    await ensureAttached(tabId);
+    return chrome.debugger.sendCommand({ tabId, sessionId }, method, params);
+  });
+  queues.set(
+    tabId,
+    run.catch((err) => {
+      console.warn('[agentbrowser] CDP session command failed:', method, err);
     })
   );
   return run;

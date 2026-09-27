@@ -533,6 +533,69 @@ export const TOOLS = [
     }
   },
 
+  // --- OOPIF frame tools (v2.6): reach inside cross-origin iframes (payment
+  // widgets, chat embeds, editors). `frame` is a sessionId or url substring
+  // from frames_list. Same-origin iframes are already reachable via normal
+  // selectors/eval_js — these are for OOPIFs.
+
+  {
+    name: "frames_list",
+    description: "List cross-origin iframe sessions on the tab (flattened CDP auto-attach). Returns {frames:[{sessionId,targetId,url}]} — pass sessionId or a url substring as `frame` to the other frame_* tools.",
+    args: {
+      type: "object",
+      properties: {
+        tabId: { type: "number", description: "Target tab id; omit for the active tab" }
+      },
+      required: []
+    }
+  },
+  {
+    name: "frame_eval",
+    description: "Runtime.evaluate inside a cross-origin iframe's own context — reads its DOM, globals, form values. Returns {value}.",
+    args: {
+      type: "object",
+      properties: {
+        frame: { type: "string", description: "sessionId or url substring from frames_list" },
+        expression: { type: "string", description: "JS expression evaluated inside the iframe" },
+        tabId: { type: "number", description: "Target tab id; omit for the active tab" }
+      },
+      required: ["frame", "expression"]
+    }
+  },
+  {
+    name: "frame_dom_inspect",
+    description: "dom_inspect inside a cross-origin iframe: {selector, all?, styles?, max?} — same shape as dom_inspect, scoped to the frame's document.",
+    args: {
+      type: "object",
+      properties: {
+        frame: { type: "string", description: "sessionId or url substring from frames_list" },
+        selector: { type: "string", description: "CSS selector inside the iframe" },
+        all: { type: "boolean", description: "All matches (default true)" },
+        styles: { type: "array", items: { type: "string" }, description: "Computed-style properties to read" },
+        max: { type: "number", description: "Max elements (default 25)" },
+        tabId: { type: "number", description: "Target tab id; omit for the active tab" }
+      },
+      required: ["frame", "selector"]
+    }
+  },
+  {
+    name: "frame_click_element",
+    description: "Click an element inside a cross-origin iframe: resolves the element's frame-local rect, offsets by the iframe's box in the top document, and sends trusted viewport-space input. dx/dy/button/clickCount as in click_element.",
+    args: {
+      type: "object",
+      properties: {
+        frame: { type: "string", description: "sessionId or url substring from frames_list" },
+        selector: { type: "string", description: "CSS selector inside the iframe" },
+        dx: { type: "number" },
+        dy: { type: "number" },
+        button: { type: "string", description: "left | right | middle (default left)" },
+        clickCount: { type: "number", description: "1 single, 2 double, 3 triple" },
+        tabId: { type: "number", description: "Target tab id; omit for the active tab" }
+      },
+      required: ["frame", "selector"]
+    }
+  },
+
   // --- composite wrappers (v2.2): one call replaces several, so the model
   // spends fewer tokens on tool envelopes and the user sees fewer chips.
 

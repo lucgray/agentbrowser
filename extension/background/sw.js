@@ -809,6 +809,28 @@ const TOOLS = {
     return inspect.printPdf(tabId, args);
   },
 
+  // --- OOPIF frame tools (v2.6)
+
+  async frames_list(args) {
+    const tabId = await resolveTabId(args.tabId);
+    return inspect.framesList(tabId);
+  },
+
+  async frame_eval(args) {
+    const tabId = await resolveTabId(args.tabId);
+    return inspect.frameEval(tabId, args);
+  },
+
+  async frame_dom_inspect(args) {
+    const tabId = await resolveTabId(args.tabId);
+    return inspect.frameDomInspect(tabId, args);
+  },
+
+  async frame_click_element(args) {
+    const tabId = await resolveTabId(args.tabId);
+    return inspect.frameClickElement(tabId, args);
+  },
+
   // --- composite wrappers (v2.2) -----------------------------------------
 
   async fill(args) {
