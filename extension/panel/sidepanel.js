@@ -881,7 +881,7 @@ async function init() {
       proactiveAdapter.appendChild(o);
     }
     proactiveAdapter.value = cfg.adapter || "";
-    if ([...proactiveAdapter.options].some((o) => o.value === prev)) {
+    if ([...proactiveAdapter.children].some((o) => o.value === prev)) {
       proactiveAdapter.value = prev;
     }
     proactivePrompt.value = typeof cfg.prompt === "string" ? cfg.prompt : "";
