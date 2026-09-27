@@ -124,6 +124,15 @@ agentbrowser frame_click_element '{"frame":"pay.stripe","selector":"button.pay"}
 
 `frame` accepts a sessionId or a URL substring (unique match required).
 Same-origin iframes don't need these — plain selectors already reach them.
+`eval_js`, `dom_inspect`, `read_elements`, `click_element` and `type_text`
+also take `frame` — you don't need the frame_* variants unless you prefer them.
+
+Get the whole clickable map in one call instead of probing with dom_inspect:
+
+```bash
+agentbrowser page_snapshot '{}'                     # -> nodes:[{node,tag,role,name,text,x,y,w,h}]
+agentbrowser click_element '{"nodeId":"n12"}'       # click a snapshot node, no selector needed
+```
 
 Mark up the page for the user (co-reading):
 

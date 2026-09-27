@@ -271,3 +271,45 @@ export function patchRevertExpression(items) {
   return { reverted: reverted, missing: missing };
 })()`;
 }
+
+// page_snapshot: one evaluate maps the page's interactive layer — visible
+// controls that an agent can act on. Each is stamped with `data-ab-node`
+// (reused if already stamped) so a later `click_element {nodeId}` can hit it
+// without a CSS selector. Text is truncated; layout viewport check keeps
+// off-screen elements out of the map.
+export function pageSnapshotExpression({ max = 300, maxChars = 80 } = {}) {
+  const cap = Math.max(1, Math.min(Number(max) || 300, 1000));
+  const tcap = Math.max(1, Math.min(Number(maxChars) || 80, 500));
+  return `(function () {
+  var SEL = 'a,button,input,select,textarea,summary,label,[role],[onclick],[contenteditable="true"],[tabindex]';
+  var vw = window.innerWidth, vh = window.innerHeight;
+  var out = [];
+  var seq = 0;
+  var els = document.querySelectorAll(SEL);
+  for (var i = 0; i < els.length; i++) {
+    if (out.length >= ${cap}) break;
+    var el = els[i];
+    if (el.getAttribute('tabindex') === '-1') continue;
+    var cs = getComputedStyle(el);
+    if (cs.display === 'none' || cs.visibility !== 'visible') continue;
+    var r = el.getBoundingClientRect();
+    if (!r.width || !r.height) continue;
+    if (r.bottom < 0 || r.right < 0 || r.top > vh || r.left > vw) continue;
+    var node = el.getAttribute('data-ab-node');
+    if (!node) { node = 'n' + (++seq); el.setAttribute('data-ab-node', node); }
+    var text = String(el.innerText || el.textContent || el.getAttribute('aria-label') ||
+      el.getAttribute('placeholder') || el.getAttribute('title') ||
+      (el.tagName === 'INPUT' ? el.value : '') || '').replace(/\\s+/g, ' ').trim().slice(0, ${tcap});
+    out.push({
+      node: node,
+      tag: el.tagName.toLowerCase(),
+      role: el.getAttribute('role') || '',
+      name: el.getAttribute('name') || el.id || '',
+      text: text,
+      x: Math.round(r.left), y: Math.round(r.top),
+      w: Math.round(r.width), h: Math.round(r.height)
+    });
+  }
+  return { url: location.href, count: out.length, nodes: out };
+})()`;
+}

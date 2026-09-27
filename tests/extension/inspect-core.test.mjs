@@ -10,6 +10,7 @@ import {
   outlineExpression,
   patchApplyExpression,
   patchRevertExpression,
+  pageSnapshotExpression,
 } from '../../extension/background/inspect-core.js';
 
 test('truncate caps length', () => {
@@ -79,6 +80,8 @@ test('page-side expressions are valid JavaScript', () => {
       { selector: 'q', remove: true },
     ]),
     patchRevertExpression([{ path: 'html>body>p', outerHTML: '<p>x</p>' }]),
+    pageSnapshotExpression({ max: 10, maxChars: 40 }),
+    pageSnapshotExpression({}),
   ];
   for (const expr of exprs) {
     assert.doesNotThrow(() => new Function('return ' + expr), expr.slice(0, 80));
