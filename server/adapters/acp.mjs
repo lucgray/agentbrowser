@@ -148,6 +148,7 @@ export function createAcpSpecSession(name, spec, ctx) {
     proc: null,
     lineBuffer: '',
     stderrTail: '',
+    spawnError: null,
     nextId: 1,
     pending: new Map(), // request id -> {resolve, reject}
     toolNames: new Map(), // toolCallId -> tool name (for pairing results)
@@ -341,7 +342,9 @@ export function createAcpSpecSession(name, spec, ctx) {
 
   function onProcessExit(code) {
     const tail = state.stderrTail.trim();
-    const reason = tail || `exit code ${code}`;
+    const spawnErr = state.spawnError;
+    state.spawnError = null;
+    const reason = tail || spawnErr || `exit code ${code}`;
     state.proc = null;
     state.sessionId = null;
     state.initialized = false;
@@ -385,6 +388,7 @@ export function createAcpSpecSession(name, spec, ctx) {
       }
       proc.on('error', (err) => {
         logWarn(`${name} spawn failed`, err);
+        state.spawnError = `cannot start "${spec.command} ${spec.args.join(' ')}": ${err.message}`;
         onProcessExit(-1);
       });
       proc.on('exit', (code) => onProcessExit(code));
