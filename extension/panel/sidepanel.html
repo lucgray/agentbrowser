@@ -56,6 +56,18 @@
 
     <div class="set-group">
       <div class="set-head">
+        <label class="set-label" for="toggle-proactive" data-i18n="proactiveLabel">主动标注（打开新标签页时自动 co-read）</label>
+        <input id="toggle-proactive" type="checkbox" class="set-toggle">
+      </div>
+      <div class="set-row">
+        <select id="set-proactive-adapter" class="set-select" data-i18n-title="proactiveAdapterAuto"></select>
+      </div>
+      <textarea id="set-proactive-prompt" class="set-input" rows="4" spellcheck="false"
+                data-i18n-placeholder="proactivePromptPlaceholder"></textarea>
+    </div>
+
+    <div class="set-group">
+      <div class="set-head">
         <label class="set-label" for="key-anthropic" data-i18n="anthropicKeyLabel">Anthropic API 密钥</label>
         <span id="key-anthropic-state" class="set-state">not set</span>
       </div>

@@ -1020,8 +1020,21 @@ async function buildCapabilities() {
     };
   });
   // The command registry rides along so the panel's autocomplete can never
-  // drift from what the hub actually implements (PROTOCOL v1.3 B).
-  return { type: "capabilities", adapters: collapseFamilies(adapters), commands: COMMANDS };
+  // drift from what the hub actually implements (PROTOCOL v1.3 B). The panel
+  // config rides along too, so Settings can render the hub-owned
+  // proactive-annotation state without a dedicated request/response pair.
+  return {
+    type: "capabilities",
+    adapters: collapseFamilies(adapters),
+    commands: COMMANDS,
+    panelConfig: {
+      proactiveAnnotation: config.proactiveAnnotation || {
+        enabled: false,
+        adapter: null,
+        prompt: null
+      }
+    }
+  };
 }
 
 async function sendCapabilities(ws) {
@@ -1518,6 +1531,29 @@ async function handleSetKey(ws, msg) {
   await sendCapabilities(ws);
 }
 
+// Panel-driven proactive-annotation settings: {enabled, adapter, prompt}.
+// Updates the in-memory config (live — runProactiveTurn reads it at call
+// time) and persists the whole config.json so the setting survives restarts.
+async function handleSetProactiveConfig(ws, msg) {
+  const cfg = msg && typeof msg.config === "object" && msg.config ? msg.config : null;
+  if (!cfg) {
+    log("set_proactive_config without config, ignoring");
+    return;
+  }
+  config.proactiveAnnotation = {
+    enabled: cfg.enabled === true,
+    adapter: typeof cfg.adapter === "string" && cfg.adapter !== "" ? cfg.adapter : null,
+    prompt: typeof cfg.prompt === "string" && cfg.prompt.trim() !== "" ? cfg.prompt : null,
+  };
+  try {
+    writeFileSync(path.join(__dirname, "config.json"), JSON.stringify(config, null, 2));
+    log("proactive annotation config updated (enabled=" + config.proactiveAnnotation.enabled + ", adapter=" + (config.proactiveAnnotation.adapter || "default") + ")");
+  } catch (err) {
+    log("config.json persist failed:", err.message);
+  }
+  await sendCapabilities(ws);
+}
+
 setInterval(() => {
   const now = Date.now();
   for (const [chatId, entry] of sessions) {
@@ -1622,6 +1658,7 @@ function handleMessage(ws, msg) {
     else if (msg.type === "command") handleCommand(msg);
     else if (msg.type === "chat_abort") handleChatAbort(msg);
     else if (msg.type === "set_key") handleSetKey(ws, msg);
+    else if (msg.type === "set_proactive_config") handleSetProactiveConfig(ws, msg);
     else if (msg.type === "get_capabilities") sendCapabilities(ws);
     else if (msg.type === "chat_list") handleChatList(ws);
     else if (msg.type === "chat_resume") handleChatResume(ws, msg);

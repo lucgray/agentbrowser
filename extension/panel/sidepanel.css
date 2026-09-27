@@ -1801,3 +1801,9 @@ button:disabled {
   transform: translateX(14px);
   background: var(--ac-accent);
 }
+
+textarea.set-input {
+  min-height: 76px;
+  resize: vertical;
+  line-height: 1.5;
+}

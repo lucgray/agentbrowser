@@ -293,6 +293,10 @@ const I18N = {
     autoSelectionLabel: "Auto-capture selected text",
     autoSelectionNote: "Selecting text on a page appends it to the chat context — no Ask click needed.",
     floatingAskLabel: "Show the floating Ask button on selection",
+    proactiveLabel: "Proactive annotation (auto co-read on new tabs)",
+    proactiveAdapterAuto: "Same as the chat adapter",
+    proactivePromptPlaceholder: "Empty = default: read the page and annotate confusing passages",
+    enterKeyFirst: "enter a key first",
     anthropicKeyLabel: "Anthropic API key",
     openaiKeyLabel: "OpenAI API key",
     saveBtn: "Save",
@@ -328,6 +332,10 @@ const I18N = {
     autoSelectionLabel: "自动捕获选中的文字",
     autoSelectionNote: "在网页上选中文字后自动加入对话上下文，无需点击 Ask。",
     floatingAskLabel: "选中后显示悬浮 Ask 按钮",
+    proactiveLabel: "主动标注（打开新标签页时自动 co-read）",
+    proactiveAdapterAuto: "跟随对话适配器",
+    proactivePromptPlaceholder: "留空 = 默认：阅读页面并标注令人困惑的段落",
+    enterKeyFirst: "请先输入密钥",
     anthropicKeyLabel: "Anthropic API 密钥",
     openaiKeyLabel: "OpenAI API 密钥",
     saveBtn: "保存",
@@ -843,6 +851,54 @@ async function init() {
     chrome.storage.local.set({ floatingAskEnabled: toggleFloatingAsk.checked });
   });
 
+  // Proactive annotation (auto co-read on a fresh tab): toggle + provider +
+  // prompt. The hub echoes the config back through capabilities and persists
+  // it in its config.json, so the setting survives restarts.
+  const proactiveToggle = document.getElementById("toggle-proactive");
+  const proactiveAdapter = document.getElementById("set-proactive-adapter");
+  const proactivePrompt = document.getElementById("set-proactive-prompt");
+  let proactiveTimer = null;
+
+  function renderProactiveControls() {
+    const cfg = (panelCfg && panelCfg.proactiveAnnotation) || {};
+    proactiveToggle.checked = cfg.enabled === true;
+    const prev = proactiveAdapter.value;
+    proactiveAdapter.replaceChildren();
+    const auto = document.createElement("option");
+    auto.value = "";
+    auto.textContent = t("proactiveAdapterAuto");
+    proactiveAdapter.appendChild(auto);
+    for (const a of adapters) {
+      const o = document.createElement("option");
+      o.value = a.name;
+      o.textContent = a.label || a.name;
+      proactiveAdapter.appendChild(o);
+    }
+    proactiveAdapter.value = cfg.adapter || "";
+    if ([...proactiveAdapter.options].some((o) => o.value === prev)) {
+      proactiveAdapter.value = prev;
+    }
+    proactivePrompt.value = typeof cfg.prompt === "string" ? cfg.prompt : "";
+  }
+
+  function sendProactiveConfig() {
+    postToHub({
+      type: "set_proactive_config",
+      config: {
+        enabled: proactiveToggle.checked,
+        adapter: proactiveAdapter.value || null,
+        prompt: proactivePrompt.value.trim() || null,
+      },
+    });
+  }
+
+  proactiveToggle.addEventListener("change", sendProactiveConfig);
+  proactiveAdapter.addEventListener("change", sendProactiveConfig);
+  proactivePrompt.addEventListener("input", () => {
+    clearTimeout(proactiveTimer);
+    proactiveTimer = setTimeout(sendProactiveConfig, 600);
+  });
+
   let port = null;
   let ownWindowId = null; // browser window hosting this panel (v2.1)
   let connected = false;
@@ -873,6 +929,7 @@ async function init() {
   let selAdapter = ""; // current adapter name
   let selModel = null; // current model id, or null when the adapter has none
   let keyState = { anthropic: false, openai: false };
+  let panelCfg = null; // {proactiveAnnotation:{enabled,adapter,prompt}} echoed via capabilities
 
   let currentTab = null; // {tabId,url,title} or null
   let currentTabOff = false; // user clicked X on the current-tab chip
@@ -945,10 +1002,12 @@ async function init() {
     if (msg.type === "status") {
       setConnected(!!msg.connected);
     } else if (msg.type === "capabilities") {
+      panelCfg = msg.panelConfig && typeof msg.panelConfig === "object" ? msg.panelConfig : null;
       applyCapabilities(
         Array.isArray(msg.adapters) ? msg.adapters : [],
         Array.isArray(msg.commands) ? msg.commands : []
       );
+      renderProactiveControls();
     } else if (msg.type === "chat_event") {
       if (msg.chatId !== chatId) return; // stale conversation
       handleChatEvent(msg.event || {});
@@ -1307,6 +1366,7 @@ async function init() {
     settingsBtn.setAttribute("aria-expanded", open ? "true" : "false");
     if (open) {
       renderKeyState();
+      renderProactiveControls();
       postToHub({ type: "get_capabilities" });
     } else {
       for (const field of KEY_FIELDS) field.input.value = "";
@@ -1318,7 +1378,7 @@ async function init() {
     // Save on an empty field is a slip, not a request to clear: Clear does
     // that, and only that, by passing null.
     if (typeof key === "string" && key.trim() === "") {
-      field.state.textContent = "enter a key first";
+      field.state.textContent = t("enterKeyFirst");
       field.state.classList.remove("on");
       return;
     }
