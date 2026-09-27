@@ -270,13 +270,141 @@ export function canRetry(connected, streaming, payload) {
 
 // The live block's label when the adapter sends no label of its own. It walks
 // the list so a long turn does not look stuck on one word.
+// ----- i18n (zh-CN / en) -----------------------------------------------------
+// Language is a panel setting ("auto" follows the browser); every static
+// string carries a data-i18n attribute in the HTML and is re-applied here.
+
+const I18N = {
+  en: {
+    banner: "Hub disconnected. Start the hub server, messages are disabled.",
+    chats: "Chats",
+    settings: "Settings",
+    composerPlaceholder: "Message the agent — @ tags tabs, / commands",
+    attachFiles: "Attach files",
+    adapterModel: "Adapter and model",
+    noAdapters: "No adapters",
+    stopBtn: "Stop",
+    dictate: "Dictate",
+    send: "Send",
+    sessionUsage: "Tokens and cost for this conversation only. Cleared by New chat.",
+    settingsTitle: "Settings",
+    languageLabel: "界面语言 / Language",
+    langAuto: "Follow browser / Auto",
+    autoSelectionLabel: "Auto-capture selected text",
+    autoSelectionNote: "Selecting text on a page appends it to the chat context — no Ask click needed.",
+    floatingAskLabel: "Show the floating Ask button on selection",
+    proactiveLabel: "Proactive annotation (auto co-read on new tabs)",
+    proactiveAdapterAuto: "Same as the chat adapter",
+    proactivePromptPlaceholder: "Empty = default: read the page and annotate confusing passages",
+    enterKeyFirst: "enter a key first",
+    anthropicKeyLabel: "Anthropic API key",
+    openaiKeyLabel: "OpenAI API key",
+    saveBtn: "Save",
+    clearBtn: "Clear",
+    keysNote: "Keys are stored locally on this machine only, by the hub, in a file only your user account can read. The panel never receives a saved key back; it is only told whether one is configured.",
+    doneBtn: "Done",
+    keyConfigured: "configured",
+    keyNotSet: "not set",
+    noAdaptersWaiting: "No adapters — waiting for capabilities",
+    offToggleOne: "1 backend not ready",
+    offToggleMany: (n) => n + " backends not ready",
+    cliMissing: "cli missing",
+    needsKey: "needs key",
+    unavailable: "unavailable",
+    workDone: "Thinking complete",
+    workLabels: ["Thinking", "Cooking", "Working"],
+    listening: "Listening\u2026",
+    resumedLive: "Resumed live conversation.",
+  },
+  zh: {
+    banner: "Hub 未连接。请先启动 hub 服务，消息发送已停用。",
+    chats: "对话",
+    settings: "设置",
+    composerPlaceholder: "给 agent 发消息 — @ 引用标签页，/ 命令",
+    attachFiles: "添加附件",
+    adapterModel: "适配器与模型",
+    noAdapters: "暂无适配器",
+    stopBtn: "停止",
+    dictate: "语音输入",
+    send: "发送",
+    sessionUsage: "仅统计当前对话的 token 与费用，新建对话后清零。",
+    settingsTitle: "设置",
+    languageLabel: "界面语言 / Language",
+    langAuto: "跟随浏览器 / Auto",
+    autoSelectionLabel: "自动捕获选中的文字",
+    autoSelectionNote: "在网页上选中文字后自动加入对话上下文，无需点击 Ask。",
+    floatingAskLabel: "选中后显示悬浮 Ask 按钮",
+    proactiveLabel: "主动标注（打开新标签页时自动 co-read）",
+    proactiveAdapterAuto: "跟随对话适配器",
+    proactivePromptPlaceholder: "留空 = 默认：阅读页面并标注令人困惑的段落",
+    enterKeyFirst: "请先输入密钥",
+    anthropicKeyLabel: "Anthropic API 密钥",
+    openaiKeyLabel: "OpenAI API 密钥",
+    saveBtn: "保存",
+    clearBtn: "清除",
+    keysNote: "密钥只保存在本机（由 hub 写入仅当前用户可读的文件），面板只会收到“是否已配置”，不会收到密钥本身。",
+    doneBtn: "完成",
+    keyConfigured: "已配置",
+    keyNotSet: "未配置",
+    noAdaptersWaiting: "暂无适配器 — 等待能力信息",
+    offToggleOne: "1 个后端未就绪",
+    offToggleMany: (n) => n + " 个后端未就绪",
+    cliMissing: "缺少 CLI",
+    needsKey: "需配置密钥",
+    unavailable: "不可用",
+    workDone: "思考完成",
+    workLabels: ["思考中", "生成中", "处理中"],
+    listening: "聆听中\u2026",
+    resumedLive: "已恢复进行中的对话。",
+  }
+};
+
+let uiLang = "auto";
+
+function t(key, fallback) {
+  // uiLang holds the user's stored choice ("auto" included); resolve per call
+  // so the setting itself is never rewritten by display.
+  const table = I18N[resolveUiLang(uiLang)] || I18N.en;
+  const value = table[key];
+  if (value != null) return value;
+  return I18N.en[key] != null ? I18N.en[key] : (fallback != null ? fallback : key);
+}
+
+function resolveUiLang(stored) {
+  if (stored === "zh" || stored === "en") return stored;
+  return (navigator.language || "en").toLowerCase().startsWith("zh") ? "zh" : "en";
+}
+
+function applyI18n() {
+  const lang = resolveUiLang(uiLang);
+  document.documentElement.lang = lang === "zh" ? "zh-CN" : "en";
+  for (const el of document.querySelectorAll("[data-i18n]")) {
+    el.textContent = t(el.dataset.i18n);
+  }
+  for (const el of document.querySelectorAll("[data-i18n-placeholder]")) {
+    el.placeholder = t(el.dataset.i18nPlaceholder);
+  }
+  for (const el of document.querySelectorAll("[data-i18n-title]")) {
+    el.title = t(el.dataset.i18nTitle);
+  }
+  for (const el of document.querySelectorAll("[data-i18n-aria]")) {
+    el.setAttribute("aria-label", t(el.dataset.i18nAria));
+  }
+  refreshDynamicI18n();
+}
+
+// Strings that live in JS state, re-applied after a language change. init()
+// assigns the real implementation once the DOM refs exist.
+let refreshDynamicI18n = () => {};
+
 export const WORK_LABELS = ["Thinking", "Cooking", "Working"];
 
 export function rotatingLabel(i) {
+  const labels = t("workLabels", WORK_LABELS);
   const n = Number(i);
-  if (!Number.isFinite(n)) return WORK_LABELS[0];
-  const idx = Math.floor(n) % WORK_LABELS.length;
-  return WORK_LABELS[idx < 0 ? idx + WORK_LABELS.length : idx];
+  if (!Number.isFinite(n)) return labels[0];
+  const idx = Math.floor(n) % labels.length;
+  return labels[idx < 0 ? idx + labels.length : idx];
 }
 
 // 12432 -> "12.4s". One decimal below 100s, whole seconds above.
@@ -695,7 +823,87 @@ async function init() {
     },
   ];
 
-  const BASE_PLACEHOLDER = inputEl.placeholder;
+  let BASE_PLACEHOLDER = inputEl.placeholder;
+
+  // Panel language + settings toggles (chrome.storage.local; the content
+  // scripts read the selection toggles directly). applyI18n() re-applies every
+  // data-i18n string, then refreshDynamicI18n() re-renders the JS-state ones.
+  const setLanguage = document.getElementById("set-language");
+  const toggleAutoSelection = document.getElementById("toggle-auto-selection");
+  const toggleFloatingAsk = document.getElementById("toggle-floating-ask");
+  refreshDynamicI18n = () => {
+    BASE_PLACEHOLDER = t("composerPlaceholder");
+    renderBackend();
+    for (const field of KEY_FIELDS) {
+      field.state.textContent = keyState[field.provider] ? t("keyConfigured") : t("keyNotSet");
+    }
+  };
+  chrome.storage.local.get(["panelLanguage", "autoSelectionEnabled", "floatingAskEnabled"]).then((stored) => {
+    uiLang = (stored && stored.panelLanguage) || "auto";
+    applyI18n();
+    setLanguage.value = uiLang;
+    toggleAutoSelection.checked = stored.autoSelectionEnabled !== false;
+    toggleFloatingAsk.checked = stored.floatingAskEnabled !== false;
+  }).catch(() => applyI18n());
+  setLanguage.addEventListener("change", () => {
+    uiLang = setLanguage.value;
+    chrome.storage.local.set({ panelLanguage: uiLang });
+    applyI18n();
+  });
+  toggleAutoSelection.addEventListener("change", () => {
+    chrome.storage.local.set({ autoSelectionEnabled: toggleAutoSelection.checked });
+  });
+  toggleFloatingAsk.addEventListener("change", () => {
+    chrome.storage.local.set({ floatingAskEnabled: toggleFloatingAsk.checked });
+  });
+
+  // Proactive annotation (auto co-read on a fresh tab): toggle + provider +
+  // prompt. The hub echoes the config back through capabilities and persists
+  // it in its config.json, so the setting survives restarts.
+  const proactiveToggle = document.getElementById("toggle-proactive");
+  const proactiveAdapter = document.getElementById("set-proactive-adapter");
+  const proactivePrompt = document.getElementById("set-proactive-prompt");
+  let proactiveTimer = null;
+
+  function renderProactiveControls() {
+    const cfg = (panelCfg && panelCfg.proactiveAnnotation) || {};
+    proactiveToggle.checked = cfg.enabled === true;
+    const prev = proactiveAdapter.value;
+    proactiveAdapter.replaceChildren();
+    const auto = document.createElement("option");
+    auto.value = "";
+    auto.textContent = t("proactiveAdapterAuto");
+    proactiveAdapter.appendChild(auto);
+    for (const a of adapters) {
+      const o = document.createElement("option");
+      o.value = a.name;
+      o.textContent = a.label || a.name;
+      proactiveAdapter.appendChild(o);
+    }
+    proactiveAdapter.value = cfg.adapter || "";
+    if ([...proactiveAdapter.children].some((o) => o.value === prev)) {
+      proactiveAdapter.value = prev;
+    }
+    proactivePrompt.value = typeof cfg.prompt === "string" ? cfg.prompt : "";
+  }
+
+  function sendProactiveConfig() {
+    postToHub({
+      type: "set_proactive_config",
+      config: {
+        enabled: proactiveToggle.checked,
+        adapter: proactiveAdapter.value || null,
+        prompt: proactivePrompt.value.trim() || null,
+      },
+    });
+  }
+
+  proactiveToggle.addEventListener("change", sendProactiveConfig);
+  proactiveAdapter.addEventListener("change", sendProactiveConfig);
+  proactivePrompt.addEventListener("input", () => {
+    clearTimeout(proactiveTimer);
+    proactiveTimer = setTimeout(sendProactiveConfig, 600);
+  });
 
   let port = null;
   let ownWindowId = null; // browser window hosting this panel (v2.1)
@@ -727,6 +935,7 @@ async function init() {
   let selAdapter = ""; // current adapter name
   let selModel = null; // current model id, or null when the adapter has none
   let keyState = { anthropic: false, openai: false };
+  let panelCfg = null; // {proactiveAnnotation:{enabled,adapter,prompt}} echoed via capabilities
 
   let currentTab = null; // {tabId,url,title} or null
   let currentTabOff = false; // user clicked X on the current-tab chip
@@ -799,10 +1008,12 @@ async function init() {
     if (msg.type === "status") {
       setConnected(!!msg.connected);
     } else if (msg.type === "capabilities") {
+      panelCfg = msg.panelConfig && typeof msg.panelConfig === "object" ? msg.panelConfig : null;
       applyCapabilities(
         Array.isArray(msg.adapters) ? msg.adapters : [],
         Array.isArray(msg.commands) ? msg.commands : []
       );
+      renderProactiveControls();
     } else if (msg.type === "chat_event") {
       if (msg.chatId !== chatId) return; // stale conversation
       handleChatEvent(msg.event || {});
@@ -855,7 +1066,7 @@ async function init() {
       "system",
       archived
         ? "Archived conversation — sending a message starts a new chat."
-        : "Resumed live conversation."
+        : t("resumedLive")
     );
     if (msg.adapter && adapters.some((a) => a.name === msg.adapter)) {
       selAdapter = msg.adapter;
@@ -918,7 +1129,7 @@ async function init() {
   // otherwise the adapter's own label.
   function shortBackendLabel() {
     const a = adapterEntry(adapters, selAdapter);
-    if (!a) return "No adapters";
+    if (!a) return t("noAdapters");
     if (selModel) {
       const { models } = modelsFor(adapters, selAdapter);
       const m = models.find((mm) => mm.id === selModel);
@@ -961,7 +1172,7 @@ async function init() {
     row.setAttribute("role", "menuitem");
     const label = document.createElement("span");
     label.className = "backend-row-label";
-    label.textContent = count === 1 ? "1 个未就绪后端" : count + " 个未就绪后端";
+    label.textContent = count === 1 ? t("offToggleOne") : t("offToggleMany")(count);
     row.appendChild(label);
     return row;
   }
@@ -1010,9 +1221,9 @@ async function init() {
         const hint = document.createElement("span");
         hint.className = "backend-row-status";
         hint.textContent =
-          a.status === "missing-cli" ? "cli missing"
-          : a.status === "missing-key" ? "needs key"
-          : "unavailable";
+          a.status === "missing-cli" ? t("cliMissing")
+          : a.status === "missing-key" ? t("needsKey")
+          : t("unavailable");
         row.appendChild(hint);
         if (a.detail) row.title = a.detail;
         box.appendChild(row);
@@ -1084,8 +1295,8 @@ async function init() {
       // visible but disabled so the composer row does not jump when the
       // real list lands.
       backendBtn.disabled = true;
-      backendLabel.textContent = "No adapters";
-      backendBtn.title = "No adapters — waiting for capabilities";
+      backendLabel.textContent = t("noAdapters");
+      backendBtn.title = t("noAdaptersWaiting");
       setBackendOpen(false);
       return;
     }
@@ -1149,7 +1360,7 @@ async function init() {
   function renderKeyState() {
     for (const field of KEY_FIELDS) {
       const on = !!keyState[field.provider];
-      field.state.textContent = on ? "configured" : "not set";
+      field.state.textContent = on ? t("keyConfigured") : t("keyNotSet");
       field.state.classList.toggle("on", on);
     }
   }
@@ -1161,6 +1372,7 @@ async function init() {
     settingsBtn.setAttribute("aria-expanded", open ? "true" : "false");
     if (open) {
       renderKeyState();
+      renderProactiveControls();
       postToHub({ type: "get_capabilities" });
     } else {
       for (const field of KEY_FIELDS) field.input.value = "";
@@ -1172,7 +1384,7 @@ async function init() {
     // Save on an empty field is a slip, not a request to clear: Clear does
     // that, and only that, by passing null.
     if (typeof key === "string" && key.trim() === "") {
-      field.state.textContent = "enter a key first";
+      field.state.textContent = t("enterKeyFirst");
       field.state.classList.remove("on");
       return;
     }
@@ -1550,7 +1762,7 @@ async function init() {
       return;
     }
     if (block.expanded) setWorkExpanded(block, false);
-    block.label.textContent = "思考完成";
+    block.label.textContent = t("workDone");
     block.steps.textContent = block.count > 0 ? stepLabel(block.count) : "";
     block.head.setAttribute("aria-label", "Show or hide the steps in this turn");
   }
@@ -2612,7 +2824,7 @@ async function init() {
     micBtn.classList.toggle("listening", on);
     micBtn.setAttribute("aria-pressed", on ? "true" : "false");
     micBtn.title = on ? "Stop dictation" : "Dictate";
-    inputEl.placeholder = on ? "Listening…" : BASE_PLACEHOLDER;
+    inputEl.placeholder = on ? t("listening") : BASE_PLACEHOLDER;
     if (!on) showInterim("");
   }
 

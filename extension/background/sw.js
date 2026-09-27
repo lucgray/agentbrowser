@@ -502,6 +502,7 @@ chrome.runtime.onConnect.addListener((port) => {
       msg.type === 'chat_resume' ||
       msg.type === 'chat_abort' ||
       msg.type === 'set_key' ||
+      msg.type === 'set_proactive_config' ||
       msg.type === 'get_capabilities' ||
       msg.type === 'chat_list'
     ) {

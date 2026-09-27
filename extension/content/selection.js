@@ -13,12 +13,14 @@
 
 const BTN_ID = "agentbrowser-ask-btn";
 const FLOAT_ASK_KEY = "floatingAskEnabled"; // chrome.storage.local, set by sw
+const AUTO_SEL_KEY = "autoSelectionEnabled"; // chrome.storage.local, set by the panel settings
 
 let floatBtn = null;
 let currentSelectionContext = null; // compiled on selection mouseup
 let lastRightClickContext = null; // compiled on contextmenu
 let lastRightClickElement = null;
 let floatingAskEnabled = true; // cached; kept in sync below
+let autoSelectionEnabled = true; // cached; panel 设置开关
 
 // The floating button can clash with other overlays, so it obeys a
 // persistent user setting flipped from the right-click menu. Read it once
@@ -26,17 +28,25 @@ let floatingAskEnabled = true; // cached; kept in sync below
 // button immediately.
 if (isContextValid()) {
   chrome.storage.local
-    .get({ [FLOAT_ASK_KEY]: true })
+    .get({ [FLOAT_ASK_KEY]: true, [AUTO_SEL_KEY]: true })
     .then((r) => {
       floatingAskEnabled = r[FLOAT_ASK_KEY] !== false;
+      autoSelectionEnabled = r[AUTO_SEL_KEY] !== false;
     })
     .catch((err) => {
       logWarn("floating-ask setting read failed", err);
     });
   chrome.storage.onChanged.addListener((changes, area) => {
-    if (area !== "local" || !(FLOAT_ASK_KEY in changes)) return;
-    floatingAskEnabled = changes[FLOAT_ASK_KEY].newValue !== false;
-    if (!floatingAskEnabled) hideButton();
+    if (area !== "local") return;
+    // Each key gates on its own presence — a change to one must not touch the
+    // other (reading a key absent from `changes` would throw).
+    if (FLOAT_ASK_KEY in changes) {
+      floatingAskEnabled = changes[FLOAT_ASK_KEY].newValue !== false;
+      if (!floatingAskEnabled) hideButton();
+    }
+    if (AUTO_SEL_KEY in changes) {
+      autoSelectionEnabled = changes[AUTO_SEL_KEY].newValue !== false;
+    }
   });
 }
 
@@ -499,6 +509,7 @@ let lastAutoSentText = "";
 let autoKeyTimer = null;
 
 function autoDeliverSelection() {
+  if (!autoSelectionEnabled) return;
   if (!isContextValid()) return;
   const selection = window.getSelection();
   if (!selection || selection.isCollapsed) return;
