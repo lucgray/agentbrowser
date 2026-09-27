@@ -1,4 +1,4 @@
-# AgentBrowser protocol v2.6
+# AgentBrowser protocol v2.7
 
 AgentBrowser is a Chrome MV3 extension with a side-panel chat UI, plus a local hub
 server. The chat is backed by a pluggable "harness" (Claude Agent SDK, Claude
@@ -645,7 +645,7 @@ executor, in the SDK adapter's MCP server, and in mcp-proxy.mjs.
 | `tabs_list` | `{}` | `{tabs:[{tabId,url,title,active}]}` |
 | `tab_new` | `{url?}` | `{tabId}` |
 | `tab_close` | `{tabId}` | `{closed:true}` |
-| `navigate` | `{url, tabId?}` | `{url, title}` after load event (20s cap, then return current state) |
+| `navigate` | `{url, settleMs?, tabId?}` | `{url, title, settled?}` after load event (20s cap, then return current state) — v2.7 `settleMs` additionally waits for document complete + that many ms of network silence (15s cap); `settled` only present when asked |
 | `read_page` | `{tabId?, maxChars?}` | `{url, title, text}` — `document.body.innerText`, default cap 60000 chars |
 | `screenshot` | `{tabId?}` | `{base64, mimeType:"image/png"}` |
 | `click` | `{x, y, button?, clickCount?, tabId?}` | `{clicked:true, button, clickCount}` — CDP mousePressed+mouseReleased; button left/right/middle, clickCount 1-3 (v2.6) |
@@ -682,6 +682,7 @@ executor, in the SDK adapter's MCP server, and in mcp-proxy.mjs.
 | `frame_eval` | `{frame, expression, tabId?}` | `{value}` — v2.6; Runtime.evaluate inside the iframe session; consent-gated |
 | `frame_dom_inspect` | `{frame, selector, all?, styles?, max?, tabId?}` | dom_inspect shape — v2.6 |
 | `frame_click_element` | `{frame, selector, dx?, dy?, button?, clickCount?, tabId?}` | `{clicked:true, x, y}` — v2.6; frame-local rect + host iframe offset; consent-gated |
+| `viewport_emulate` | `{width?, height?, mobile?, deviceScaleFactor?, clear?, tabId?}` | `{emulated:true, width, height, mobile}` or `{cleared:true}` — v2.7; Emulation.setDeviceMetricsOverride (+ touch on mobile), clear restores the window viewport |
 | `batch` | `{steps:[{tool, args}], stopOnError?, tabId?}` | `{results:[{step, ok, result|error}], completed, total}` — v2.2; sequential, stops at first failure unless `stopOnError:false`, `tabId` on the call defaults into steps; nesting rejected |
 | `breakpoint_set` | `{url\|urlRegex, lineNumber, columnNumber?, condition?, autoResumeMs?, tabId?}` | `{breakpoint:{id,url,lineNumber,locations:[...]}}` — v2.6; consent-gated |
 | `breakpoint_list` | `{tabId?}` | `{breakpoints, paused}` — v2.6 |

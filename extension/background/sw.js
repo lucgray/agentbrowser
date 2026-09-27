@@ -581,13 +581,23 @@ const TOOLS = {
     const loaded = waitForLoad(tabId, 20000);
     await chrome.tabs.update(tabId, { url: args.url });
     await loaded;
+    // settleMs: SPA navigations fire `load` long before XHRs quiet down. When
+    // the caller asks, also wait for readyState=complete and settleMs of
+    // network silence (15s hard cap inside waitForSettle).
+    const settleMs = Number(args.settleMs) || 0;
+    const settle = settleMs > 0 ? await inspect.waitForSettle(tabId, settleMs) : null;
+    if (settle && !settle.settled) {
+      console.warn('[agentbrowser] navigate settle wait timed out', { tabId, settleMs });
+    }
     // After the load: navigation wipes anything injected before it. navigate is
     // the one tool that does not go through CDP, so it is the one place the
     // overlay has to be fired by hand. showOverlay never rejects and is bounded
     // at 250ms, so it is safe to leave unawaited here.
     cdp.showOverlay(tabId, 'navigate');
     const tab = await chrome.tabs.get(tabId);
-    return { url: tab.url, title: tab.title };
+    const out = { url: tab.url, title: tab.title };
+    if (settle) out.settled = settle.settled;
+    return out;
   },
 
   async read_page(args) {
@@ -829,6 +839,11 @@ const TOOLS = {
   async frame_click_element(args) {
     const tabId = await resolveTabId(args.tabId);
     return inspect.frameClickElement(tabId, args);
+  },
+
+  async viewport_emulate(args) {
+    const tabId = await resolveTabId(args.tabId);
+    return cdp.viewportEmulate(tabId, args);
   },
 
   // --- composite wrappers (v2.2) -----------------------------------------

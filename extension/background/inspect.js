@@ -34,6 +34,7 @@ function state(tabId) {
       scripts: new Map(),  // scriptId -> url (Debugger.scriptParsed)
       paused: null,        // {reason,hitBreakpoints,ts,frames,rawFrames}
       waiters: [],         // debug_wait pending {resolve,timer}
+      lastNetAt: 0,      // ts of the last Network.requestWillBeSent
       url: '',
     };
     tabs.set(tabId, s);
@@ -146,6 +147,7 @@ chrome.debugger.onEvent.addListener((source, method, params) => {
       break;
     }
     case 'Network.requestWillBeSent': {
+      s.lastNetAt = Date.now();
       s.requests.set(params.requestId, {
         id: params.requestId,
         url: (params.request && params.request.url) || '',
@@ -719,4 +721,31 @@ export async function frameClickElement(tabId, args) {
   await cdp.sendCommand(tabId, 'Input.dispatchMouseEvent', { type: 'mousePressed', ...base });
   await cdp.sendCommand(tabId, 'Input.dispatchMouseEvent', { type: 'mouseReleased', ...base });
   return { clicked: true, selector: args.selector, tag: local.tag, x, y };
+}
+
+// Settle wait for navigate: document.readyState === 'complete' AND no new
+// network request for `settleMs`. Network.enable is engaged so the request
+// buffer actually fills; `capMs` bounds the total wait so a chatty page
+// (analytics, websockets-adjacent polling) can't pin navigate forever.
+export async function waitForSettle(tabId, settleMs, capMs = 15000) {
+  await ensureDomains(tabId, ['Network']);
+  const s = state(tabId);
+  const deadline = Date.now() + capMs;
+  while (Date.now() < deadline) {
+    let ready = false;
+    try {
+      const res = await cdp.sendCommand(tabId, 'Runtime.evaluate', {
+        expression: 'document.readyState',
+        returnByValue: true,
+      });
+      ready = res.result && res.result.value === 'complete';
+    } catch (err) {
+      // Mid-navigation the context can vanish under the evaluate; keep polling.
+      console.warn('[agentbrowser] readyState probe failed', err);
+    }
+    const idleMs = Date.now() - (s.lastNetAt || 0);
+    if (ready && idleMs >= settleMs) return { settled: true, idleMs };
+    await new Promise((r) => setTimeout(r, 150));
+  }
+  return { settled: false, idleMs: Date.now() - (s.lastNetAt || 0) };
 }

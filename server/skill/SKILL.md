@@ -62,6 +62,14 @@ Type into a focused field, press keys, navigate:
 agentbrowser type_text '{"text":"hello","selector":"input[name=q]"}'  # selector click-focuses first
 agentbrowser press_key '{"key":"Enter"}'
 agentbrowser navigate '{"url":"https://example.com"}'
+agentbrowser navigate '{"url":"https://spa.example.com","settleMs":2000}'  # SPA: wait for network silence too
+```
+
+Emulate a device viewport without resizing the window (responsive/mobile checks):
+
+```bash
+agentbrowser viewport_emulate '{"width":390,"height":844,"mobile":true}'   # iPhone-ish, touch on
+agentbrowser viewport_emulate '{"clear":true}'                            # back to the real window size
 ```
 
 Debug page JavaScript with breakpoints (the page's JS freezes while paused):

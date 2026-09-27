@@ -621,3 +621,36 @@ export async function pressKey(tabId, spec) {
   });
   return { pressed: spec };
 }
+
+// viewport_emulate: Emulation.setDeviceMetricsOverride — swaps the tab's
+// layout viewport (responsive breakpoints, mobile layout) without resizing
+// the window. `mobile:true` also switches on touch emulation so tap-driven
+// pages behave; `clear:true` hands the viewport back to the window size.
+export async function viewportEmulate(tabId, args) {
+  if (args.clear) {
+    await sendCommand(tabId, 'Emulation.clearDeviceMetricsOverride');
+    await sendCommand(tabId, 'Emulation.setTouchEmulationEnabled', {
+      enabled: false,
+    });
+    return { emulated: false, cleared: true };
+  }
+  const width = Math.trunc(Number(args.width));
+  const height = Math.trunc(Number(args.height));
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    throw new Error('viewport_emulate needs positive width and height (or clear: true)');
+  }
+  const mobile = args.mobile === true;
+  await sendCommand(tabId, 'Emulation.setDeviceMetricsOverride', {
+    width,
+    height,
+    deviceScaleFactor: Number.isFinite(Number(args.deviceScaleFactor))
+      ? Number(args.deviceScaleFactor)
+      : 1,
+    mobile,
+  });
+  await sendCommand(tabId, 'Emulation.setTouchEmulationEnabled', {
+    enabled: mobile,
+    maxTouchPoints: 5,
+  });
+  return { emulated: true, width, height, mobile };
+}

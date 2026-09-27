@@ -36,12 +36,13 @@ export const TOOLS = [
   },
   {
     name: "navigate",
-    description: "Navigate a tab to a URL and wait for the load event (20s cap, then returns the current state). Returns {url, title}.",
+    description: "Navigate a tab to a URL and wait for the load event (20s cap, then returns the current state). settleMs adds an SPA-friendly settle wait after load: returns when the document is complete and no new network request has started for settleMs (15s hard cap). Returns {url, title, settled?} — settled is present only when settleMs was given.",
     args: {
       type: "object",
       properties: {
         url: { type: "string", description: "URL to navigate to" },
-        tabId: { type: "number", description: "Target tab id; omit for the active tab" }
+        tabId: { type: "number", description: "Target tab id; omit for the active tab" },
+        settleMs: { type: "number", description: "Post-load settle wait: ms of network silence (plus document complete) before returning; use ~1500-3000 for SPAs. Omit for the old load-event-only behavior." }
       },
       required: ["url"]
     }
@@ -593,6 +594,24 @@ export const TOOLS = [
         tabId: { type: "number", description: "Target tab id; omit for the active tab" }
       },
       required: ["frame", "selector"]
+    }
+  },
+  {
+    // viewport_emulate (v2.7): Emulation.setDeviceMetricsOverride swaps the
+    // tab's layout viewport without resizing the window — responsive
+    // breakpoints and mobile layouts become testable. clear restores it.
+    name: "viewport_emulate",
+    description: "Override the tab's layout viewport: {width, height, mobile?, deviceScaleFactor?} emulates a device screen (mobile:true also enables touch); {clear:true} restores the real window viewport. Returns {emulated, width?, height?, mobile?} or {cleared:true}.",
+    args: {
+      type: "object",
+      properties: {
+        width: { type: "number", description: "Viewport width in CSS px (required unless clear)" },
+        height: { type: "number", description: "Viewport height in CSS px (required unless clear)" },
+        mobile: { type: "boolean", description: "Emulate a mobile viewport and enable touch (default false)" },
+        deviceScaleFactor: { type: "number", description: "Device pixel ratio override (default 1)" },
+        clear: { type: "boolean", description: "Clear the override and restore the real viewport" },
+        tabId: { type: "number", description: "Target tab id; omit for the active tab" }
+      }
     }
   },
 
