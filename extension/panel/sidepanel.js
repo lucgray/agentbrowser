@@ -954,14 +954,58 @@ async function init() {
   // The left column is built once per open; hover/focus then only refreshes
   // classes and the right column, so the row under the cursor or the focus
   // ring never gets yanked out of the DOM.
+  function makeOffToggle(count) {
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = "backend-row backend-off-toggle";
+    row.setAttribute("role", "menuitem");
+    const label = document.createElement("span");
+    label.className = "backend-row-label";
+    label.textContent = count === 1 ? "1 个未就绪后端" : count + " 个未就绪后端";
+    row.appendChild(label);
+    return row;
+  }
+
+  // Signature of the models column currently painted. Rebuilding identical
+  // content (two adapters sharing one model list, capabilities arriving
+  // mid-hover) is what makes the picker flicker between two selections.
+  let paintedMenuKey = "";
+
   function buildAdapterRows() {
+    paintedMenuKey = "";
     backendAdaptersEl.replaceChildren();
-    for (const a of adapters) {
+    // The hub already collapses each backend family to one transport and sorts
+    // ready entries first; here we just render that order and fold the
+    // not-ready tail away so the common case is a short all-green list.
+    const ready = adapters.filter((a) => !a.status || a.status === "ready");
+    const off = adapters.filter((a) => a.status && a.status !== "ready");
+    for (const a of ready) {
       const { models } = modelsFor(adapters, a.name);
       const row = makeBackendRow(a.name, null);
       if (models.length) row.classList.add("has-models");
       row.firstChild.textContent = a.label || a.name;
-      if (a.status && a.status !== "ready") {
+      if (a.transport && a.transport !== "CLI") {
+        const badge = document.createElement("span");
+        badge.className = "backend-row-transport";
+        badge.textContent = a.transport;
+        row.appendChild(badge);
+      }
+      backendAdaptersEl.appendChild(row);
+    }
+    if (off.length) {
+      const toggle = makeOffToggle(off.length);
+      const box = document.createElement("div");
+      box.className = "backend-off-list";
+      box.hidden = true;
+      toggle.addEventListener("click", () => {
+        box.hidden = !box.hidden;
+        toggle.classList.toggle("is-open", !box.hidden);
+      });
+      for (const a of off) {
+        const { models } = modelsFor(adapters, a.name);
+        const row = makeBackendRow(a.name, null);
+        if (models.length) row.classList.add("has-models");
+        row.firstChild.textContent = a.label || a.name;
         row.classList.add("unavailable");
         const hint = document.createElement("span");
         hint.className = "backend-row-status";
@@ -971,22 +1015,43 @@ async function init() {
           : "unavailable";
         row.appendChild(hint);
         if (a.detail) row.title = a.detail;
+        box.appendChild(row);
       }
-      backendAdaptersEl.appendChild(row);
+      backendAdaptersEl.appendChild(toggle);
+      backendAdaptersEl.appendChild(box);
     }
   }
 
   function renderBackendMenu() {
-    for (const row of backendAdaptersEl.children) {
+    // Collapsed not-ready rows live one level down in a group box, so query
+    // instead of walking direct children; click/hover handlers delegate
+    // through closest(".backend-row") either way.
+    for (const row of backendAdaptersEl.querySelectorAll("[data-adapter]")) {
       row.classList.toggle("is-active", row.dataset.adapter === selAdapter);
       row.classList.toggle("is-open", row.dataset.adapter === menuAdapter);
     }
-    backendModelsEl.replaceChildren();
-    for (const m of modelsFor(adapters, menuAdapter).models) {
-      const row = makeBackendRow(menuAdapter, m.id);
-      row.classList.toggle("is-active", menuAdapter === selAdapter && m.id === selModel);
-      row.firstChild.textContent = m.label || m.id;
-      backendModelsEl.appendChild(row);
+    const models = modelsFor(adapters, menuAdapter).models;
+    // Key on CONTENT only, not the adapter name: two backends that share one
+    // model list (a family and its API twin) must not repaint the column when
+    // you hover from one to the other — that repaint is the flicker between
+    // two selections.
+    const key = models.map((m) => m.id).join("|");
+    if (key !== paintedMenuKey) {
+      paintedMenuKey = key;
+      backendModelsEl.replaceChildren();
+      for (const m of models) {
+        const row = makeBackendRow(menuAdapter, m.id);
+        row.classList.toggle("is-active", menuAdapter === selAdapter && m.id === selModel);
+        row.firstChild.textContent = m.label || m.id;
+        backendModelsEl.appendChild(row);
+      }
+    } else {
+      // Same models under a different adapter: retarget the painted rows and
+      // refresh selection state in place, without rebuilding the DOM.
+      for (const row of backendModelsEl.children) {
+        row.dataset.adapter = menuAdapter;
+        row.classList.toggle("is-active", menuAdapter === selAdapter && row.dataset.model === selModel);
+      }
     }
   }
 
@@ -999,8 +1064,11 @@ async function init() {
   }
 
   function renderBackend(preferredModel) {
+    // Default selection only considers ready backends; the collapsed
+    // not-ready group stays reachable by hand but never wins by accident.
+    const usable = adapters.filter((a) => !a.status || a.status === "ready");
     const flat = [];
-    for (const a of adapters) {
+    for (const a of usable) {
       const { models } = modelsFor(adapters, a.name);
       if (models.length === 0) flat.push({ adapter: a.name, model: null });
       else for (const m of models) flat.push({ adapter: a.name, model: m.id });
@@ -1008,7 +1076,8 @@ async function init() {
     // Keep the current adapter when it still exists; otherwise the remembered
     // one, otherwise the first entry.
     const have = (n) => adapters.some((a) => a && a.name === n);
-    selAdapter = have(selAdapter) ? selAdapter : have(prefAdapter) ? prefAdapter : (flat[0] ? flat[0].adapter : "");
+    const usableHave = (n) => usable.some((a) => a && a.name === n);
+    selAdapter = usableHave(selAdapter) ? selAdapter : usableHave(prefAdapter) ? prefAdapter : (flat[0] ? flat[0].adapter : have(selAdapter) ? selAdapter : (adapters[0] ? adapters[0].name : ""));
     selModel = pickModel(adapters, selAdapter, preferredModel || selModel || prefModel);
     if (flat.length === 0) {
       // No capabilities yet (or a hub that lists none): keep the control
@@ -1438,30 +1507,51 @@ async function init() {
     // A <button> is keyboard-activated for free; Enter and Space both land
     // here as a click.
     head.addEventListener("click", () => setWorkExpanded(block, !block.expanded));
+    // An empty block has nothing to expand: while only a bare "thinking"
+    // stretch is running (no thought text, no tool rows yet) the caret hides
+    // and the head goes inert, instead of expanding to an empty body. Emptiness
+    // is judged by rendered content, not child count — a node with no text
+    // must still count as empty.
+    const syncWorkEmpty = () => {
+      const empty = block.count === 0 && body.textContent.trim() === "";
+      el.classList.toggle("empty", empty);
+      head.disabled = empty;
+      if (empty && block.expanded) setWorkExpanded(block, false);
+    };
+    block.emptyObserver = new MutationObserver(syncWorkEmpty);
+    block.emptyObserver.observe(body, {
+      childList: true,
+      characterData: true,
+      subtree: true
+    });
+    syncWorkEmpty();
     workTick = 0;
     startWorkTimer();
     scrollToBottom();
     return workBlock;
   }
 
-  // Turn over: freeze the block into "Worked for 12s, 4 steps", still
-  // expandable. A block with nothing inside it is dropped; the meta line
-  // already reports the duration.
+  // Turn over: collapse the steps automatically and rename the block to
+  // "思考完成"; it stays expandable on demand. A block with nothing inside it
+  // is dropped; the meta line already reports the duration.
   function closeWorkBlock() {
     stopWorkTimer();
     if (!workBlock) return;
     const block = workBlock;
     workBlock = null;
-    const ms = Date.now() - block.startedAt;
     block.live = false;
+    if (block.emptyObserver) {
+      block.emptyObserver.disconnect();
+      block.emptyObserver = null;
+    }
     block.el.classList.remove("live");
-    block.elapsed.textContent = "";
-    block.steps.textContent = "";
     if (block.count === 0 && block.body.children.length === 0) {
       block.el.remove();
       return;
     }
-    block.label.textContent = summarizeWork(ms, block.count);
+    if (block.expanded) setWorkExpanded(block, false);
+    block.label.textContent = "思考完成";
+    block.steps.textContent = block.count > 0 ? stepLabel(block.count) : "";
     block.head.setAttribute("aria-label", "Show or hide the steps in this turn");
   }
 
@@ -2956,17 +3046,22 @@ async function init() {
     }
   });
   // Hover or keyboard focus on an adapter flies its models out in the right
-  // column; the adapter list itself is never rebuilt under the cursor.
+  // column; the adapter list itself is never rebuilt under the cursor. Rows
+  // without an adapter (the collapsed-group toggle) must not drive the models
+  // column: blanking it on hover-in and repainting on hover-out is the flicker
+  // between two selections.
   backendAdaptersEl.addEventListener("mouseover", (e) => {
     const row = e.target.closest(".backend-row");
-    if (row && row.dataset.adapter !== menuAdapter) {
+    if (!row || !row.dataset.adapter) return;
+    if (row.dataset.adapter !== menuAdapter) {
       menuAdapter = row.dataset.adapter;
       renderBackendMenu();
     }
   });
   backendAdaptersEl.addEventListener("focusin", (e) => {
     const row = e.target.closest(".backend-row");
-    if (row && row.dataset.adapter !== menuAdapter) {
+    if (!row || !row.dataset.adapter) return;
+    if (row.dataset.adapter !== menuAdapter) {
       menuAdapter = row.dataset.adapter;
       renderBackendMenu();
     }

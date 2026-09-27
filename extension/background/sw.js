@@ -337,6 +337,22 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     );
     return true;
   }
+  if (message.cmd === 'selection_auto') {
+    const tabId = sender && sender.tab && sender.tab.id;
+    if (tabId == null || !message.selection) {
+      sendResponse({ success: false, error: 'no tab' });
+      return true;
+    }
+    // Auto-captured selections land in the same pendingSelection slot the
+    // panel already watches, but without opening it and without the Ask
+    // click: selecting text is enough to append it to the chat context.
+    // The slot is single — the latest selection wins.
+    deliverSelection(tabId, message.selection).then(
+      (ok) => sendResponse({ success: ok }),
+      () => sendResponse({ success: false })
+    );
+    return true;
+  }
   if (message.cmd === 'annotation_comment') {
     const tabId = sender && sender.tab && sender.tab.id;
     if (tabId == null || !message.annId || !message.text) {

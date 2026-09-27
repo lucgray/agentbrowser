@@ -11,6 +11,7 @@ import os from "node:os";
 import path from "node:path";
 import { WebSocketServer } from "ws";
 import { TOOLS } from "./tools.mjs";
+import { loadCatalog } from "../adapters/model-catalog.mjs";
 import {
   COMMANDS,
   dispatch,
@@ -220,6 +221,13 @@ const pending = new Map();
 // chatId -> { session, adapterName, model, lastUsed }
 const sessions = new Map();
 
+// chatId -> tabId the chat is bound to. The panel sends context.currentTab on
+// every chat message; tools called from that chat without an explicit tabId
+// target the bound tab instead of whatever tab is active when the call lands —
+// otherwise a conversation about tab A starts acting on tab B the moment the
+// user switches tabs.
+const chatTabs = new Map();
+
 // chatId -> { input, output } running totals for the chat (PROTOCOL v1.3 A).
 // Kept out of `sessions` on purpose: an adapter or model switch disposes the
 // session mid-chat and the totals must survive that. Only an idle sweep (the
@@ -421,6 +429,20 @@ function callBrowserTool(tool, args = {}) {
     log("tool_call", tool);
     safeSend(extensionSocket, { type: "tool_call", id, tool, args, permissions: consentPolicy() });
   });
+}
+
+// Per-chat wrapper: tool calls that omit tabId target the tab the chat is
+// bound to (context.currentTab at the latest chat message) rather than
+// whatever tab happens to be active when the call lands. An explicit tabId in
+// the args always wins.
+function chatScopedBrowserTool(chatId) {
+  return (tool, args = {}) => {
+    const bound = chatTabs.get(chatId);
+    if (bound != null && args && args.tabId == null) {
+      return callBrowserTool(tool, { ...args, tabId: bound });
+    }
+    return callBrowserTool(tool, args);
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -800,10 +822,9 @@ const FALLBACK_DESCRIPTORS = {
   },
   codex: {
     label: "Codex CLI",
-    models: [
-      { id: "gpt-5.6-luna", label: "GPT-5.6 Luna" },
-      { id: "gpt-5.6-terra", label: "GPT-5.6 Terra" }
-    ],
+    // Real lists come from the live catalog (~/.codex/config.toml probe);
+    // the fallback stays empty rather than shipping invented model names.
+    models: [],
     defaultModel: null,
     provider: null
   },
@@ -884,6 +905,63 @@ async function descriptorFor(name) {
   return normalizeDescriptor(name, descriptors[name]);
 }
 
+// One picker row per real backend. Several adapters reach the same CLI over
+// different transports (native spawn, ACP, in-process SDK), and listing every
+// transport separately turned the picker into a wall of near-duplicates
+// ("Gemini CLI" next to "Gemini (ACP)") where most rows errored on a machine
+// without that exact binary. Collapse each family to its best transport:
+// ready beats needs-key beats missing-cli, then the declared preference order.
+const FAMILY_TABLE = [
+  { family: "claude", label: "Claude Code", preferred: ["claude-agent-sdk", "claude-cli", "acp-claude"] },
+  { family: "codex", label: "Codex", preferred: ["codex", "acp-codex"] },
+  { family: "gemini", label: "Gemini", preferred: ["gemini", "acp-gemini"] },
+  { family: "opencode", label: "OpenCode", preferred: ["opencode", "acp-opencode"] },
+  { family: "copilot", label: "Copilot", preferred: ["copilot", "acp-copilot"] },
+  { family: "grok", label: "Grok", preferred: ["grok", "acp-grok"] },
+  { family: "agy", label: "Antigravity", preferred: ["agy", "acp-agy"] },
+  { family: "devin", label: "Devin", preferred: ["devin", "acp-devin"] },
+  { family: "anthropic", label: "Anthropic API", preferred: ["anthropic-api"] },
+  { family: "openai", label: "OpenAI API", preferred: ["openai-api"] }
+];
+
+const FAMILY_RANK = { ready: 0, "missing-key": 1, "missing-cli": 2 };
+
+function transportLabel(name) {
+  if (name.endsWith("-api")) return "API";
+  if (name.startsWith("acp-")) return "ACP";
+  if (name === "claude-agent-sdk") return "SDK";
+  return "CLI";
+}
+
+function collapseFamilies(adapters) {
+  const byName = Object.fromEntries(adapters.map((a) => [a.name, a]));
+  const rows = [];
+  for (const fam of FAMILY_TABLE) {
+    const members = fam.preferred.filter((n) => byName[n]);
+    if (members.length === 0) continue;
+    const best = [...members].sort(
+      (a, b) =>
+        (FAMILY_RANK[byName[a].status] ?? 9) - (FAMILY_RANK[byName[b].status] ?? 9) ||
+        members.indexOf(a) - members.indexOf(b)
+    )[0];
+    const entry = { ...byName[best], label: fam.label, family: fam.family, transport: transportLabel(best) };
+    // Sibling statuses ride along so the picker can explain the transport
+    // choice; statuses only — never keys.
+    entry.variants = members.map((n) => ({
+      name: n,
+      transport: transportLabel(n),
+      status: byName[n].status
+    }));
+    rows.push(entry);
+  }
+  // Anything not in a family (custom adapter-module descriptors) keeps its own
+  // row after the known families.
+  const known = new Set(FAMILY_TABLE.flatMap((f) => f.preferred));
+  for (const a of adapters) if (!known.has(a.name)) rows.push(a);
+  rows.sort((a, b) => (FAMILY_RANK[a.status] ?? 9) - (FAMILY_RANK[b.status] ?? 9));
+  return rows;
+}
+
 async function buildCapabilities() {
   const descriptors = await loadDescriptors();
   const names = [...new Set([...ADAPTER_NAMES, ...Object.keys(descriptors)])];
@@ -893,6 +971,22 @@ async function buildCapabilities() {
     if (mod && typeof mod.probeAdapter === "function") probe = mod.probeAdapter;
   } catch (err) {
     log("adapter probe unavailable:", err.message);
+  }
+  // Real model lists, probed from the machine (codex config.toml, opencode
+  // models, per-CLI settings) with a disk cache. Empty probe = empty list —
+  // the picker hides rather than inventing model names.
+  let catalog = {};
+  try {
+    catalog = await loadCatalog();
+  } catch (err) {
+    log("model catalog unavailable:", err.message);
+  }
+  if (Array.isArray(catalog.claude) && catalog.claude.length) {
+    // The settings model first, then the real Claude family ids.
+    catalog.claude = [
+      ...catalog.claude,
+      ...CLAUDE_MODELS.filter((m) => !catalog.claude.some((c) => c.id === m.id))
+    ];
   }
   const adapters = names.map((name) => {
     const d = normalizeDescriptor(name, descriptors[name]);
@@ -904,10 +998,21 @@ async function buildCapabilities() {
         log(`adapter probe failed for ${name}:`, err.message);
       }
     }
+    // Priority: config.json adapterModels (already applied into d.models by
+    // normalizeDescriptor) > live catalog > descriptor/fallback.
+    const configured =
+      config.adapterModels &&
+      Array.isArray(config.adapterModels[name]) &&
+      config.adapterModels[name].length > 0;
+    const models = configured
+      ? d.models
+      : Array.isArray(catalog[name]) && catalog[name].length
+        ? catalog[name]
+        : d.models;
     return {
       name: d.name,
       label: d.label,
-      models: d.models,
+      models,
       defaultModel: d.defaultModel,
       provider: d.provider,
       keyConfigured: d.provider ? hasKey(d.provider) : false,
@@ -916,7 +1021,7 @@ async function buildCapabilities() {
   });
   // The command registry rides along so the panel's autocomplete can never
   // drift from what the hub actually implements (PROTOCOL v1.3 B).
-  return { type: "capabilities", adapters, commands: COMMANDS };
+  return { type: "capabilities", adapters: collapseFamilies(adapters), commands: COMMANDS };
 }
 
 async function sendCapabilities(ws) {
@@ -1010,6 +1115,7 @@ function disposeSession(chatId, reason, { abortRunning = true } = {}) {
     log("dispose failed:", err.message);
   }
   removeUploads(chatId);
+  chatTabs.delete(chatId);
   log("session disposed (" + reason + ")", chatId);
 }
 
@@ -1040,7 +1146,7 @@ async function getSessionEntry(chatId, adapterName, model, emit, { abortRunning 
     ? mod.resolveModel(adapterName, model, config)
     : model || descriptor.defaultModel || null;
   const session = await mod.createSession(adapterName, {
-    callBrowserTool,
+    callBrowserTool: chatScopedBrowserTool(chatId),
     config,
     model: model || null,
     getApiKey,
@@ -1178,6 +1284,11 @@ async function handleChat(msg) {
   // and be dispatched synchronously; a guard that reads state written after an
   // await would let both through onto the same single-turn adapter session.
   activeChats.add(chatId);
+  // Re-bind the chat's tab on every message: the composer chip shows the tab
+  // the user is looking at, so tools follow what they see unless the call
+  // names a tabId explicitly.
+  const boundTabId = msg.context && msg.context.currentTab ? msg.context.currentTab.tabId : null;
+  if (boundTabId != null) chatTabs.set(chatId, boundTabId);
   recordUser(chatId, text, adapterName, requestedModel);
   try {
     const check = checkAttachments(attachments);
@@ -1311,7 +1422,7 @@ async function handleCommand(msg) {
       adapter: adapterName,
       model: state.model,
       context: msg.context && typeof msg.context === "object" ? msg.context : null,
-      callBrowserTool,
+      callBrowserTool: chatScopedBrowserTool(chatId),
       // Lane sessions live only for this command. They are registered on the
       // record so abort reaches them and the finally below disposes them
       // however the command ends.
@@ -1321,7 +1432,7 @@ async function handleCommand(msg) {
         }
         const mod = await loadAdapterModule();
         const laneSession = await mod.createSession(adapterName, {
-          callBrowserTool,
+          callBrowserTool: chatScopedBrowserTool(chatId),
           config,
           model: requestedModel || null,
           getApiKey,
