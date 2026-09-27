@@ -5,6 +5,7 @@ import {
   consoleArgsToText,
   sanitizeHeaders,
   buildHar,
+  summarizeCallFrames,
   domInspectExpression,
   outlineExpression,
   patchApplyExpression,
@@ -82,4 +83,37 @@ test('page-side expressions are valid JavaScript', () => {
   for (const expr of exprs) {
     assert.doesNotThrow(() => new Function('return ' + expr), expr.slice(0, 80));
   }
+});
+
+test('summarizeCallFrames maps CDP frames to a compact stack', () => {
+  const scripts = new Map([['s1', 'https://ex.com/app.js']]);
+  const frames = summarizeCallFrames(
+    [
+      {
+        callFrameId: 'cf1',
+        functionName: 'onClick',
+        location: { scriptId: 's1', lineNumber: 42, columnNumber: 7 },
+      },
+      {
+        callFrameId: 'cf2',
+        functionName: '',
+        url: 'https://ex.com/inline.html',
+        location: { scriptId: 's2', lineNumber: 0, columnNumber: 0 },
+      },
+    ],
+    scripts
+  );
+  assert.equal(frames.length, 2);
+  assert.equal(frames[0].functionName, 'onClick');
+  assert.equal(frames[0].url, 'https://ex.com/app.js'); // resolved via scriptId
+  assert.equal(frames[0].lineNumber, 42);
+  assert.equal(frames[1].functionName, '(anonymous)');
+  assert.equal(frames[1].url, 'https://ex.com/inline.html'); // f.url fallback
+  assert.equal(summarizeCallFrames(null, scripts).length, 0);
+  // Unknown scriptId -> empty url, no throw.
+  const orphan = summarizeCallFrames(
+    [{ callFrameId: 'x', location: { scriptId: 'nope', lineNumber: 1 } }],
+    scripts
+  );
+  assert.equal(orphan[0].url, '');
 });

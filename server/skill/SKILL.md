@@ -64,6 +64,21 @@ agentbrowser press_key '{"key":"Enter"}'
 agentbrowser navigate '{"url":"https://example.com"}'
 ```
 
+Debug page JavaScript with breakpoints (the page's JS freezes while paused):
+
+```bash
+agentbrowser breakpoint_set '{"urlRegex":"app\\.js","lineNumber":42,"autoResumeMs":2000}'
+agentbrowser debug_wait '{"timeoutMs":15000}'        # -> {paused:true, callFrames, topCallFrameId}
+agentbrowser debug_eval '{"expression":"JSON.stringify(state.filters)}"'   # eval in the paused frame
+agentbrowser debug_resume '{"action":"resume"}'     # or stepOver / stepInto / stepOut
+agentbrowser breakpoint_remove '{"id":"<breakpointId>"}'
+```
+
+`autoResumeMs` is yours to choose per breakpoint: pass it when you only need
+to snapshot state and move on, so a missed `debug_resume` can't leave the
+page frozen. `timeoutMs` on `debug_wait` is likewise your call — how long to
+keep listening for the hit.
+
 Mark up the page for the user (co-reading):
 
 ```bash
@@ -77,6 +92,31 @@ Patch the page to prove a fix, then roll it back:
 agentbrowser patch_apply '{"patches":[{"selector":"h1","styles":{"outline":"3px solid red"}}]}'
 agentbrowser patch_revert '{"patchId":"patch-..."}'
 ```
+
+## Naming your actions (`label`)
+
+Every tool accepts an optional `label` — a short human-readable name for the
+call that the side panel shows instead of the raw tool name and arguments.
+Always pass it: the user reads the label on the chip and on consent cards,
+so make it describe intent, not mechanics.
+
+```bash
+# chip shows "搜索订单接口" instead of "network_log {filter:...}"
+agentbrowser network_log '{"filter":"/api/orders","label":"搜索订单接口"}'
+
+# consent card shows "填写登录表单" instead of "fill {...}"
+agentbrowser fill '{"selector":"#email","text":"a@b.c","label":"填写登录表单"}'
+```
+
+Rules of thumb:
+
+- Keep it under ~8 words, in the user's language (the panel UI language).
+- Describe the goal ("check why checkout 500s"), not the tool
+  (`console_log`), not the raw command.
+- `batch` steps each take their own label — name each step so the user can
+  follow the plan.
+- Omitting `label` just falls back to the tool name — nothing breaks, but
+  the user sees "eval_js {…}" again.
 
 ## Conventions
 

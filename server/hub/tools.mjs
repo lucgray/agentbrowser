@@ -330,6 +330,90 @@ export const TOOLS = [
     }
   },
 
+  // --- debugger tools (v2.6): CDP Debugger domain — breakpoints pause page JS,
+  // so the typical flow is breakpoint_set -> trigger the code path -> debug_wait
+  // -> debug_eval to read locals -> debug_resume. While paused the page's JS is
+  // frozen; give breakpoint_set an autoResumeMs when the agent only needs to
+  // snapshot state and move on.
+
+  {
+    name: "breakpoint_set",
+    description: "Set a JS breakpoint by URL (or urlRegex) + lineNumber, optional columnNumber/condition. autoResumeMs auto-resumes the page that many ms after this breakpoint hits — set it (e.g. 1000) whenever you only need to snapshot state, so a forgotten debug_resume can't wedge the tab. Returns {breakpoint:{id,url,lineNumber,locations:[{url,lineNumber}]}}.",
+    args: {
+      type: "object",
+      properties: {
+        url: { type: "string", description: "Exact script URL to break in" },
+        urlRegex: { type: "string", description: "Regex matching script URL(s) — use when the URL is hashed/minified" },
+        lineNumber: { type: "number", description: "0-based line number" },
+        columnNumber: { type: "number", description: "0-based column (optional; defaults to the line's first position)" },
+        condition: { type: "string", description: "Optional JS expression — the break fires only when it is truthy" },
+        autoResumeMs: { type: "number", description: "Auto-resume the page N ms after this breakpoint hits; 0/omitted = stay paused until debug_resume" },
+        tabId: { type: "number", description: "Target tab id; omit for the active tab" }
+      },
+      required: ["lineNumber"]
+    }
+  },
+  {
+    name: "breakpoint_list",
+    description: "List the tab's active breakpoints and whether the page is currently paused. Returns {breakpoints, paused}.",
+    args: {
+      type: "object",
+      properties: {
+        tabId: { type: "number", description: "Target tab id; omit for the active tab" }
+      },
+      required: []
+    }
+  },
+  {
+    name: "breakpoint_remove",
+    description: "Remove a breakpoint by the id from breakpoint_set. Returns {removed:true}.",
+    args: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "breakpointId" },
+        tabId: { type: "number", description: "Target tab id; omit for the active tab" }
+      },
+      required: ["id"]
+    }
+  },
+  {
+    name: "debug_wait",
+    description: "Wait for the page to pause on a breakpoint (or return immediately if already paused). Returns {paused:true, reason, hitBreakpoints, callFrames:[{functionName,url,lineNumber}], topCallFrameId} or {paused:false, reason:'timeout'}.",
+    args: {
+      type: "object",
+      properties: {
+        timeoutMs: { type: "number", description: "Max wait in ms (default 30000, cap 300000). You choose this — how long to keep the page waiting for the break to hit." },
+        tabId: { type: "number", description: "Target tab id; omit for the active tab" }
+      },
+      required: []
+    }
+  },
+  {
+    name: "debug_eval",
+    description: "Evaluate an expression in the paused call frame — reads locals, args, this. Only valid while the page is paused (after debug_wait/breakpoint_list reports paused). Returns {result} or {error}.",
+    args: {
+      type: "object",
+      properties: {
+        expression: { type: "string", description: "JS expression evaluated in the paused frame's scope" },
+        callFrameId: { type: "string", description: "Frame to eval in; omit for the top frame" },
+        tabId: { type: "number", description: "Target tab id; omit for the active tab" }
+      },
+      required: ["expression"]
+    }
+  },
+  {
+    name: "debug_resume",
+    description: "Unpause the page: action 'resume' (default), 'stepOver', 'stepInto' or 'stepOut'. Always call this when done inspecting unless the breakpoint had autoResumeMs. Returns {resumed:true, action}.",
+    args: {
+      type: "object",
+      properties: {
+        action: { type: "string", description: "resume | stepOver | stepInto | stepOut (default resume)" },
+        tabId: { type: "number", description: "Target tab id; omit for the active tab" }
+      },
+      required: []
+    }
+  },
+
   // --- composite wrappers (v2.2): one call replaces several, so the model
   // spends fewer tokens on tool envelopes and the user sees fewer chips.
 
