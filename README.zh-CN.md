@@ -332,6 +332,26 @@ this domain**（本浏览器会话内该域放行）或 **Deny**（拒绝）。�
 
 </details>
 
+<details>
+<summary><b>ACP 适配器</b> — <code>acp-*</code>，由 <code>server/adapters/acp.mjs</code> 一套 JSON-RPC 客户端统一驱动：进程常驻、协议级会话/取消、工具调用自带 agent 写的 title。浏览器工具不走 MCP——agent 通过自己的 shell 工具调 <code>agentbrowser</code> CLI（先跑一次 <code>npm run install-skill</code> 让 agent 学会这些命令）</summary>
+
+| 适配器 | 启动命令 |
+|---|---|
+| `acp-gemini` | `gemini --acp` |
+| `acp-codex` | `npx -y @agentclientprotocol/codex-acp` |
+| `acp-opencode` | `opencode acp` |
+| `acp-copilot` | `copilot --acp` |
+| `acp-grok` | `grok agent stdio --always-approve` |
+| `acp-claude` | `npx -y @zed-industries/claude-code-acp` |
+| `acp-agy` | `npx -y agy-acp`（第三方桥接；agy 的权限提示过不了 ACP，预设里自动带 `--dangerously-skip-permissions`） |
+| `acp-devin` | `devin acp` |
+
+`session/request_permission` 自动应答第一个 `allow_*` 选项——与上面的
+`--dangerously-*` 姿态一致。浏览器侧操作仍然走同意门（config.json 的
+`permissions`）。
+
+</details>
+
 ## 接入任意其他 harness
 
 `server/proxy/mcp-proxy.mjs` 是一个 stdio MCP server，把工具调用经

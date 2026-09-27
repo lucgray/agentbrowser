@@ -1,4 +1,4 @@
-# AgentBrowser protocol v2.3
+# AgentBrowser protocol v2.4
 
 AgentBrowser is a Chrome MV3 extension with a side-panel chat UI, plus a local hub
 server. The chat is backed by a pluggable "harness" (Claude Agent SDK, Claude
@@ -63,6 +63,7 @@ agentchat/
       claude-agent-sdk.mjs (server-adapters)
       claude-cli.mjs       (server-adapters)
       generic-cli.mjs      (server-adapters)   per-turn spawn adapters: codex, opencode, copilot, grok, agy, gemini, devin
+      acp.mjs              (server-adapters)   ACP client: acp-gemini/codex/opencode/copilot/grok/claude/agy/devin (v2.4)
       api-anthropic.mjs    (server-adapters)   direct API adapter, needs an anthropic key
       api-openai.mjs       (server-adapters)   direct API adapter, needs an openai key
   tests/
@@ -163,9 +164,10 @@ Chat (extension -> hub, streamed events back):
   `{type:"chat_event", chatId, event:{kind, ...}}` where event is one of
   - `{kind:"token", text}` — assistant text (may be whole blocks, not char-level)
   - `{kind:"tool_use", tool, args, label?}` — args may be truncated for display;
-    `label` (v2.3) is an adapter-emitted display name (CLI field like codex
-    `item.title`, opencode `part.title`, gemini `display_name`); the panel
-    prefers it over the args-level `label`/`description`
+    `label` is an optional display name the panel prefers over the args-level
+    `label`/`description` — v2.3: adapter-emitted from CLI output fields (codex
+    `item.title`, opencode `part.title`, gemini `display_name`); v2.4: ACP
+    `tool_call.title`
   - `{kind:"tool_result", tool, ok, summary}` — summary is a short string
   - `{kind:"info", message}` — adapter lifecycle notes (session started, model)
   - `{kind:"error", message}`
@@ -879,6 +881,40 @@ tools always attach via mcp-proxy.mjs. Adapter names and mechanisms:
   --allowed-mcp-server-names browser`; resume `-r <session_id>` (temp cwd is
   stable per session because gemini sessions are cwd-scoped); MCP via
   generated `.gemini/settings.json` in that temp cwd.
+
+## ACP adapters, v2.4 (server/adapters/acp.mjs)
+
+One JSON-RPC 2.0-over-stdio client (newline-delimited) drives every
+ACP-capable CLI — no per-CLI output parsers. Presets:
+
+| adapter name | spawn line |
+|---|---|
+| `acp-gemini` | `gemini --acp` |
+| `acp-codex` | `npx -y @agentclientprotocol/codex-acp` (bundles `@openai/codex`) |
+| `acp-opencode` | `opencode acp` |
+| `acp-copilot` | `copilot --acp` |
+| `acp-grok` | `grok agent stdio --always-approve` |
+| `acp-claude` | `npx -y @zed-industries/claude-code-acp` |
+| `acp-agy` | `npx -y agy-acp` (agy has no native ACP; `AGY_EXTRA_ARGS=--dangerously-skip-permissions` is set because its permission prompts cannot be answered over the bridge) |
+| `acp-devin` | `devin acp` |
+
+Session lifecycle: `initialize` (protocolVersion 1, no fs/terminal caps) →
+`session/new {cwd, mcpServers:[]}` → `session/prompt` per turn; the process
+and sessionId persist across turns. `session/set_model` is attempted when a
+model is selected and ignored when unimplemented.
+
+Event mapping (session/update → chat_event):
+- `agent_message_chunk` → token; `agent_thought_chunk` → thinking
+- `tool_call` → tool_use with `tool` mapped from `kind` and `label` from the
+  agent's `title` (paired by `toolCallId`, carried as event `id`)
+- `tool_call_update` completed/failed → tool_result; `plan` → one info line
+- `session/request_permission` → auto-answered with the first `allow_*`
+  option (cancelled when none), matching the `--dangerously-*` posture of
+  the generic adapters; browser-side actions keep the consent gate
+
+Browser tools are deliberately NOT injected via ACP's `mcpServers`: agents
+reach them through their own shell tool and the `agentbrowser` CLI (the
+install-skill SKILL.md teaches the commands), so this path is MCP-free.
 
 ## mcp-proxy.mjs
 
