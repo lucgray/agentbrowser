@@ -45,12 +45,19 @@ export function resolveBin(name) {
   const override = process.env[`AGENTCHAT_BIN_${name.toUpperCase()}`];
   if (override) return override;
   const dirs = [...(process.env.PATH || '').split(path.delimiter), ...EXTRA_BIN_DIRS];
+  // Windows CLIs install as .cmd/.exe shims (npx, codex, gemini via npm; scoop
+  // shims are .exe), so a bare-name probe misses every one of them. Probe the
+  // exact name first, then PATHEXT, and return the resolved absolute path so
+  // callers can tell a real file from a bare fallback.
+  const exts = process.platform === 'win32'
+    ? ['', ...(process.env.PATHEXT || '.COM;.EXE;.BAT;.CMD').split(';')]
+    : [''];
   for (const dir of dirs) {
     if (!dir) continue;
-    const candidate = path.join(dir, name);
-    // existsSync probes instead of a throwing statSync: a miss is control
-    // flow here, not an error worth logging.
-    if (existsSync(candidate) && statSync(candidate).isFile()) return candidate;
+    for (const ext of exts) {
+      const candidate = path.join(dir, name + ext.toLowerCase());
+      if (existsSync(candidate) && statSync(candidate).isFile()) return candidate;
+    }
   }
   return name;
 }
@@ -771,10 +778,18 @@ export function createGenericCliSession(name, ctx) {
         turn = { emit, resolve, startedAt: Date.now() };
         let proc;
         const binPath = resolveBin(preset.bin);
+        // Node refuses to spawn .cmd/.BAT directly (EINVAL since the 2024
+        // security patch), and a bare name ENOENTs — on Windows route .cmd/.bat
+        // binaries through the shell. Adapter args are flags and model ids, so
+        // cmd's naive join is safe; kill() then targets cmd.exe, which is
+        // best-effort the same way it already is for shell CLIs.
+        const cliShell =
+          process.platform === 'win32' && /\.(cmd|bat)$/i.test(binPath);
         try {
           proc = spawn(binPath, args, {
             cwd: preset.runInTempDir ? state.tempDir : undefined,
-            stdio: ['ignore', 'pipe', 'pipe']
+            stdio: ['ignore', 'pipe', 'pipe'],
+            shell: cliShell
           });
         } catch (err) {
           endTurn(`${name} failed to start: ${err && err.message ? err.message : String(err)}`);

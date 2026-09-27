@@ -14,6 +14,7 @@
 import { spawn } from 'node:child_process';
 import { existsSync, statSync } from 'node:fs';
 import path from 'node:path';
+import { resolveBin } from './generic-cli.mjs';
 
 function logWarn(context, err) {
   console.error('[acp]', context, err && err.message ? err.message : err);
@@ -360,9 +361,16 @@ export function createAcpSpecSession(name, spec, ctx) {
     if (state.proc) return;
     if (state.spawning) return state.spawning;
     state.spawning = (async () => {
-      const proc = spawn(spec.command, spec.args, {
+      // resolveBin knows the Windows shims (npx is npx.cmd); spawning a .cmd
+      // needs the shell, and a bare unresolved name only works through it too.
+      const binPath = resolveBin(spec.command);
+      const cliShell =
+        process.platform === 'win32' &&
+        (binPath === spec.command || /\.(cmd|bat)$/i.test(binPath));
+      const proc = spawn(binPath, spec.args, {
         env: { ...process.env, ...(spec.env || {}) },
-        stdio: ['pipe', 'pipe', 'pipe']
+        stdio: ['pipe', 'pipe', 'pipe'],
+        shell: cliShell
       });
       state.proc = proc;
       state.lineBuffer = '';
