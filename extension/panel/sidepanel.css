@@ -270,15 +270,20 @@ img {
   box-shadow: var(--ac-shadow-card);
   padding: var(--ac-space-4);
   max-height: 280px;
-}
-
-#backend-pop[hidden] {
-  display: none;
+  /* The two columns can overflow a narrow panel — cap at viewport width and
+     let each column shrink (labels ellipsize, columns scroll vertically). */
+  max-width: calc(100vw - 16px);
 }
 
 .backend-col {
   overflow-y: auto;
-  min-width: 148px;
+  min-width: 120px;
+  max-width: 210px;
+  flex: 0 1 auto;
+}
+
+#backend-pop[hidden] {
+  display: none;
 }
 
 .backend-col + .backend-col {
