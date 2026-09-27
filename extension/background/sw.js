@@ -602,12 +602,33 @@ const TOOLS = {
 
   async click(args) {
     const tabId = await resolveTabId(args.tabId);
-    return cdp.click(tabId, args.x, args.y);
+    return cdp.click(tabId, args.x, args.y, args);
   },
 
   async click_element(args) {
     const tabId = await resolveTabId(args.tabId);
-    return cdp.clickElement(tabId, args.selector, args.dx || 0, args.dy || 0);
+    return cdp.clickElement(tabId, args.selector, args.dx || 0, args.dy || 0, args);
+  },
+
+  async hover(args) {
+    const tabId = await resolveTabId(args.tabId);
+    if (args.selector) return cdp.hoverElement(tabId, String(args.selector));
+    return cdp.hover(tabId, Number(args.x), Number(args.y));
+  },
+
+  async scroll(args) {
+    const tabId = await resolveTabId(args.tabId);
+    return cdp.scroll(tabId, args);
+  },
+
+  async drag(args) {
+    const tabId = await resolveTabId(args.tabId);
+    return cdp.drag(tabId, args);
+  },
+
+  async select_text(args) {
+    const tabId = await resolveTabId(args.tabId);
+    return cdp.selectText(tabId, args);
   },
 
   async type_text(args) {
