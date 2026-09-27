@@ -410,14 +410,31 @@ export function createAcpSpecSession(name, spec, ctx) {
       });
       proc.on('exit', (code) => onProcessExit(code));
 
-      const init = await sendRequest('initialize', {
-        protocolVersion: ACP_PROTOCOL_VERSION,
-        clientCapabilities: {
-          fs: { readTextFile: false, writeTextFile: false },
-          terminal: false
-        },
-        clientInfo: { name: 'agentbrowser', version: '2.4' }
-      }, CONTROL_TIMEOUT_MS);
+      const killOnFail = (err) => {
+        // A spawned-but-uninitialized agent is unusable — kill it so the next
+        // send() starts fresh instead of orphaning the process.
+        try {
+          proc.kill('SIGKILL');
+        } catch (killErr) {
+          logWarn(`${name} cleanup kill failed`, killErr);
+        }
+        state.proc = null;
+        throw err;
+      };
+
+      let init;
+      try {
+        init = await sendRequest('initialize', {
+          protocolVersion: ACP_PROTOCOL_VERSION,
+          clientCapabilities: {
+            fs: { readTextFile: false, writeTextFile: false },
+            terminal: false
+          },
+          clientInfo: { name: 'agentbrowser', version: '2.4' }
+        }, CONTROL_TIMEOUT_MS);
+      } catch (err) {
+        killOnFail(err);
+      }
       const methods = init && Array.isArray(init.authMethods) ? init.authMethods : [];
       if (methods.length > 0 && init.agentCapabilities && init.agentCapabilities.promptCapabilities === undefined) {
         // Some agents advertise auth methods but still serve prompts; only warn
@@ -430,17 +447,7 @@ export function createAcpSpecSession(name, spec, ctx) {
         }
       }
       state.initialized = true;
-    })().catch((err) => {
-      // A spawned-but-uninitialized agent is unusable — kill it so the next
-      // send() starts fresh instead of orphaning the process.
-      try {
-        proc.kill('SIGKILL');
-      } catch (killErr) {
-        logWarn(`${name} cleanup kill failed`, killErr);
-      }
-      state.proc = null;
-      throw err;
-    });
+    })();
     try {
       await state.spawning;
     } finally {
