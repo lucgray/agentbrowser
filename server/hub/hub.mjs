@@ -1244,7 +1244,7 @@ async function runProactiveTurn(tab) {
   activeChats.add(chatId);
   try {
     if (!(await providerKeyReady(chatId, adapterName, emit))) return;
-    const entry = await getSessionEntry(chatId, adapterName, null, emit);
+    const entry = await getSessionEntry(chatId, adapterName, cfg.model || null, emit);
     state.model = entry.model;
     const prompt = composePrompt(
       typeof cfg.prompt === "string" && cfg.prompt ? cfg.prompt : PROACTIVE_DEFAULT_PROMPT,
@@ -1543,6 +1543,7 @@ async function handleSetProactiveConfig(ws, msg) {
   config.proactiveAnnotation = {
     enabled: cfg.enabled === true,
     adapter: typeof cfg.adapter === "string" && cfg.adapter !== "" ? cfg.adapter : null,
+    model: typeof cfg.model === "string" && cfg.model !== "" ? cfg.model : null,
     prompt: typeof cfg.prompt === "string" && cfg.prompt.trim() !== "" ? cfg.prompt : null,
   };
   try {
