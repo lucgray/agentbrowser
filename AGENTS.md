@@ -12,7 +12,7 @@ Guidance for AI agents (and humans) working in this repository.
   - `offscreen/` — `offscreen.html` / `offscreen.js`, holds the WebSocket when MV3 suspends the worker.
 - `server/` — local hub and agent adapters.
   - `hub/` — `hub.mjs` (WebSocket broker on `127.0.0.1:9010`, adapter registry, prompt composition; `log()` writes `[hub]`-tagged stderr with secret scrubbing), `commands.mjs` (slash-command registry), `tools.mjs` (tool schema table shared with the extension), `config.json` (adapter + permissions config), `stub-adapter.mjs` (token-free adapter for the e2e suite).
-  - `adapters/` — one module per backend: `claude-cli.mjs`, `generic-cli.mjs` (preconfigured presets incl. codex/opencode/gemini/devin), `claude-agent-sdk.mjs`, `api-anthropic.mjs`, `api-openai.mjs`. Shared plumbing in `base.mjs`; credentials via `keystore.mjs` (macOS Keychain / file fallback).
+  - `adapters/` — one module per backend: `claude-cli.mjs`, `generic-cli.mjs` (per-turn presets: codex/opencode/copilot/grok/agy/gemini/devin), `acp.mjs` (JSON-RPC ACP client driving `acp-*` adapters — MCP-free; browser tools via the `agentbrowser` CLI), `claude-agent-sdk.mjs`, `api-anthropic.mjs`, `api-openai.mjs`. Shared plumbing in `base.mjs`; credentials via `keystore.mjs` (macOS Keychain / file fallback).
   - `proxy/` — external access: `mcp-proxy.mjs` (stdio MCP server — **stderr only**, stdout is the protocol channel), `agentbrowser-cli.mjs` + `install-skill.mjs` (MCP-free access, v1.6 — one-shot WS harness client + shim/skill installer), `smoke.mjs` (hub routing round trip).
   - `skill/` — the SKILL.md the installer copies.
 - `docs/index.html` — static landing page.

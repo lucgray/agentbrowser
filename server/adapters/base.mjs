@@ -23,6 +23,7 @@ import * as claudeCli from './claude-cli.mjs';
 import * as genericCli from './generic-cli.mjs';
 import * as apiAnthropic from './api-anthropic.mjs';
 import * as apiOpenAi from './api-openai.mjs';
+import * as acp from './acp.mjs';
 
 import { TOOLS } from '../hub/tools.mjs';
 import { getKey, hasKey } from './keystore.mjs';
@@ -41,6 +42,7 @@ const CONFIG = (() => {
 })();
 
 const { GENERIC_CLI_NAMES, HARNESSES, createGenericCliSession, resolveBin } = genericCli;
+const { ACP_NAMES, ACP_PRESETS, createAcpSession } = acp;
 
 const registry = {
   'claude-agent-sdk': claudeAgentSdk.createClaudeAgentSdkSession,
@@ -53,6 +55,12 @@ const registry = {
 // devin), all driven by the preset table in generic-cli.mjs.
 for (const name of GENERIC_CLI_NAMES) {
   registry[name] = (ctx) => createGenericCliSession(name, ctx);
+}
+
+// ACP adapters (v2.4): every ACP-capable CLI driven through one JSON-RPC
+// client instead of a per-CLI output parser.
+for (const name of ACP_NAMES) {
+  registry[name] = (ctx) => createAcpSession(name, ctx);
 }
 
 export const ADAPTERS = Object.keys(registry);
@@ -97,7 +105,15 @@ const FALLBACK_DESCRIPTORS = {
   grok: { label: 'Grok CLI', models: [], defaultModel: null, provider: null },
   agy: { label: 'Antigravity CLI', models: [], defaultModel: null, provider: null },
   gemini: { label: 'Gemini CLI', models: [], defaultModel: null, provider: null },
-  devin: { label: 'Devin CLI', models: [], defaultModel: null, provider: null }
+  devin: { label: 'Devin CLI', models: [], defaultModel: null, provider: null },
+  'acp-gemini': { label: 'Gemini (ACP)', models: [], defaultModel: null, provider: null },
+  'acp-codex': { label: 'Codex (ACP)', models: [], defaultModel: null, provider: null },
+  'acp-opencode': { label: 'OpenCode (ACP)', models: [], defaultModel: null, provider: null },
+  'acp-copilot': { label: 'Copilot (ACP)', models: [], defaultModel: null, provider: null },
+  'acp-grok': { label: 'Grok (ACP)', models: [], defaultModel: null, provider: null },
+  'acp-claude': { label: 'Claude Code (ACP)', models: [], defaultModel: null, provider: null },
+  'acp-agy': { label: 'Antigravity (ACP)', models: [], defaultModel: null, provider: null },
+  'acp-devin': { label: 'Devin (ACP)', models: [], defaultModel: null, provider: null }
 };
 
 const modules = {
@@ -107,12 +123,14 @@ const modules = {
   'openai-api': apiOpenAi
 };
 for (const name of GENERIC_CLI_NAMES) modules[name] = genericCli;
+for (const name of ACP_NAMES) modules[name] = acp;
 
 function descriptorFor(name) {
   const mod = modules[name];
   // generic-cli.mjs backs seven adapters from one module, so a DESCRIPTOR there
   // could not be per-adapter — those always use the fallback table.
-  const exported = mod && !GENERIC_CLI_NAMES.includes(name) ? mod.DESCRIPTOR : null;
+  const exported =
+    mod && !GENERIC_CLI_NAMES.includes(name) && !ACP_NAMES.includes(name) ? mod.DESCRIPTOR : null;
   const descriptor = exported || FALLBACK_DESCRIPTORS[name] || {};
   return {
     label: descriptor.label || name,
@@ -154,16 +172,21 @@ export function probeAdapter(name) {
       ? { status: 'ready' }
       : { status: 'missing-key', detail: `${d.provider} API key not configured` };
   }
+  const acpPreset = ACP_PRESETS[name];
   const bin =
     name === 'claude-cli' ? 'claude'
     : HARNESSES[name] ? HARNESSES[name].bin
+    : acpPreset ? acpPreset.bin
     : null;
   if (!bin) return { status: 'ready' };
   const resolved = resolveBin(bin);
   const found = resolved !== bin && existsSync(resolved) && statSync(resolved).isFile();
   return found
     ? { status: 'ready' }
-    : { status: 'missing-cli', detail: `${bin} not found on PATH` };
+    : {
+        status: 'missing-cli',
+        detail: acpPreset && acpPreset.detail ? acpPreset.detail : `${bin} not found on PATH`
+      };
 }
 
 // The `adapters` array for the hub's {type:"capabilities"} message. Only ever

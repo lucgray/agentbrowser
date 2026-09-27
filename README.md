@@ -362,6 +362,26 @@ Each CLI is looked up on your `PATH`. If yours lives somewhere unusual, set
 
 </details>
 
+<details>
+<summary><b>ACP adapters</b> — <code>acp-*</code>, driven by one JSON-RPC client in <code>server/adapters/acp.mjs</code>: persistent process, protocol-native sessions/cancel, and tool calls arrive with agent-written titles. Browser tools do NOT ride MCP here — the agent calls the <code>agentbrowser</code> CLI through its own shell tool (run <code>npm run install-skill</code> once so agents learn the commands)</summary>
+
+| adapter | spawn line |
+|---|---|
+| `acp-gemini` | `gemini --acp` |
+| `acp-codex` | `npx -y @agentclientprotocol/codex-acp` |
+| `acp-opencode` | `opencode acp` |
+| `acp-copilot` | `copilot --acp` |
+| `acp-grok` | `grok agent stdio --always-approve` |
+| `acp-claude` | `npx -y @zed-industries/claude-code-acp` |
+| `acp-agy` | `npx -y agy-acp` (third-party bridge; sets `AGY_EXTRA_ARGS=--dangerously-skip-permissions` since permission prompts can't be answered over it) |
+| `acp-devin` | `devin acp` |
+
+`session/request_permission` is auto-answered with the first `allow_*`
+option — same posture as the `--dangerously-*` flags above. Browser-side
+actions still pass through the consent gate (`permissions` in config.json).
+
+</details>
+
 ## Using any other harness
 
 `server/proxy/mcp-proxy.mjs` is a stdio MCP server that forwards tool calls to the
