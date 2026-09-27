@@ -281,9 +281,18 @@ export function createAcpSpecSession(name, spec, ctx) {
         const tool = (id && state.toolNames.get(id)) || 'tool';
         const summary =
           update.rawOutput != null
-            ? truncate(update.rawOutput)
+            ? truncate(
+                typeof update.rawOutput === 'object'
+                  ? JSON.stringify(update.rawOutput)
+                  : update.rawOutput
+              )
             : Array.isArray(update.content)
-              ? truncate(update.content.map((c) => (c && c.text) || '').join(' '))
+              // content items nest one level deeper: {type:'content', content:{text}}
+              ? truncate(
+                  update.content
+                    .map((c) => (c && c.content && c.content.text) || (c && c.text) || '')
+                    .join(' ')
+                )
               : 'ok';
         if (id) state.toolNames.delete(id);
         emit({ kind: 'tool_result', tool, ok: status === 'completed', summary, id });
@@ -413,7 +422,17 @@ export function createAcpSpecSession(name, spec, ctx) {
         }
       }
       state.initialized = true;
-    })();
+    })().catch((err) => {
+      // A spawned-but-uninitialized agent is unusable — kill it so the next
+      // send() starts fresh instead of orphaning the process.
+      try {
+        proc.kill('SIGKILL');
+      } catch (killErr) {
+        logWarn(`${name} cleanup kill failed`, killErr);
+      }
+      state.proc = null;
+      throw err;
+    });
     try {
       await state.spawning;
     } finally {
@@ -475,6 +494,8 @@ export function createAcpSpecSession(name, spec, ctx) {
     },
     dispose() {
       closed = true;
+      // Never leave a turn's promise dangling: the hub awaits send().
+      endTurn('session disposed');
       if (state.proc) {
         const proc = state.proc;
         state.proc = null;
