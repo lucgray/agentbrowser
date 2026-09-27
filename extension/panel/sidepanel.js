@@ -1583,10 +1583,6 @@ async function init() {
     return s;
   }
 
-  // Chips name the action by the label the agent chose: an explicit event
-  // label emitted by the adapter (v2.3), the `label` arg (v2.2), or a
-  // harness-native `description` like Claude Code's Bash input — falling
-  // back to the raw tool name when none exists.
   // Full args for the expandable detail — the header only carries the
   // truncated preview. label/description name the action, so they are
   // excluded from both.
@@ -1594,7 +1590,10 @@ async function init() {
     try {
       const { label, description, ...rest } =
         args && typeof args === "object" ? args : {};
-      const s = JSON.stringify(rest, null, 2);
+      let s = JSON.stringify(rest, null, 2);
+      // rawInput on ACP tool calls can carry whole-file contents — the detail
+      // pane is a glance, not an editor.
+      if (s && s.length > 4000) s = s.slice(0, 4000) + "\n… truncated";
       return s && s !== "{}" ? s : "no arguments";
     } catch (err) {
       console.warn("[agentbrowser] arg stringify failed, using String()", err);
@@ -1602,6 +1601,10 @@ async function init() {
     }
   }
 
+  // Chips name the action by the label the agent chose: an explicit event
+  // label emitted by the adapter (v2.3), the `label` arg (v2.2), or a
+  // harness-native `description` like Claude Code's Bash input — falling
+  // back to the raw tool name when none exists.
   function makeChipNode(tool, args, eventLabel) {
     const chip = document.createElement("div");
     chip.className = "chip";
