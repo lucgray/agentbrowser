@@ -93,6 +93,17 @@ agentbrowser drag '{"from":{"x":10,"y":10},"to":{"x":300,"y":10},"mode":"html5"}
 agentbrowser select_text '{"selector":"article"}'             # real selection, lands as chat context
 ```
 
+
+Files and downloads — set a file input without an OS picker, auto-accept
+downloads into a directory, or print the page to PDF:
+
+```bash
+agentbrowser set_file_input '{"selector":"input[type=file]","files":["/path/report.pdf"]}'
+agentbrowser download_configure '{"directory":"/home/user/dl"}'   # call before clicking the link
+agentbrowser downloads_list '{}'
+agentbrowser print_pdf '{"printBackground":true}' > out.json      # .base64 -> decode to file
+```
+
 Mark up the page for the user (co-reading):
 
 ```bash

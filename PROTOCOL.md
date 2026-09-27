@@ -673,6 +673,11 @@ executor, in the SDK adapter's MCP server, and in mcp-proxy.mjs.
 | `scroll` | `{x?, y?, xDistance?, yDistance?, speed?, repeatCount?, repeatDelayMs?, tabId?}` | `{scrolled:true}` — v2.6; Input.synthesizeScrollGesture, reaches nested containers + lazy loaders; negative yDistance scrolls down |
 | `drag` | `{from:{x,y}, to:{x,y}, mode?, steps?, tabId?}` | `{dragged:true, mode}` — v2.6; 'mouse' = press/move/release (sliders, canvas), 'html5' = dispatchDragEvent (HTML5 drag&drop); consent-gated |
 | `select_text` | `{selector?, from?, to?, tabId?}` | `{selected:true, text}` — v2.6; selector selects element text via Range, or from/to click-drag; reaches the panel as committed selection context; consent-gated |
+
+| `set_file_input` | `{selector?, files:[paths], tabId?}` | `{set:true, files}` — v2.6; DOM.setFileInputFiles, no OS picker; consent-gated |
+| `download_configure` | `{directory?, tabId?}` | `{configured:true, directory}` — v2.6; auto-accept downloads into a dir; consent-gated |
+| `downloads_list` | `{tabId?}` | `{downloads:[{guid,url,suggestedFilename,state,receivedBytes,totalBytes}]}` — v2.6 |
+| `print_pdf` | `{landscape?, scale?, printBackground?, tabId?}` | `{base64, mimeType:'application/pdf'}` — v2.6 |
 | `batch` | `{steps:[{tool, args}], stopOnError?, tabId?}` | `{results:[{step, ok, result|error}], completed, total}` — v2.2; sequential, stops at first failure unless `stopOnError:false`, `tabId` on the call defaults into steps; nesting rejected |
 | `breakpoint_set` | `{url\|urlRegex, lineNumber, columnNumber?, condition?, autoResumeMs?, tabId?}` | `{breakpoint:{id,url,lineNumber,locations:[...]}}` — v2.6; consent-gated |
 | `breakpoint_list` | `{tabId?}` | `{breakpoints, paused}` — v2.6 |

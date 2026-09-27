@@ -479,6 +479,60 @@ export const TOOLS = [
     }
   },
 
+
+  // --- files, downloads, print (v2.6)
+
+  {
+    name: "set_file_input",
+    description: "Set local file path(s) on an <input type=file> via DOM.setFileInputFiles — no OS file picker is opened; the page's change/input events fire normally. Paths are absolute paths on the user's machine. Returns {set:true, files}.",
+    args: {
+      type: "object",
+      properties: {
+        selector: { type: "string", description: "CSS selector of the file input (default 'input[type=file]')" },
+        files: { type: "array", items: { type: "string" }, description: "Absolute file paths to assign" },
+        tabId: { type: "number", description: "Target tab id; omit for the active tab" }
+      },
+      required: ["files"]
+    }
+  },
+  {
+    name: "download_configure",
+    description: "Opt the tab into auto-accepted downloads: Page.setDownloadBehavior 'allow' (browser default dir) or 'allowAndName' with a directory. Call before clicking download links — then watch progress with downloads_list. Returns {configured:true, directory}.",
+    args: {
+      type: "object",
+      properties: {
+        directory: { type: "string", description: "Absolute directory for downloads; omit for the browser default" },
+        tabId: { type: "number", description: "Target tab id; omit for the active tab" }
+      },
+      required: []
+    }
+  },
+  {
+    name: "downloads_list",
+    description: "List downloads observed since download_configure was called: {guid,url,suggestedFilename,state,receivedBytes,totalBytes,ts}. Returns {downloads:[...]}.",
+    args: {
+      type: "object",
+      properties: {
+        tabId: { type: "number", description: "Target tab id; omit for the active tab" }
+      },
+      required: []
+    }
+  },
+  {
+    name: "print_pdf",
+    description: "Render the page to PDF via Page.printToPDF. Returns {base64, mimeType:'application/pdf'} — write it to a file yourself. Optional landscape/scale/printBackground.",
+    args: {
+      type: "object",
+      properties: {
+        landscape: { type: "boolean" },
+        scale: { type: "number", description: "0.1–2.0" },
+        printBackground: { type: "boolean" },
+        tabId: { type: "number", description: "Target tab id; omit for the active tab" }
+      },
+      required: []
+    }
+  },
+
   // --- composite wrappers (v2.2): one call replaces several, so the model
   // spends fewer tokens on tool envelopes and the user sees fewer chips.
 
