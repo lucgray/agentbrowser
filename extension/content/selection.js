@@ -479,8 +479,49 @@ function handleMouseUp(e) {
     }
 
     currentSelectionContext = compileRangeContext(selection);
+
+    // Auto context capture runs before the floating-button logic: the
+    // selection belongs to the panel context whether or not the Ask button
+    // is enabled.
+    autoDeliverSelection();
+
     showButtonAtSelection(selection);
   }, 30);
+}
+
+// --- auto context capture ----------------------------------------------------
+// A committed selection is delivered to the panel context without requiring
+// the Ask click: it lands in the same pendingSelection slot the panel already
+// watches, so the next message carries it. The slot is single — the latest
+// selection wins; identical selections are not re-sent.
+
+let lastAutoSentText = "";
+let autoKeyTimer = null;
+
+function autoDeliverSelection() {
+  if (!isContextValid()) return;
+  const selection = window.getSelection();
+  if (!selection || selection.isCollapsed) return;
+  const payload = compileRangeContext(selection);
+  if (!payload) return;
+  const text = typeof payload.text === "string" ? payload.text.trim() : "";
+  if (text.length < 3 || text === lastAutoSentText) return;
+  lastAutoSentText = text;
+  chrome.runtime
+    .sendMessage({ target: "sw", cmd: "selection_auto", selection: payload })
+    .catch((err) => logWarn("selection_auto send failed", err));
+}
+
+function handleKeyUp(e) {
+  if (!isContextValid()) {
+    document.removeEventListener("keyup", handleKeyUp);
+    return;
+  }
+  if (e.key === "Escape") return;
+  // Keyboard selections (Shift+arrows) commit key-by-key; wait for the burst
+  // to settle, then capture like a mouse selection.
+  clearTimeout(autoKeyTimer);
+  autoKeyTimer = setTimeout(autoDeliverSelection, 350);
 }
 
 async function handleButtonClick(e) {
@@ -627,6 +668,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 document.addEventListener("mouseup", handleMouseUp);
 document.addEventListener("keydown", handleKeyDown);
+document.addEventListener("keyup", handleKeyUp);
 document.addEventListener("mousedown", handleMouseDown);
 document.addEventListener("contextmenu", handleContextMenu, true);
 window.addEventListener("scroll", handleScroll, { passive: true });
