@@ -79,6 +79,20 @@ to snapshot state and move on, so a missed `debug_resume` can't leave the
 page frozen. `timeoutMs` on `debug_wait` is likewise your call — how long to
 keep listening for the hit.
 
+Pointer gestures beyond plain clicks — right-click menus, hover states,
+scrolls (including nested containers and lazy loaders), drags and text
+selection:
+
+```bash
+agentbrowser click '{"x":100,"y":50,"button":"right"}'        # context menu
+agentbrowser click_element '{"selector":"tr","clickCount":2}' # double-click
+agentbrowser hover '{"selector":".menu-item"}'                # open hover menu
+agentbrowser scroll '{"yDistance":-800,"repeatCount":3}'      # scroll down
+agentbrowser drag '{"from":{"x":10,"y":10},"to":{"x":300,"y":10}}'          # slider
+agentbrowser drag '{"from":{"x":10,"y":10},"to":{"x":300,"y":10},"mode":"html5"}'  # HTML5 drop
+agentbrowser select_text '{"selector":"article"}'             # real selection, lands as chat context
+```
+
 Mark up the page for the user (co-reading):
 
 ```bash

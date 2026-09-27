@@ -233,12 +233,16 @@ export async function screenshot(tabId) {
   return { base64: res.data, mimeType: 'image/png' };
 }
 
-export async function click(tabId, x, y) {
+const MOUSE_BUTTONS = new Set(['left', 'right', 'middle', 'none']);
+
+export async function click(tabId, x, y, opts = {}) {
+  const button = MOUSE_BUTTONS.has(opts.button) ? opts.button : 'left';
+  const clickCount = Math.max(1, Math.min(Math.trunc(Number(opts.clickCount) || 1), 3));
   flashOverlay(tabId, 'click', { x, y });
-  const base = { x, y, button: 'left', clickCount: 1 };
+  const base = { x, y, button, clickCount, buttons: button === 'none' ? 0 : 1 << ['left', 'right', 'middle'].indexOf(button) };
   await sendCommand(tabId, 'Input.dispatchMouseEvent', { type: 'mousePressed', ...base });
   await sendCommand(tabId, 'Input.dispatchMouseEvent', { type: 'mouseReleased', ...base });
-  return { clicked: true };
+  return { clicked: true, button, clickCount };
 }
 
 // Center of the first element matching `selector`, scrolled into view first so
@@ -261,13 +265,165 @@ async function elementCenter(tabId, selector, dx = 0, dy = 0) {
   return { x: v.x + dx, y: v.y + dy, tag: v.tag };
 }
 
-export async function clickElement(tabId, selector, dx = 0, dy = 0) {
+export async function clickElement(tabId, selector, dx = 0, dy = 0, opts = {}) {
   const center = await elementCenter(tabId, selector, dx, dy);
   flashOverlay(tabId, 'click', { x: Math.round(center.x), y: Math.round(center.y) });
-  const base = { x: center.x, y: center.y, button: 'left', clickCount: 1 };
+  const button = MOUSE_BUTTONS.has(opts.button) ? opts.button : 'left';
+  const clickCount = Math.max(1, Math.min(Math.trunc(Number(opts.clickCount) || 1), 3));
+  const base = { x: center.x, y: center.y, button, clickCount, buttons: button === 'none' ? 0 : 1 << ['left', 'right', 'middle'].indexOf(button) };
   await sendCommand(tabId, 'Input.dispatchMouseEvent', { type: 'mousePressed', ...base });
   await sendCommand(tabId, 'Input.dispatchMouseEvent', { type: 'mouseReleased', ...base });
-  return { clicked: true, selector, tag: center.tag };
+  return { clicked: true, selector, tag: center.tag, button, clickCount };
+}
+
+// hover: a bare mouseMoved. Pointer-over states (menus, tooltips, hover
+// previews) open on it; nothing is pressed.
+export async function hover(tabId, x, y) {
+  flashOverlay(tabId, 'hover', { x, y });
+  await sendCommand(tabId, 'Input.dispatchMouseEvent', {
+    type: 'mouseMoved',
+    x,
+    y,
+    button: 'none',
+    buttons: 0,
+  });
+  return { hovered: true, x, y };
+}
+
+export async function hoverElement(tabId, selector) {
+  const center = await elementCenter(tabId, selector);
+  const r = await hover(tabId, Math.round(center.x), Math.round(center.y));
+  return { ...r, selector, tag: center.tag };
+}
+
+// scroll: Input.synthesizeScrollGesture — real wheel/gesture semantics, so
+// lazy-loaders, scroll listeners and nested scroll containers all react.
+// Positive yDistance scrolls the view up (content moves down); negative
+// scrolls down. x/y anchor the gesture inside the element under the point.
+export async function scroll(tabId, args) {
+  let x = args.x != null ? Number(args.x) : null;
+  let y = args.y != null ? Number(args.y) : null;
+  if (x == null || y == null) {
+    const res = await sendCommand(tabId, 'Runtime.evaluate', {
+      expression: 'JSON.stringify({x: innerWidth/2, y: innerHeight/2})',
+      returnByValue: true,
+    });
+    const c = res.result && res.result.value ? JSON.parse(res.result.value) : { x: 0, y: 0 };
+    if (x == null) x = c.x;
+    if (y == null) y = c.y;
+  }
+  flashOverlay(tabId, 'scroll', { x: Math.round(x), y: Math.round(y) });
+  const params = {
+    x,
+    y,
+    xDistance: Number(args.xDistance) || 0,
+    yDistance: Number(args.yDistance) || 0,
+    speed: Math.max(1, Math.trunc(Number(args.speed) || 800)),
+  };
+  if (args.repeatDelayMs != null) params.repeatDelayMs = Math.max(0, Number(args.repeatDelayMs));
+  if (args.repeatCount != null) params.repeatCount = Math.max(0, Math.trunc(Number(args.repeatCount)));
+  await sendCommand(tabId, 'Input.synthesizeScrollGesture', params);
+  return { scrolled: true, xDistance: params.xDistance, yDistance: params.yDistance };
+}
+
+// drag: two modes.
+//  'mouse' (default): press + a staircase of moves + release — drives
+//     sliders, mouse-event sortables, canvas strokes.
+//  'html5': Input.dispatchDragEvent — fires the HTML5 drag&drop event
+//     family (dragstart/dragenter/dragover/drop) for draggable lists and
+//     drop targets.
+export async function drag(tabId, args) {
+  const from = args.from || {};
+  const to = args.to || {};
+  const x1 = Number(from.x), y1 = Number(from.y);
+  const x2 = Number(to.x), y2 = Number(to.y);
+  if (![x1, y1, x2, y2].every(Number.isFinite)) {
+    throw new Error('drag needs from:{x,y} and to:{x,y}');
+  }
+  const mode = args.mode === 'html5' ? 'html5' : 'mouse';
+  const steps = Math.max(1, Math.min(Math.trunc(Number(args.steps) || 10), 100));
+  flashOverlay(tabId, 'drag', { x: Math.round(x1), y: Math.round(y1) });
+
+  if (mode === 'html5') {
+    // Empty dataTransfer — enough for sortable UIs that only read positions.
+    const data = { items: [], dragOperationsMask: 1, files: [] };
+    await sendCommand(tabId, 'Input.dispatchDragEvent', { type: 'dragEnter', x: x2, y: y2, data });
+    await sendCommand(tabId, 'Input.dispatchDragEvent', { type: 'dragOver', x: x2, y: y2, data });
+    await sendCommand(tabId, 'Input.dispatchDragEvent', { type: 'drop', x: x2, y: y2, data });
+    return { dragged: true, mode, from: { x: x1, y: y1 }, to: { x: x2, y: y2 } };
+  }
+
+  await sendCommand(tabId, 'Input.dispatchMouseEvent', {
+    type: 'mousePressed', x: x1, y: y1, button: 'left', buttons: 1, clickCount: 1,
+  });
+  for (let i = 1; i <= steps; i++) {
+    await sendCommand(tabId, 'Input.dispatchMouseEvent', {
+      type: 'mouseMoved',
+      x: x1 + ((x2 - x1) * i) / steps,
+      y: y1 + ((y2 - y1) * i) / steps,
+      button: 'left',
+      buttons: 1,
+    });
+  }
+  await sendCommand(tabId, 'Input.dispatchMouseEvent', {
+    type: 'mouseReleased', x: x2, y: y2, button: 'left', buttons: 0, clickCount: 1,
+  });
+  return { dragged: true, mode, steps, from: { x: x1, y: y1 }, to: { x: x2, y: y2 } };
+}
+
+// select_text: two shapes.
+//  selector: select the element's text via Range/Selection (precise; the
+//    selection is a real page selection, so selection.js's committed-
+//    selection path picks it up for chat context).
+//  coords {from,to}: click-drag across the range (pixel-faithful).
+export async function selectText(tabId, args) {
+  if (args.selector) {
+    const res = await sendCommand(tabId, 'Runtime.evaluate', {
+      expression: `(() => {
+        const el = document.querySelector(${JSON.stringify(String(args.selector))});
+        if (!el) return { selected: false, reason: 'no element' };
+        const r = document.createRange();
+        r.selectNodeContents(el);
+        const sel = document.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(r);
+        return { selected: true, text: String(sel).slice(0, 2000) };
+      })()`,
+      returnByValue: true,
+    });
+    if (res.exceptionDetails) throw new Error(describeException(res.exceptionDetails));
+    const v = res.result && res.result.value;
+    if (!v || !v.selected) throw new Error(`no element matches selector: ${args.selector}`);
+    return v;
+  }
+  const from = args.from || {};
+  const to = args.to || {};
+  const x1 = Number(from.x), y1 = Number(from.y);
+  const x2 = Number(to.x), y2 = Number(to.y);
+  if (![x1, y1, x2, y2].every(Number.isFinite)) {
+    throw new Error('select_text needs selector or from:{x,y}+to:{x,y}');
+  }
+  await sendCommand(tabId, 'Input.dispatchMouseEvent', {
+    type: 'mousePressed', x: x1, y: y1, button: 'left', buttons: 1, clickCount: 1,
+  });
+  const steps = 10;
+  for (let i = 1; i <= steps; i++) {
+    await sendCommand(tabId, 'Input.dispatchMouseEvent', {
+      type: 'mouseMoved',
+      x: x1 + ((x2 - x1) * i) / steps,
+      y: y1 + ((y2 - y1) * i) / steps,
+      button: 'left',
+      buttons: 1,
+    });
+  }
+  await sendCommand(tabId, 'Input.dispatchMouseEvent', {
+    type: 'mouseReleased', x: x2, y: y2, button: 'left', buttons: 0, clickCount: 1,
+  });
+  const res = await sendCommand(tabId, 'Runtime.evaluate', {
+    expression: 'String(document.getSelection()).slice(0, 2000)',
+    returnByValue: true,
+  });
+  return { selected: true, text: res.result ? res.result.value : '' };
 }
 
 export async function typeText(tabId, text, selector) {

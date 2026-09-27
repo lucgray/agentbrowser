@@ -648,8 +648,8 @@ executor, in the SDK adapter's MCP server, and in mcp-proxy.mjs.
 | `navigate` | `{url, tabId?}` | `{url, title}` after load event (20s cap, then return current state) |
 | `read_page` | `{tabId?, maxChars?}` | `{url, title, text}` — `document.body.innerText`, default cap 60000 chars |
 | `screenshot` | `{tabId?}` | `{base64, mimeType:"image/png"}` |
-| `click` | `{x, y, tabId?}` | `{clicked:true}` — CDP mousePressed+mouseReleased, button left, clickCount 1 |
-| `click_element` | `{selector, dx?, dy?, tabId?}` | `{clicked:true, selector, tag}` — v1.7; scrolls the element into view, clicks its center (+offset) |
+| `click` | `{x, y, button?, clickCount?, tabId?}` | `{clicked:true, button, clickCount}` — CDP mousePressed+mouseReleased; button left/right/middle, clickCount 1-3 (v2.6) |
+| `click_element` | `{selector, dx?, dy?, button?, clickCount?, tabId?}` | `{clicked:true, selector, tag}` — v1.7; scrolls into view, clicks center (+offset); button/clickCount added v2.6 |
 | `type_text` | `{text, selector?, tabId?}` | `{typed:<charcount>}` — CDP `Input.insertText`; optional `selector` click-focuses the target first (v1.7) |
 | `press_key` | `{key, tabId?}` | `{pressed:key}` — e.g. "Enter", "Tab", "Escape", "Backspace", "ArrowDown", "Meta+A", "Meta+C", "Meta+V" |
 | `eval_js` | `{expression, tabId?}` | `{value}` — `Runtime.evaluate` returnByValue+awaitPromise; errors -> ok:false |
@@ -669,6 +669,10 @@ executor, in the SDK adapter's MCP server, and in mcp-proxy.mjs.
 | `fill` | `{selector, text, submit?, tabId?}` | `{filled:true, typed, submitted}` — v2.2; click_element + type_text (+ Enter) fused |
 | `wait_for` | `{selector?, text?, timeoutMs?, tabId?}` | `{found, waited}` — v2.2; polls in-page every 250ms, cap 60s; timeout returns `found:false`, not an error |
 | `read_elements` | `{selector, attr?, max?, maxChars?, tabId?}` | `{count, elements:[{text, value?}]}` — v2.2; compact selector-scoped reads instead of a full read_page |
+| `hover` | `{x?, y?, selector?, tabId?}` | `{hovered:true}` — v2.6; bare mouseMoved for hover menus/tooltips |
+| `scroll` | `{x?, y?, xDistance?, yDistance?, speed?, repeatCount?, repeatDelayMs?, tabId?}` | `{scrolled:true}` — v2.6; Input.synthesizeScrollGesture, reaches nested containers + lazy loaders; negative yDistance scrolls down |
+| `drag` | `{from:{x,y}, to:{x,y}, mode?, steps?, tabId?}` | `{dragged:true, mode}` — v2.6; 'mouse' = press/move/release (sliders, canvas), 'html5' = dispatchDragEvent (HTML5 drag&drop); consent-gated |
+| `select_text` | `{selector?, from?, to?, tabId?}` | `{selected:true, text}` — v2.6; selector selects element text via Range, or from/to click-drag; reaches the panel as committed selection context; consent-gated |
 | `batch` | `{steps:[{tool, args}], stopOnError?, tabId?}` | `{results:[{step, ok, result|error}], completed, total}` — v2.2; sequential, stops at first failure unless `stopOnError:false`, `tabId` on the call defaults into steps; nesting rejected |
 | `breakpoint_set` | `{url\|urlRegex, lineNumber, columnNumber?, condition?, autoResumeMs?, tabId?}` | `{breakpoint:{id,url,lineNumber,locations:[...]}}` — v2.6; consent-gated |
 | `breakpoint_list` | `{tabId?}` | `{breakpoints, paused}` — v2.6 |

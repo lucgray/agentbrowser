@@ -71,12 +71,14 @@ export const TOOLS = [
   },
   {
     name: "click",
-    description: "Click at viewport coordinates using trusted CDP input (left button, single click). Returns {clicked:true}.",
+    description: "Click at viewport coordinates using trusted CDP input. button picks left (default), right (context menu), or middle; clickCount 2/3 gives double/triple click. Returns {clicked:true, button, clickCount}.",
     args: {
       type: "object",
       properties: {
         x: { type: "number", description: "Viewport x coordinate" },
         y: { type: "number", description: "Viewport y coordinate" },
+        button: { type: "string", description: "left | right | middle (default left)" },
+        clickCount: { type: "number", description: "1 single, 2 double, 3 triple (default 1)" },
         tabId: { type: "number", description: "Target tab id; omit for the active tab" }
       },
       required: ["x", "y"]
@@ -84,16 +86,79 @@ export const TOOLS = [
   },
   {
     name: "click_element",
-    description: "Click the first element matching a CSS selector: scrolls it into view, resolves its center, then performs a trusted CDP mouse click. Optional dx/dy offset the point. Returns {clicked:true, selector, tag}.",
+    description: "Click the first element matching a CSS selector: scrolls it into view, resolves its center, then performs a trusted CDP mouse click. Optional dx/dy offset the point; button/clickCount work like click. Returns {clicked:true, selector, tag}.",
     args: {
       type: "object",
       properties: {
         selector: { type: "string", description: "CSS selector of the element to click" },
         dx: { type: "number", description: "X offset from the element center (default 0)" },
         dy: { type: "number", description: "Y offset from the element center (default 0)" },
+        button: { type: "string", description: "left | right | middle (default left)" },
+        clickCount: { type: "number", description: "1 single, 2 double, 3 triple (default 1)" },
         tabId: { type: "number", description: "Target tab id; omit for the active tab" }
       },
       required: ["selector"]
+    }
+  },
+  {
+    name: "hover",
+    description: "Move the pointer without pressing — opens hover menus, tooltips and hover previews. Pass selector to hover an element's center, or x/y for coordinates. Returns {hovered:true}.",
+    args: {
+      type: "object",
+      properties: {
+        x: { type: "number", description: "Viewport x coordinate" },
+        y: { type: "number", description: "Viewport y coordinate" },
+        selector: { type: "string", description: "CSS selector — hovers the element center instead of x/y" },
+        tabId: { type: "number", description: "Target tab id; omit for the active tab" }
+      },
+      required: []
+    }
+  },
+  {
+    name: "scroll",
+    description: "Real scroll gesture via Input.synthesizeScrollGesture — drives lazy loading, scroll listeners and nested scroll containers that window.scrollTo cannot reach. x/y anchor the gesture (element under the point scrolls); omit for viewport center. Positive yDistance scrolls up, negative scrolls down. Returns {scrolled:true}.",
+    args: {
+      type: "object",
+      properties: {
+        x: { type: "number", description: "Gesture anchor x (default viewport center)" },
+        y: { type: "number", description: "Gesture anchor y (default viewport center)" },
+        xDistance: { type: "number", description: "Horizontal gesture distance in px" },
+        yDistance: { type: "number", description: "Vertical gesture distance in px; negative = scroll down, positive = scroll up" },
+        speed: { type: "number", description: "Gesture speed px/s (default 800)" },
+        repeatCount: { type: "number", description: "Repeat the gesture N times (default 0 = once)" },
+        repeatDelayMs: { type: "number", description: "Delay between repeats in ms" },
+        tabId: { type: "number", description: "Target tab id; omit for the active tab" }
+      },
+      required: []
+    }
+  },
+  {
+    name: "drag",
+    description: "Drag from one point to another. mode 'mouse' (default): press-move-release — for sliders, mouse-event sortables, canvas strokes. mode 'html5': Input.dispatchDragEvent — fires the HTML5 dragstart/dragover/drop family for draggable lists and drop targets. Returns {dragged:true, mode}.",
+    args: {
+      type: "object",
+      properties: {
+        from: { type: "object", description: "{x,y} drag start" },
+        to: { type: "object", description: "{x,y} drag end" },
+        mode: { type: "string", description: "mouse | html5 (default mouse)" },
+        steps: { type: "number", description: "Intermediate moves in mouse mode (default 10)" },
+        tabId: { type: "number", description: "Target tab id; omit for the active tab" }
+      },
+      required: ["from", "to"]
+    }
+  },
+  {
+    name: "select_text",
+    description: "Create a real page text selection — either selector (selects the element's text via Range/Selection) or from/to coordinates (click-drag). The committed selection reaches the panel as chat context, same as a user drag-select. Returns {selected:true, text}.",
+    args: {
+      type: "object",
+      properties: {
+        selector: { type: "string", description: "CSS selector — select this element's text" },
+        from: { type: "object", description: "{x,y} selection start (coordinate mode)" },
+        to: { type: "object", description: "{x,y} selection end (coordinate mode)" },
+        tabId: { type: "number", description: "Target tab id; omit for the active tab" }
+      },
+      required: []
     }
   },
   {
