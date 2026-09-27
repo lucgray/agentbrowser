@@ -377,6 +377,12 @@ export function createAcpSpecSession(name, spec, ctx) {
       proc.stderr.on('data', (chunk) => {
         state.stderrTail = (state.stderrTail + chunk).slice(-2000);
       });
+      // Writes to a dead agent's stdin throw EPIPE synchronously AND emit an
+      // async 'error' on the socket — without a listener that becomes an
+      // uncaughtException and takes the whole hub down.
+      for (const stream of [proc.stdin, proc.stdout, proc.stderr]) {
+        stream.on('error', (err) => logWarn(`${name} stream error`, err));
+      }
       proc.on('error', (err) => {
         logWarn(`${name} spawn failed`, err);
         onProcessExit(-1);
