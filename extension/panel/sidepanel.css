@@ -376,6 +376,56 @@ img {
   opacity: 0.6;
 }
 
+/* Transport badge on family rows (ACP/API/SDK). CLI — the common case —
+   stays unbadged so a ready list reads as plain names. */
+.backend-row-transport {
+  flex: none;
+  margin-left: var(--ac-space-8);
+  padding: 0 5px;
+  border: 1px solid var(--ac-border);
+  border-radius: var(--ac-radius-control);
+  color: var(--ac-text-secondary);
+  font: var(--ac-type-tertiary, 10px/1.6 inherit);
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  opacity: 0.85;
+}
+
+/* Not-ready families fold into an expandable group under the ready list. */
+.backend-off-toggle {
+  margin-top: var(--ac-space-4);
+  color: var(--ac-text-secondary);
+  opacity: 0.8;
+}
+
+.backend-off-toggle::after {
+  content: "";
+  flex: none;
+  width: 6px;
+  height: 6px;
+  margin-left: var(--ac-space-8);
+  border-top: 1.4px solid currentColor;
+  border-right: 1.4px solid currentColor;
+  transform: rotate(135deg);
+  opacity: 0.6;
+}
+
+.backend-off-toggle.is-open::after {
+  transform: rotate(225deg);
+}
+
+.backend-off-list {
+  display: flex;
+  flex-direction: column;
+  padding-left: 12px;
+  border-left: 1px solid var(--ac-border-soft, var(--ac-border));
+  margin: 2px 0 2px 8px;
+}
+
+.backend-off-list[hidden] {
+  display: none;
+}
+
 /* ----- buttons: ghost text is the default variant ----- */
 
 button {
@@ -924,6 +974,17 @@ button:disabled {
   transform: rotate(135deg) translateY(-1px);
 }
 
+/* A block with nothing inside it yet (a bare "thinking" stretch) has nothing
+   to expand: hide the caret and make the head inert until the first
+   thinking/tool row lands in the body. */
+.work-block.empty .work-caret {
+  display: none;
+}
+
+.work-block.empty .work-head {
+  cursor: default;
+}
+
 .work-body {
   display: flex;
   flex-direction: column;
@@ -948,6 +1009,67 @@ button:disabled {
 @keyframes ac-shimmer {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.5; }
+}
+
+/* ----- chain-of-thought timeline (ai-elements ChainOfThought alignment) -----
+   Thinking rows and tool chips read as steps on one vertical chain: a thin
+   connector links each row to the next, thinking rows carry the step dot, and
+   the most recent row of a live turn is the active step (bright text, accent
+   dot). Chips keep their own spinner/check icon as their indicator. */
+.work-body > * {
+  position: relative;
+}
+
+.work-body > * + *::before {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: calc(-1 * var(--ac-space-8) - 2px);
+  height: calc(var(--ac-space-8) + 11px);
+  width: 1px;
+  background: var(--ac-border);
+}
+
+.work-body > .work-thinking {
+  border-left: none;
+  padding-left: 18px;
+}
+
+.work-body > .work-thinking::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 7px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  border: 1.5px solid var(--ac-text-muted);
+  background: var(--ac-bg-1);
+  box-sizing: border-box;
+}
+
+.work-block.live .work-body > .work-thinking:last-child {
+  color: var(--ac-text);
+}
+
+.work-block.live .work-body > .work-thinking:last-child::after {
+  border-color: var(--ac-accent);
+  background: var(--ac-accent-tint);
+}
+
+@keyframes cot-step-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+
+.work-body > * {
+  animation: cot-step-in var(--ac-dur-fast) var(--ac-ease);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .work-body > * {
+    animation: none;
+  }
 }
 
 /* ----- parallel lanes -----
@@ -1552,6 +1674,84 @@ button:disabled {
   .work-block.live .work-label,
   .lane-block.live .lane-status,
   #mic.listening {
+    animation: none;
+  }
+}
+
+/* ----- Chain-of-Thought timeline (ai-elements ChainOfThought alignment) -----
+   Thinking rows and tool chips read as steps on one vertical chain: each row
+   carries a status dot, a thin connector links it to the next row, the most
+   recent row of a live turn is the active step (accent), and rows slide in as
+   they land. No component import — same shapes, local tokens. */
+.work-body {
+  gap: 10px;
+}
+
+.work-body > * {
+  position: relative;
+  padding-left: 20px;
+}
+
+/* Step indicator dot on every row except tool chips, which carry their own
+   spinner/check icon as the step marker. */
+.work-body > :not(.chip)::after {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: 5px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  border: 1.5px solid var(--ac-text-muted);
+  background: var(--ac-bg-1);
+  box-sizing: border-box;
+}
+
+/* Connector line from each row down to the next row's dot. */
+.work-body > * + *::before {
+  content: "";
+  position: absolute;
+  left: 6px;
+  top: -12px;
+  height: 22px;
+  width: 1.5px;
+  background: var(--ac-border);
+}
+
+/* Thinking rows drop their own rail in favor of the timeline. */
+.work-body > .work-thinking {
+  border-left: none;
+  padding-left: 0;
+}
+
+/* The most recent row of a live turn is the active step. */
+.work-block.live .work-body > :not(.chip):last-child::after {
+  border-color: var(--ac-accent);
+  background: var(--ac-accent-tint);
+}
+
+.work-block.live .work-body > .work-thinking:last-child {
+  color: var(--ac-text);
+  font-style: normal;
+}
+
+@keyframes work-step-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.work-body > * {
+  animation: work-step-in 160ms var(--ac-ease, ease-out);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .work-body > * {
     animation: none;
   }
 }
