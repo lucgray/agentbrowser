@@ -188,6 +188,29 @@ chrome.debugger.onEvent.addListener((source, method, params) => {
       if (e.startTime) e.duration = params.timestamp * 1000 - e.startTime;
       break;
     }
+    case 'Page.downloadWillBegin': {
+      const list = downloads.get(source.tabId) || [];
+      list.push({
+        guid: params.guid,
+        url: String(params.url || ''),
+        suggestedFilename: String(params.suggestedFilename || ''),
+        state: 'inProgress',
+        ts: Date.now(),
+      });
+      if (list.length > 50) list.splice(0, list.length - 50);
+      downloads.set(source.tabId, list);
+      break;
+    }
+    case 'Page.downloadProgress': {
+      const list = downloads.get(source.tabId);
+      if (!list) break;
+      const d = list.find((e) => e.guid === params.guid);
+      if (!d) break;
+      d.state = String(params.state || d.state);
+      d.receivedBytes = params.receivedBytes;
+      d.totalBytes = params.totalBytes;
+      break;
+    }
     case 'Page.javascriptDialogOpening': {
       const entry = {
         type: String(params.type || 'alert'),
@@ -541,4 +564,69 @@ export async function debugResume(tabId, args) {
   const action = RESUME_ACTIONS.has(args.action) ? args.action : 'resume';
   await sendUnqueued(tabId, `Debugger.${action}`, {});
   return { resumed: true, action };
+}
+
+
+// --- files, downloads, print (v2.6) -----------------------------------------
+
+// set_file_input: assign local file paths to an <input type=file>. CDP never
+// opens the OS picker — DOM.setFileInputFiles writes the file list directly.
+export async function setFileInput(tabId, args) {
+  const files = (Array.isArray(args.files) ? args.files : []).map(String);
+  if (!files.length) throw new Error('set_file_input needs files:[]');
+  await ensureDomains(tabId, ['DOM']);
+  const { root } = await sendUnqueued(tabId, 'DOM.getDocument', { depth: 0 });
+  const { nodeId } = await sendUnqueued(tabId, 'DOM.querySelector', {
+    nodeId: root.nodeId,
+    selector: String(args.selector || 'input[type=file]'),
+  });
+  if (!nodeId) throw new Error(`no file input matches: ${args.selector}`);
+  await sendUnqueued(tabId, 'DOM.setFileInputFiles', { files, nodeId });
+  return { set: true, selector: args.selector, files };
+}
+
+// downloads: Page.setDownloadBehavior opts the tab into auto-accept downloads
+// (default dir <os-downloads>/agentbrowser) and Page.downloadWillBegin /
+// downloadProgress events fill the buffer. downloads_list reads it.
+const downloads = new Map(); // tabId -> [{guid,url,suggestedFilename,state,receivedBytes,totalBytes,ts}]
+
+export async function downloadConfigure(tabId, args) {
+  await ensureDomains(tabId, ['Page']);
+  const s = state(tabId);
+  if (!downloads.has(tabId)) downloads.set(tabId, []);
+  const params = { behavior: 'allow' };
+  if (args.directory) {
+    params.behavior = 'allowAndName';
+    params.downloadPath = String(args.directory);
+  }
+  try {
+    await sendUnqueued(tabId, 'Page.setDownloadBehavior', params);
+  } catch (err) {
+    console.warn('[agentbrowser] Page.setDownloadBehavior failed, trying Browser domain', err);
+    // Newer Chrome moved this to Browser.setDownloadBehavior; try that too
+    // before giving up — which one works depends on the debug target.
+    const bp = { behavior: params.downloadPath ? 'allowAndName' : 'allow' };
+    if (params.downloadPath) bp.downloadPath = params.downloadPath;
+    await sendUnqueued(tabId, 'Browser.setDownloadBehavior', bp);
+  }
+  s.downloadDir = params.downloadPath || null;
+  return { configured: true, directory: s.downloadDir || '(browser default)' };
+}
+
+export async function downloadsList(tabId) {
+  return { downloads: downloads.get(tabId) || [] };
+}
+
+// print_pdf: Page.printToPDF returns base64. landscape/scale are optional;
+// defaults keep Chrome's print defaults.
+export async function printPdf(tabId, args) {
+  await ensureDomains(tabId, ['Page']);
+  const params = {};
+  if (args.landscape != null) params.landscape = !!args.landscape;
+  if (args.scale != null) {
+    params.scale = Math.max(0.1, Math.min(Number(args.scale), 2));
+  }
+  if (args.printBackground != null) params.printBackground = !!args.printBackground;
+  const res = await sendUnqueued(tabId, 'Page.printToPDF', params);
+  return { base64: res.data, mimeType: 'application/pdf' };
 }

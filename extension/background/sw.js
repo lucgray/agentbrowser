@@ -786,6 +786,29 @@ const TOOLS = {
     return inspect.debugResume(tabId, args);
   },
 
+
+  // --- files, downloads, print (v2.6)
+
+  async set_file_input(args) {
+    const tabId = await resolveTabId(args.tabId);
+    return inspect.setFileInput(tabId, args);
+  },
+
+  async download_configure(args) {
+    const tabId = await resolveTabId(args.tabId);
+    return inspect.downloadConfigure(tabId, args);
+  },
+
+  async downloads_list(args) {
+    const tabId = await resolveTabId(args.tabId);
+    return inspect.downloadsList(tabId);
+  },
+
+  async print_pdf(args) {
+    const tabId = await resolveTabId(args.tabId);
+    return inspect.printPdf(tabId, args);
+  },
+
   // --- composite wrappers (v2.2) -----------------------------------------
 
   async fill(args) {

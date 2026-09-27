@@ -19,6 +19,7 @@ export const WRITE_TOOLS = [
   'click', 'click_element', 'type_text', 'press_key', 'navigate',
   'eval_js', 'patch_apply', 'fill',
   'breakpoint_set', 'debug_eval', 'debug_resume', 'drag', 'select_text',
+    'set_file_input', 'download_configure', 'set_file_input', 'download_configure',
   'annotate', 'annotate_batch', 'annotate_reply', 'annotate_clear',
   // `batch` is intentionally absent: it gates every inner step under that
   // step's own tool name instead, so nothing double-asks.
