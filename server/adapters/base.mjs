@@ -93,10 +93,10 @@ const FALLBACK_DESCRIPTORS = {
   },
   codex: {
     label: 'Codex CLI',
-    models: [
-      { id: 'gpt-5.6-luna', label: 'GPT-5.6 Luna' },
-      { id: 'gpt-5.6-terra', label: 'GPT-5.6 Terra' }
-    ],
+    // Real lists come from the live catalog (~/.codex/config.toml probe in
+    // model-catalog.mjs); the fallback stays empty rather than shipping
+    // invented model names.
+    models: [],
     defaultModel: null,
     provider: null
   },
@@ -190,7 +190,9 @@ export function probeAdapter(name) {
 }
 
 // The `adapters` array for the hub's {type:"capabilities"} message. Only ever
-// carries keyConfigured:<bool> — never the key itself.
+// carries keyConfigured:<bool> — never the key itself. (The hub shapes this
+// list itself — family collapse for the picker lives in hub.mjs, which owns
+// descriptor loading and the AGENTCHAT_ADAPTER_MODULE override.)
 export function buildCapabilities(keyChecker = hasKey) {
   return ADAPTERS.map((name) => {
     const d = DESCRIPTORS[name];
