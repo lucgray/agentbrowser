@@ -295,6 +295,8 @@ const I18N = {
     floatingAskLabel: "Show the floating Ask button on selection",
     proactiveLabel: "Proactive annotation (auto co-read on new tabs)",
     proactiveAdapterAuto: "Same as the chat adapter",
+    proactiveModelDefault: "Adapter default",
+    proactiveModelTitle: "Proactive annotation model",
     proactivePromptPlaceholder: "Empty = default: read the page and annotate confusing passages",
     enterKeyFirst: "enter a key first",
     anthropicKeyLabel: "Anthropic API key",
@@ -336,6 +338,8 @@ const I18N = {
     floatingAskLabel: "选中后显示悬浮 Ask 按钮",
     proactiveLabel: "主动标注（打开新标签页时自动 co-read）",
     proactiveAdapterAuto: "跟随对话适配器",
+    proactiveModelDefault: "适配器默认",
+    proactiveModelTitle: "主动标注模型",
     proactivePromptPlaceholder: "留空 = 默认：阅读页面并标注令人困惑的段落",
     enterKeyFirst: "请先输入密钥",
     anthropicKeyLabel: "Anthropic API 密钥",
@@ -858,12 +862,35 @@ async function init() {
   });
 
   // Proactive annotation (auto co-read on a fresh tab): toggle + provider +
-  // prompt. The hub echoes the config back through capabilities and persists
-  // it in its config.json, so the setting survives restarts.
+  // model + prompt. The hub echoes the config back through capabilities and
+  // persists it in its config.json, so the setting survives restarts. The
+  // model list follows the chosen adapter's real capability entry.
   const proactiveToggle = document.getElementById("toggle-proactive");
   const proactiveAdapter = document.getElementById("set-proactive-adapter");
+  const proactiveModel = document.getElementById("set-proactive-model");
   const proactivePrompt = document.getElementById("set-proactive-prompt");
   let proactiveTimer = null;
+
+  function refreshProactiveModelList(cfgModel) {
+    const entry = adapters.find((a) => a.name === proactiveAdapter.value) || null;
+    const models = entry && Array.isArray(entry.models) ? entry.models : [];
+    proactiveModel.replaceChildren();
+    const modelDefault = document.createElement("option");
+    modelDefault.value = "";
+    modelDefault.textContent = t("proactiveModelDefault");
+    proactiveModel.appendChild(modelDefault);
+    for (const m of models) {
+      const o = document.createElement("option");
+      o.value = m.id;
+      o.textContent = m.label || m.id;
+      proactiveModel.appendChild(o);
+    }
+    proactiveModel.value = typeof cfgModel === "string" ? cfgModel : "";
+    if (![...proactiveModel.children].some((o) => o.value === cfgModel)) {
+      proactiveModel.value = "";
+    }
+    proactiveModel.disabled = models.length === 0;
+  }
 
   function renderProactiveControls() {
     const cfg = (panelCfg && panelCfg.proactiveAnnotation) || {};
@@ -884,6 +911,7 @@ async function init() {
     if ([...proactiveAdapter.children].some((o) => o.value === prev)) {
       proactiveAdapter.value = prev;
     }
+    refreshProactiveModelList(cfg.model);
     proactivePrompt.value = typeof cfg.prompt === "string" ? cfg.prompt : "";
   }
 
@@ -893,13 +921,18 @@ async function init() {
       config: {
         enabled: proactiveToggle.checked,
         adapter: proactiveAdapter.value || null,
+        model: proactiveModel.value || null,
         prompt: proactivePrompt.value.trim() || null,
       },
     });
   }
 
   proactiveToggle.addEventListener("change", sendProactiveConfig);
-  proactiveAdapter.addEventListener("change", sendProactiveConfig);
+  proactiveAdapter.addEventListener("change", () => {
+    refreshProactiveModelList("");
+    sendProactiveConfig();
+  });
+  proactiveModel.addEventListener("change", sendProactiveConfig);
   proactivePrompt.addEventListener("input", () => {
     clearTimeout(proactiveTimer);
     proactiveTimer = setTimeout(sendProactiveConfig, 600);
