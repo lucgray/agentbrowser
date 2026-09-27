@@ -11,6 +11,7 @@ import {
   DIALOG_HOLD_MS,
   consoleArgsToText,
   buildHar,
+  summarizeCallFrames,
   domInspectExpression,
   outlineExpression,
   patchApplyExpression,
@@ -29,6 +30,10 @@ function state(tabId) {
       dialogs: [],         // {type,message,url,ts,status:'pending'|'auto-dismissed'|'handled'}
       patches: new Map(),  // patchId -> {label, url, items:[{path,outerHTML}]}
       patchSeq: 0,
+      breakpoints: new Map(), // breakpointId -> {id,url,lineNumber,columnNumber,condition,autoResumeMs}
+      scripts: new Map(),  // scriptId -> url (Debugger.scriptParsed)
+      paused: null,        // {reason,hitBreakpoints,ts,frames,rawFrames}
+      waiters: [],         // debug_wait pending {resolve,timer}
       url: '',
     };
     tabs.set(tabId, s);
@@ -50,6 +55,15 @@ chrome.debugger.onDetach.addListener((source) => {
   for (const d of s.dialogs) {
     if (d.status === 'pending') d.status = 'lost-detach';
   }
+  // Breakpoints die with the session; wake any debug_wait callers so they
+  // don't sit on a dead debugger.
+  s.breakpoints.clear();
+  s.scripts.clear();
+  s.paused = null;
+  for (const w of s.waiters.splice(0)) {
+    clearTimeout(w.timer);
+    w.resolve({ paused: false, reason: 'detached' });
+  }
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => dropTab(tabId));
@@ -58,9 +72,13 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   const s = tabs.get(tabId);
   if (!s || !changeInfo.url) return;
   // Main-frame navigation: the page's console/network context is gone.
+  // Breakpoints survive (they are URL-based); scripts and any live pause
+  // state belong to the old document.
   s.console = [];
   s.requests = new Map();
   s.dialogs = [];
+  s.scripts.clear();
+  s.paused = null;
   s.url = changeInfo.url;
 });
 
@@ -198,10 +216,57 @@ chrome.debugger.onEvent.addListener((source, method, params) => {
       }, DIALOG_HOLD_MS);
       break;
     }
+    case 'Debugger.scriptParsed': {
+      if (params.scriptId && params.url) s.scripts.set(params.scriptId, params.url);
+      break;
+    }
+    case 'Debugger.paused': {
+      const frames = summarizeCallFrames(params.callFrames, s.scripts);
+      s.paused = {
+        reason: String(params.reason || 'other'),
+        hitBreakpoints: params.hitBreakpoints || [],
+        ts: Date.now(),
+        frames,
+        rawFrames: params.callFrames || [],
+      };
+      // The hitting breakpoint may have asked for a timed auto-resume; the
+      // agent sets it per breakpoint so a forgotten resume can't wedge the tab.
+      const auto = s.paused.hitBreakpoints
+        .map((id) => s.breakpoints.get(id))
+        .find((b) => b && b.autoResumeMs > 0);
+      if (auto) {
+        setTimeout(() => {
+          if (!s.paused) return;
+          sendUnqueued(source.tabId, 'Debugger.resume', {}).catch((err) => {
+            console.warn('[agentbrowser] auto-resume failed', err);
+          });
+        }, auto.autoResumeMs);
+      }
+      for (const w of s.waiters.splice(0)) {
+        clearTimeout(w.timer);
+        w.resolve(pausedPayload(s));
+      }
+      break;
+    }
+    case 'Debugger.resumed': {
+      s.paused = null;
+      break;
+    }
     default:
       break;
   }
 });
+
+function pausedPayload(s) {
+  if (!s.paused) return { paused: false, reason: 'not paused' };
+  return {
+    paused: true,
+    reason: s.paused.reason,
+    hitBreakpoints: s.paused.hitBreakpoints,
+    callFrames: s.paused.frames.map(({ callFrameId, ...rest }) => rest),
+    topCallFrameId: s.paused.frames[0] && s.paused.frames[0].callFrameId,
+  };
+}
 
 async function evaluate(tabId, expression) {
   const res = await cdp.sendCommand(tabId, 'Runtime.evaluate', {
@@ -369,4 +434,111 @@ export async function patchRevert(tabId, args) {
   const value = await evaluate(tabId, patchRevertExpression(rec.items));
   if (value.missing === 0) s.patches.delete(String(args.patchId || ''));
   return { patchId: args.patchId, ...value };
+}
+
+// --- Debugger domain ---------------------------------------------------------
+
+// Debugger commands go through sendUnqueued: while the page is paused the
+// renderer does not run queued work, and Debugger.* itself is delivered fine —
+// but keeping the paused-path commands unqueued mirrors the dialog case and
+// never risks stalling behind page-side state.
+export async function breakpointSet(tabId, args) {
+  await ensureDomains(tabId, ['Debugger']);
+  const params = {
+    lineNumber: Math.max(0, Math.trunc(Number(args.lineNumber) || 0)),
+  };
+  if (args.urlRegex) params.urlRegex = String(args.urlRegex);
+  else if (args.url) params.url = String(args.url);
+  else throw new Error('breakpoint_set requires url or urlRegex');
+  if (args.columnNumber != null) {
+    params.columnNumber = Math.max(0, Math.trunc(Number(args.columnNumber) || 0));
+  }
+  if (args.condition) params.condition = String(args.condition);
+  const res = await sendUnqueued(tabId, 'Debugger.setBreakpointByUrl', params);
+  const s = state(tabId);
+  const rec = {
+    id: res.breakpointId,
+    url: params.url || params.urlRegex,
+    lineNumber: params.lineNumber,
+    columnNumber: params.columnNumber ?? null,
+    condition: params.condition || '',
+    autoResumeMs: Math.max(0, Number(args.autoResumeMs) || 0),
+    locations: (res.locations || []).map((l) => ({
+      scriptId: l.scriptId,
+      url: s.scripts.get(l.scriptId) || '',
+      lineNumber: l.lineNumber,
+      columnNumber: l.columnNumber,
+    })),
+  };
+  s.breakpoints.set(res.breakpointId, rec);
+  return { breakpoint: rec };
+}
+
+export async function breakpointList(tabId) {
+  const s = state(tabId);
+  return {
+    breakpoints: [...s.breakpoints.values()].map((b) => ({ ...b })),
+    paused: s.paused ? pausedPayload(s) : null,
+  };
+}
+
+export async function breakpointRemove(tabId, args) {
+  const s = state(tabId);
+  const id = String(args.id || '');
+  if (!id) throw new Error('breakpoint_remove requires id');
+  if (!s.breakpoints.delete(id)) return { removed: false, reason: 'unknown id' };
+  await sendUnqueued(tabId, 'Debugger.removeBreakpoint', { breakpointId: id });
+  return { removed: true, id };
+}
+
+export async function debugWait(tabId, args) {
+  await ensureDomains(tabId, ['Debugger']);
+  const s = state(tabId);
+  if (s.paused) return pausedPayload(s);
+  const timeoutMs = Math.max(0, Math.min(Number(args.timeoutMs) || 30000, 300000));
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      const i = s.waiters.findIndex((w) => w.timer === timer);
+      if (i >= 0) s.waiters.splice(i, 1);
+      resolve({ paused: false, reason: 'timeout' });
+    }, timeoutMs);
+    s.waiters.push({ resolve, timer });
+  });
+}
+
+export async function debugEval(tabId, args) {
+  const s = state(tabId);
+  if (!s.paused || !s.paused.rawFrames.length) {
+    throw new Error('debug_eval requires a paused page (hit a breakpoint first)');
+  }
+  const frameId =
+    args.callFrameId ||
+    (s.paused.frames[0] && s.paused.frames[0].callFrameId);
+  const res = await sendUnqueued(tabId, 'Debugger.evaluateOnCallFrame', {
+    callFrameId: frameId,
+    expression: String(args.expression || ''),
+    returnByValue: true,
+    silent: true,
+  });
+  if (res.exceptionDetails) {
+    const d = res.exceptionDetails;
+    return {
+      error:
+        (d.exception && d.exception.description) || d.text || 'evaluation failed',
+    };
+  }
+  return {
+    callFrameId: frameId,
+    result: res.result ? res.result.value : undefined,
+  };
+}
+
+const RESUME_ACTIONS = new Set(['resume', 'stepOver', 'stepInto', 'stepOut']);
+
+export async function debugResume(tabId, args) {
+  const s = state(tabId);
+  if (!s.paused) return { resumed: false, reason: 'not paused' };
+  const action = RESUME_ACTIONS.has(args.action) ? args.action : 'resume';
+  await sendUnqueued(tabId, `Debugger.${action}`, {});
+  return { resumed: true, action };
 }

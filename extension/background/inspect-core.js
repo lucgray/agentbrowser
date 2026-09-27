@@ -93,6 +93,28 @@ export function buildHar(entries, page) {
   };
 }
 
+// --- Debugger domain helpers -------------------------------------------------
+
+// CDP callFrames -> compact stack summary for tool output. `scripts` maps
+// scriptId -> url (filled by Debugger.scriptParsed). Scope/local data is
+// deliberately left out — agents read it on demand with debug_eval.
+export function summarizeCallFrames(callFrames, scripts) {
+  return (Array.isArray(callFrames) ? callFrames : []).map((f) => {
+    const loc = (f && f.location) || {};
+    const url =
+      (f && f.url) ||
+      (scripts && loc.scriptId && scripts.get(loc.scriptId)) ||
+      '';
+    return {
+      callFrameId: f && f.callFrameId,
+      functionName: (f && f.functionName) || '(anonymous)',
+      url: String(url),
+      lineNumber: loc.lineNumber ?? 0,
+      columnNumber: loc.columnNumber ?? 0,
+    };
+  });
+}
+
 // --- page-side expressions --------------------------------------------------
 
 // Element -> a stable CSS path ("html>body>div:nth-of-type(2)>p").

@@ -733,6 +733,38 @@ const TOOLS = {
     return inspect.patchRevert(tabId, args);
   },
 
+  // --- debugger tools (v2.6): breakpoints + paused-state inspection.
+
+  async breakpoint_set(args) {
+    const tabId = await resolveTabId(args.tabId);
+    return inspect.breakpointSet(tabId, args);
+  },
+
+  async breakpoint_list(args) {
+    const tabId = await resolveTabId(args.tabId);
+    return inspect.breakpointList(tabId);
+  },
+
+  async breakpoint_remove(args) {
+    const tabId = await resolveTabId(args.tabId);
+    return inspect.breakpointRemove(tabId, args);
+  },
+
+  async debug_wait(args) {
+    const tabId = await resolveTabId(args.tabId);
+    return inspect.debugWait(tabId, args);
+  },
+
+  async debug_eval(args) {
+    const tabId = await resolveTabId(args.tabId);
+    return inspect.debugEval(tabId, args);
+  },
+
+  async debug_resume(args) {
+    const tabId = await resolveTabId(args.tabId);
+    return inspect.debugResume(tabId, args);
+  },
+
   // --- composite wrappers (v2.2) -----------------------------------------
 
   async fill(args) {

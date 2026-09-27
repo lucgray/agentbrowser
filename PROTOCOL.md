@@ -1,4 +1,4 @@
-# AgentBrowser protocol v2.5
+# AgentBrowser protocol v2.6
 
 AgentBrowser is a Chrome MV3 extension with a side-panel chat UI, plus a local hub
 server. The chat is backed by a pluggable "harness" (Claude Agent SDK, Claude
@@ -670,6 +670,12 @@ executor, in the SDK adapter's MCP server, and in mcp-proxy.mjs.
 | `wait_for` | `{selector?, text?, timeoutMs?, tabId?}` | `{found, waited}` — v2.2; polls in-page every 250ms, cap 60s; timeout returns `found:false`, not an error |
 | `read_elements` | `{selector, attr?, max?, maxChars?, tabId?}` | `{count, elements:[{text, value?}]}` — v2.2; compact selector-scoped reads instead of a full read_page |
 | `batch` | `{steps:[{tool, args}], stopOnError?, tabId?}` | `{results:[{step, ok, result|error}], completed, total}` — v2.2; sequential, stops at first failure unless `stopOnError:false`, `tabId` on the call defaults into steps; nesting rejected |
+| `breakpoint_set` | `{url\|urlRegex, lineNumber, columnNumber?, condition?, autoResumeMs?, tabId?}` | `{breakpoint:{id,url,lineNumber,locations:[...]}}` — v2.6; consent-gated |
+| `breakpoint_list` | `{tabId?}` | `{breakpoints, paused}` — v2.6 |
+| `breakpoint_remove` | `{id, tabId?}` | `{removed:true}` — v2.6 |
+| `debug_wait` | `{timeoutMs?, tabId?}` | `{paused:true, reason, hitBreakpoints, callFrames, topCallFrameId}` or `{paused:false, reason:'timeout'|'detached'}` — v2.6; cap 300s |
+| `debug_eval` | `{expression, callFrameId?, tabId?}` | `{result}` or `{error}` — v2.6; paused frames only, consent-gated |
+| `debug_resume` | `{action?, tabId?}` | `{resumed:true, action}` — v2.6; resume/stepOver/stepInto/stepOut, consent-gated |
 
 `label` (v2.2): every tool's schema gains an optional `label` string — an
 agent-chosen display name for the call. The side panel shows it as the chip
@@ -954,6 +960,33 @@ Extension-internal (never over the hub socket): content -> sw
 `{cmd:"selection_auto", selection}` appends a committed selection to the
 pending chat context; offscreen -> sw `{cmd:"ws_heartbeat"}` keeps the
 service worker alive while a turn is in flight.
+
+## Debugger tools, v2.6
+
+inspect.js enables the CDP `Debugger` domain on first `breakpoint_set` or
+`debug_wait`, alongside the other lazy domains. `Debugger.scriptParsed`
+feeds a scriptId -> url map used to resolve call-frame locations;
+`Debugger.paused`/`resumed` maintain `state.paused`.
+
+Flow: `breakpoint_set` (`Debugger.setBreakpointByUrl`, URL or urlRegex +
+0-based lineNumber) -> the agent triggers the code path -> `debug_wait`
+resolves with the call-stack summary (or `reason:'timeout'`) -> `debug_eval`
+(`Debugger.evaluateOnCallFrame`, default top frame) reads locals ->
+`debug_resume` unpauses (`resume`/`stepOver`/`stepInto`/`stepOut`).
+
+Auto-resume is agent-chosen, per breakpoint: `breakpoint_set`'s
+`autoResumeMs` schedules a `Debugger.resume` that many ms after *that*
+breakpoint hits, so snapshot-and-move-on workflows can't wedge the tab on a
+forgotten resume. `debug_wait`'s own `timeoutMs` only bounds the wait
+(cap 300s) — it never resumes the page. Debugger commands go unqueued
+(same bypass as dialog handling): queued CDP commands can stall behind
+paused page state.
+
+Breakpoints are URL-based and survive navigation inside the session; they
+die with the debugger session, so detach clears `breakpoints`, the script
+map, any pending `debug_wait` (resolved `reason:'detached'`), and pause
+state. `breakpoint_set`, `debug_eval`, and `debug_resume` are in the
+consent gate's write-tool set; the list/remove/wait tools are reads.
 
 ## mcp-proxy.mjs
 
