@@ -78,6 +78,17 @@ function summarize(value) {
   }
 }
 
+// Some CLIs carry a human-facing description on their tool items (codex's
+// item.title/summary, gemini's display name, opencode's part title). Lift the
+// first present one onto the event so the panel can title the chip with it;
+// tool_use events also self-name via args.label / args.description.
+function pickLabel(...candidates) {
+  for (const c of candidates) {
+    if (typeof c === 'string' && c.trim()) return truncate(c.trim());
+  }
+  return undefined;
+}
+
 // Tool names may arrive prefixed by the harness (mcp__browser__click etc).
 function shortToolName(name) {
   if (!name) return 'tool';
@@ -283,10 +294,11 @@ export const HARNESSES = {
         ? 'bash'
         : shortToolName(item.tool || item.name || 'mcp');
       if (msg.type === 'item.started') {
+        const label = pickLabel(item.label, item.title, item.summary, item.description);
         if (itemType === 'command_execution') {
-          emit({ kind: 'tool_use', tool: toolName, args: { command: truncate(item.command || '') } });
+          emit({ kind: 'tool_use', tool: toolName, label, args: { command: truncate(item.command || '') } });
         } else if (itemType === 'mcp_tool_call') {
-          emit({ kind: 'tool_use', tool: toolName, args: item.arguments || item.input || {} });
+          emit({ kind: 'tool_use', tool: toolName, label, args: item.arguments || item.input || {} });
         }
         return;
       }
@@ -371,7 +383,7 @@ export const HARNESSES = {
             summary: summarize(st.output ?? st.error ?? 'ok')
           });
         } else {
-          emit({ kind: 'tool_use', tool, args: st.input || part.input || {} });
+          emit({ kind: 'tool_use', tool, label: pickLabel(part.title, st.title), args: st.input || part.input || {} });
         }
         return;
       }
@@ -553,6 +565,7 @@ export const HARNESSES = {
         emit({
           kind: 'tool_use',
           tool: shortToolName(msg.name || msg.tool),
+          label: pickLabel(msg.display_name, msg.tool_display_name, msg.label, msg.description),
           args: msg.input || msg.args || {}
         });
         return;

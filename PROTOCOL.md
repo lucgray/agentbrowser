@@ -1,4 +1,4 @@
-# AgentBrowser protocol v2.2
+# AgentBrowser protocol v2.3
 
 AgentBrowser is a Chrome MV3 extension with a side-panel chat UI, plus a local hub
 server. The chat is backed by a pluggable "harness" (Claude Agent SDK, Claude
@@ -162,7 +162,10 @@ Chat (extension -> hub, streamed events back):
 - hub -> extension, many per chat:
   `{type:"chat_event", chatId, event:{kind, ...}}` where event is one of
   - `{kind:"token", text}` — assistant text (may be whole blocks, not char-level)
-  - `{kind:"tool_use", tool, args}` — args may be truncated for display
+  - `{kind:"tool_use", tool, args, label?}` — args may be truncated for display;
+    `label` (v2.3) is an adapter-emitted display name (CLI field like codex
+    `item.title`, opencode `part.title`, gemini `display_name`); the panel
+    prefers it over the args-level `label`/`description`
   - `{kind:"tool_result", tool, ok, summary}` — summary is a short string
   - `{kind:"info", message}` — adapter lifecycle notes (session started, model)
   - `{kind:"error", message}`
@@ -673,6 +676,11 @@ consent card leads with it. Harness-native `description` fields (e.g.
 Claude Code's Bash input) render the same way. `label` never affects
 execution. Composite wrappers exist to cut per-call envelope overhead and
 payload size: `fill`, `wait_for`, `read_elements`, `batch`.
+
+For harness-internal tools the agent cannot name itself through args — their
+schema isn't ours — so adapters lift whatever semantic field the CLI emits
+onto the tool_use event's top-level `label` (v2.3). The panel resolves the
+chip name as event label → args.label → args.description → tool name.
 
 `tabId` omitted = active tab of the current window. All tools run in the SW;
 CDP tools attach `chrome.debugger` (version "1.3") on demand, keep a set of
