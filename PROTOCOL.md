@@ -1,4 +1,4 @@
-# AgentBrowser protocol v2.4
+# AgentBrowser protocol v2.5
 
 AgentBrowser is a Chrome MV3 extension with a side-panel chat UI, plus a local hub
 server. The chat is backed by a pluggable "harness" (Claude Agent SDK, Claude
@@ -915,6 +915,45 @@ Event mapping (session/update → chat_event):
 Browser tools are deliberately NOT injected via ACP's `mcpServers`: agents
 reach them through their own shell tool and the `agentbrowser` CLI (the
 install-skill SKILL.md teaches the commands), so this path is MCP-free.
+
+## Capabilities collapse, model catalog, and panel config, v2.5
+
+`capabilities.adapters` entries carry three new fields when the hub collapses
+several adapters into one picker row (hub.mjs `collapseFamilies`):
+
+```
+{ ..., family: "codex", transport: "CLI"|"ACP"|"SDK"|"API",
+  variants: [{name, transport, status}] }   // sibling adapters, statuses only
+```
+
+`models` now resolves as: `config.json adapterModels` > the live probe cache
+(`model-catalog.mjs`, ~/.agentchat/model-catalog.json, 6h TTL) > descriptor
+fallback. Probes read what is actually on disk or what the CLI itself prints
+(`opencode models`, `devin models list`, per-CLI config files); nothing is
+invented.
+
+Chats bind to a tab: on every `chat` the hub records
+`context.currentTab.tabId` for that chatId, and adapter `callBrowserTool`
+invocations without an explicit `tabId` are routed to the bound tab instead
+of whatever tab is active when the call lands.
+
+The capabilities message also carries `panelConfig.proactiveAnnotation
+{enabled, adapter, prompt}` (hub-owned settings echoed for the Settings
+view). The panel writes it with:
+
+```
+{type:"set_proactive_config", config:{enabled:bool, adapter:string|null,
+                                     prompt:string|null}}   // panel -> hub
+```
+
+The hub merges it into `config.proactiveAnnotation` (live) and persists the
+whole config.json, then replies with a fresh `capabilities` — same echo
+pattern as `set_key`.
+
+Extension-internal (never over the hub socket): content -> sw
+`{cmd:"selection_auto", selection}` appends a committed selection to the
+pending chat context; offscreen -> sw `{cmd:"ws_heartbeat"}` keeps the
+service worker alive while a turn is in flight.
 
 ## mcp-proxy.mjs
 

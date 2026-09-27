@@ -312,6 +312,8 @@ const I18N = {
     needsKey: "needs key",
     unavailable: "unavailable",
     workDone: "Thinking complete",
+    workLabels: ["Thinking", "Cooking", "Working"],
+    listening: "Listening\u2026",
     resumedLive: "Resumed live conversation.",
   },
   zh: {
@@ -351,6 +353,8 @@ const I18N = {
     needsKey: "需配置密钥",
     unavailable: "不可用",
     workDone: "思考完成",
+    workLabels: ["思考中", "生成中", "处理中"],
+    listening: "聆听中\u2026",
     resumedLive: "已恢复进行中的对话。",
   }
 };
@@ -358,7 +362,9 @@ const I18N = {
 let uiLang = "auto";
 
 function t(key, fallback) {
-  const table = I18N[uiLang] || I18N.en;
+  // uiLang holds the user's stored choice ("auto" included); resolve per call
+  // so the setting itself is never rewritten by display.
+  const table = I18N[resolveUiLang(uiLang)] || I18N.en;
   const value = table[key];
   if (value != null) return value;
   return I18N.en[key] != null ? I18N.en[key] : (fallback != null ? fallback : key);
@@ -370,8 +376,8 @@ function resolveUiLang(stored) {
 }
 
 function applyI18n() {
-  uiLang = resolveUiLang(uiLang);
-  document.documentElement.lang = uiLang === "zh" ? "zh-CN" : "en";
+  const lang = resolveUiLang(uiLang);
+  document.documentElement.lang = lang === "zh" ? "zh-CN" : "en";
   for (const el of document.querySelectorAll("[data-i18n]")) {
     el.textContent = t(el.dataset.i18n);
   }
@@ -1289,8 +1295,8 @@ async function init() {
       // visible but disabled so the composer row does not jump when the
       // real list lands.
       backendBtn.disabled = true;
-      backendLabel.textContent = "No adapters";
-      backendBtn.title = "No adapters — waiting for capabilities";
+      backendLabel.textContent = t("noAdapters");
+      backendBtn.title = t("noAdaptersWaiting");
       setBackendOpen(false);
       return;
     }
@@ -2818,7 +2824,7 @@ async function init() {
     micBtn.classList.toggle("listening", on);
     micBtn.setAttribute("aria-pressed", on ? "true" : "false");
     micBtn.title = on ? "Stop dictation" : "Dictate";
-    inputEl.placeholder = on ? "Listening…" : BASE_PLACEHOLDER;
+    inputEl.placeholder = on ? t("listening") : BASE_PLACEHOLDER;
     if (!on) showInterim("");
   }
 

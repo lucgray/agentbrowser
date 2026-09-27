@@ -37,10 +37,16 @@ if (isContextValid()) {
       logWarn("floating-ask setting read failed", err);
     });
   chrome.storage.onChanged.addListener((changes, area) => {
-    if (area !== "local" || !(FLOAT_ASK_KEY in changes)) return;
-      autoSelectionEnabled = changes[AUTO_SEL_KEY].newValue !== false;
+    if (area !== "local") return;
+    // Each key gates on its own presence — a change to one must not touch the
+    // other (reading a key absent from `changes` would throw).
+    if (FLOAT_ASK_KEY in changes) {
       floatingAskEnabled = changes[FLOAT_ASK_KEY].newValue !== false;
-    if (!floatingAskEnabled) hideButton();
+      if (!floatingAskEnabled) hideButton();
+    }
+    if (AUTO_SEL_KEY in changes) {
+      autoSelectionEnabled = changes[AUTO_SEL_KEY].newValue !== false;
+    }
   });
 }
 
