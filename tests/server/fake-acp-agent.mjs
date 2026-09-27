@@ -111,6 +111,8 @@ process.stdin.on('data', (chunk) => {
         id: msg.id,
         result: { sessionId: 'sess-1', models: { availableModels: [], currentModelId: 'fake' } }
       });
+    } else if (msg.method === 'session/set_model') {
+      send({ jsonrpc: '2.0', id: msg.id, result: {} });
     } else if (msg.method === 'session/prompt') {
       runTurn(msg.params.sessionId, msg.id);
     }

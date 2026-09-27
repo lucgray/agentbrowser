@@ -28,6 +28,10 @@ const EMPTY_USAGE = {
 
 const ACP_PROTOCOL_VERSION = 1;
 
+// Handshake and session setup requests get a bounded wait; session/prompt has
+// no timeout (a turn legitimately runs as long as the agent needs).
+const CONTROL_TIMEOUT_MS = 30000;
+
 // Spawn lines per CLI. `bin` is what probeAdapter checks for on PATH — for the
 // npm-wrapped agents the wrapper self-provisions (codex-acp bundles
 // @openai/codex; agy-acp can auto-install agy), so `npx` is the real prereq.
@@ -176,14 +180,27 @@ export function createAcpSpecSession(name, spec, ctx) {
     state.proc.stdin.write(JSON.stringify(msg) + '\n');
   }
 
-  function sendRequest(method, params) {
+  function sendRequest(method, params, timeoutMs = 0) {
     const id = state.nextId++;
     return new Promise((resolve, reject) => {
-      state.pending.set(id, { resolve, reject });
+      let timer = null;
+      state.pending.set(id, {
+        resolve: (v) => { if (timer) clearTimeout(timer); resolve(v); },
+        reject: (e) => { if (timer) clearTimeout(timer); reject(e); }
+      });
+      if (timeoutMs > 0) {
+        timer = setTimeout(() => {
+          if (state.pending.delete(id)) {
+            reject(new Error(`${method} timed out after ${timeoutMs}ms`));
+          }
+        }, timeoutMs);
+        timer.unref();
+      }
       try {
         writeMsg({ jsonrpc: '2.0', id, method, params });
       } catch (err) {
         state.pending.delete(id);
+        if (timer) clearTimeout(timer);
         reject(err);
       }
     });
@@ -373,7 +390,7 @@ export function createAcpSpecSession(name, spec, ctx) {
           terminal: false
         },
         clientInfo: { name: 'agentbrowser', version: '2.4' }
-      });
+      }, CONTROL_TIMEOUT_MS);
       const methods = init && Array.isArray(init.authMethods) ? init.authMethods : [];
       if (methods.length > 0 && init.agentCapabilities && init.agentCapabilities.promptCapabilities === undefined) {
         // Some agents advertise auth methods but still serve prompts; only warn
@@ -400,13 +417,13 @@ export function createAcpSpecSession(name, spec, ctx) {
     const res = await sendRequest('session/new', {
       cwd: process.cwd(),
       mcpServers: []
-    });
+    }, CONTROL_TIMEOUT_MS);
     const sessionId = res && res.sessionId;
     if (!sessionId) throw new Error('session/new returned no sessionId');
     state.sessionId = sessionId;
     if (ctx && ctx.model) {
       try {
-        await sendRequest('session/set_model', { sessionId, modelId: ctx.model });
+        await sendRequest('session/set_model', { sessionId, modelId: ctx.model }, CONTROL_TIMEOUT_MS);
       } catch (err) {
         // Older agents lack set_model; the preset default still applies.
         logWarn('session/set_model rejected, keeping agent default', err);
