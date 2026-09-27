@@ -218,7 +218,6 @@ img {
    two-pane menu: adapters on the left, the hovered adapter's models fly out
    on the right — nothing is expanded unless asked. */
 #backend {
-  position: relative;
   margin-left: -4px; /* hugs the attach button: row gap + padding ≈ 4px */
 }
 
@@ -259,9 +258,12 @@ img {
 /* The menu rises above the composer. Two columns sit side by side; the
    models pane collapses entirely for adapters without a model switch. */
 #backend-pop {
+  /* Anchored to #composer (the nearest positioned ancestor), not the button:
+     left+right pin it inside the panel at any width, even 240px. */
   position: absolute;
   bottom: calc(100% + 6px);
-  left: -6px;
+  left: 6px;
+  right: 6px;
   z-index: 60;
   display: flex;
   background: var(--ac-bg-1);
@@ -270,16 +272,13 @@ img {
   box-shadow: var(--ac-shadow-card);
   padding: var(--ac-space-4);
   max-height: 280px;
-  /* The two columns can overflow a narrow panel — cap at viewport width and
-     let each column shrink (labels ellipsize, columns scroll vertically). */
-  max-width: calc(100vw - 16px);
 }
 
 .backend-col {
   overflow-y: auto;
-  min-width: 120px;
+  min-width: 96px;
   max-width: 210px;
-  flex: 0 1 auto;
+  flex: 1 1 0;
 }
 
 #backend-pop[hidden] {
