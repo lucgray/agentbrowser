@@ -1518,7 +1518,8 @@ async function init() {
       head.disabled = empty;
       if (empty && block.expanded) setWorkExpanded(block, false);
     };
-    new MutationObserver(syncWorkEmpty).observe(body, {
+    block.emptyObserver = new MutationObserver(syncWorkEmpty);
+    block.emptyObserver.observe(body, {
       childList: true,
       characterData: true,
       subtree: true
@@ -1539,6 +1540,10 @@ async function init() {
     const block = workBlock;
     workBlock = null;
     block.live = false;
+    if (block.emptyObserver) {
+      block.emptyObserver.disconnect();
+      block.emptyObserver = null;
+    }
     block.el.classList.remove("live");
     if (block.count === 0 && block.body.children.length === 0) {
       block.el.remove();

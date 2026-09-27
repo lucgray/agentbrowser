@@ -37,11 +37,15 @@ function cacheFile() {
 }
 
 function readCache() {
+  const file = cacheFile();
+  // existsSync probes instead of a throwing readFileSync: a miss is control
+  // flow, not an error worth logging.
+  if (!existsSync(file)) return null;
   try {
-    const parsed = JSON.parse(readFileSync(cacheFile(), "utf8"));
+    const parsed = JSON.parse(readFileSync(file, "utf8"));
     if (parsed && typeof parsed === "object" && parsed.models) return parsed;
-  } catch {
-    // no cache yet — fine
+  } catch (err) {
+    logWarn("cache read failed", err);
   }
   return null;
 }
@@ -60,17 +64,21 @@ function writeCache(models) {
 }
 
 function readJsonIfPresent(file) {
+  if (!existsSync(file)) return null;
   try {
     return JSON.parse(readFileSync(file, "utf8"));
-  } catch {
+  } catch (err) {
+    logWarn(`cannot parse ${file}`, err);
     return null;
   }
 }
 
 function readTextIfPresent(file) {
+  if (!existsSync(file)) return null;
   try {
     return readFileSync(file, "utf8");
-  } catch {
+  } catch (err) {
+    logWarn(`cannot read ${file}`, err);
     return null;
   }
 }
