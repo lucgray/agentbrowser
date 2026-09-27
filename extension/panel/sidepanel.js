@@ -1410,7 +1410,7 @@ async function init() {
 
     const caret = document.createElement("span");
     caret.className = "work-caret";
-    caret.textContent = "›";
+    caret.setAttribute("aria-hidden", "true");
 
     head.append(labelEl, elapsedEl, stepsEl, spacer, caret);
 
@@ -1587,11 +1587,35 @@ async function init() {
   // label emitted by the adapter (v2.3), the `label` arg (v2.2), or a
   // harness-native `description` like Claude Code's Bash input — falling
   // back to the raw tool name when none exists.
+  // Full args for the expandable detail — the header only carries the
+  // truncated preview. label/description name the action, so they are
+  // excluded from both.
+  function prettyArgs(args) {
+    try {
+      const { label, description, ...rest } =
+        args && typeof args === "object" ? args : {};
+      const s = JSON.stringify(rest, null, 2);
+      return s && s !== "{}" ? s : "no arguments";
+    } catch (err) {
+      console.warn("[agentbrowser] arg stringify failed, using String()", err);
+      return String(args);
+    }
+  }
+
   function makeChipNode(tool, args, eventLabel) {
     const chip = document.createElement("div");
     chip.className = "chip";
 
-    const gear = document.createTextNode("⚙ ");
+    const head = document.createElement("button");
+    head.type = "button";
+    head.className = "chip-head";
+    head.setAttribute("aria-expanded", "false");
+
+    // CSS-drawn status icon: spinner ring while pending, check/cross after.
+    const status = document.createElement("span");
+    status.className = "chip-icon chip-pending";
+    status.setAttribute("aria-hidden", "true");
+
     const name = document.createElement("span");
     name.className = "chip-name";
     const argLabel =
@@ -1602,13 +1626,35 @@ async function init() {
       typeof eventLabel === "string" && eventLabel.trim() ? eventLabel.trim() : argLabel;
     name.textContent = label || String(tool);
     if (label) name.title = String(tool);
-    const argsText = document.createTextNode(" " + summarizeArgs(args) + " ");
-    const status = document.createElement("span");
-    status.className = "chip-pending";
-    status.textContent = "…";
 
-    chip.append(gear, name, argsText, status);
-    return { chip, status };
+    const argsText = document.createElement("span");
+    argsText.className = "chip-args";
+    argsText.textContent = summarizeArgs(args);
+
+    const caret = document.createElement("span");
+    caret.className = "chip-caret";
+    caret.setAttribute("aria-hidden", "true");
+
+    head.append(status, name, argsText, caret);
+
+    const detail = document.createElement("div");
+    detail.className = "chip-detail";
+    detail.hidden = true;
+    const argsPre = document.createElement("pre");
+    argsPre.className = "chip-detail-args";
+    argsPre.textContent = prettyArgs(args);
+    detail.appendChild(argsPre);
+
+    head.addEventListener("click", () => {
+      const open = detail.hidden;
+      detail.hidden = !open;
+      chip.classList.toggle("open", open);
+      head.setAttribute("aria-expanded", open ? "true" : "false");
+      scrollToBottom();
+    });
+
+    chip.append(head, detail);
+    return { chip, status, detail };
   }
 
   // Chips never sit in the transcript on their own: they nest inside the live
@@ -1616,8 +1662,8 @@ async function init() {
   // count by default. A lane keeps its own pending list, so two lanes running
   // the same tool at the same time cannot resolve each other's chips.
   function addToolChip(tool, args, laneEntry, id, eventLabel) {
-    const { chip, status } = makeChipNode(tool, args, eventLabel);
-    const record = { tool: String(tool), id: id == null ? null : String(id), statusEl: status, chipEl: chip };
+    const { chip, status, detail } = makeChipNode(tool, args, eventLabel);
+    const record = { tool: String(tool), id: id == null ? null : String(id), statusEl: status, chipEl: chip, detailEl: detail };
     if (laneEntry) {
       const view = ensureLaneView(laneEntry);
       view.body.appendChild(chip);
@@ -1653,26 +1699,36 @@ async function init() {
       idx = list.length - 1;
     }
     const entry = list.splice(idx, 1)[0];
-    entry.statusEl.className = ok ? "chip-ok" : "chip-err";
-    entry.statusEl.textContent = ok ? "✓" : "✗";
+    entry.statusEl.className = ok ? "chip-icon chip-ok" : "chip-icon chip-err";
+    if (summary) {
+      const res = document.createElement("div");
+      res.className = "chip-detail-result " + (ok ? "ok" : "err");
+      res.textContent = String(summary);
+      entry.detailEl.appendChild(res);
+    }
     if (!ok && summary) {
+      // The failure stays visible in the collapsed header too — the detail
+      // pane is opt-in and a red one-liner should not hide behind it.
       const err = document.createElement("span");
-      err.className = "chip-err";
-      err.textContent = " " + String(summary);
-      entry.chipEl.appendChild(err);
+      err.className = "chip-err-text";
+      err.textContent = String(summary);
+      entry.chipEl.querySelector(".chip-head").appendChild(err);
     }
     scrollToBottom();
   }
 
   function failChipList(list, reason) {
     for (const entry of list) {
-      entry.statusEl.className = "chip-err";
-      entry.statusEl.textContent = "✗";
+      entry.statusEl.className = "chip-icon chip-err";
       if (reason) {
+        const res = document.createElement("div");
+        res.className = "chip-detail-result err";
+        res.textContent = String(reason);
+        entry.detailEl.appendChild(res);
         const err = document.createElement("span");
-        err.className = "chip-err";
-        err.textContent = " " + reason;
-        entry.chipEl.appendChild(err);
+        err.className = "chip-err-text";
+        err.textContent = String(reason);
+        entry.chipEl.querySelector(".chip-head").appendChild(err);
       }
     }
     list.length = 0;
@@ -1757,7 +1813,7 @@ async function init() {
 
     const caret = document.createElement("span");
     caret.className = "lane-caret";
-    caret.textContent = "›";
+    caret.setAttribute("aria-hidden", "true");
 
     head.append(title, status, spacer, caret);
 

@@ -641,7 +641,9 @@ button:disabled {
   font-weight: 600;
 }
 
-/* ----- tool chip: one full-width row, not a bubble ----- */
+/* ----- tool chip: expandable call card (ai-elements "Tool" shape) -----
+   Header row: status icon + agent-chosen label + args preview + chevron.
+   Click expands a detail pane with the full args and the tool's result. */
 
 .chip {
   align-self: stretch;
@@ -650,28 +652,140 @@ button:disabled {
   background: var(--ac-bg-2);
   border: 1px solid var(--ac-border);
   border-radius: var(--ac-radius-control);
+  overflow: hidden;
+}
+
+.chip-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  min-width: 0;
   padding: 6px 10px;
+  background: transparent;
+  border: none;
   font: var(--ac-type-code);
   color: var(--ac-text-secondary);
+  text-align: left;
+  cursor: pointer;
+}
+
+.chip-head:hover {
+  background: var(--ac-bg-3, rgba(0, 0, 0, 0.04));
+  color: var(--ac-text);
+}
+
+.chip .chip-name {
+  flex: none;
+  max-width: 60%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ac-text);
+}
+
+.chip-args {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ac-text-muted);
+}
+
+.chip-err-text {
+  flex: none;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ac-error);
+}
+
+/* Status icon — drawn, not a glyph. Pending spins, ok is a check, err is a
+   cross. */
+.chip-icon {
+  flex: none;
+  position: relative;
+  width: 11px;
+  height: 11px;
+}
+
+.chip-icon.chip-pending {
+  box-sizing: border-box;
+  border: 1.6px solid var(--ac-border);
+  border-top-color: var(--ac-text-secondary);
+  border-radius: 50%;
+  animation: ac-spin 0.9s linear infinite;
+}
+
+.chip-icon.chip-ok::before {
+  content: "";
+  position: absolute;
+  left: 1px;
+  top: 3px;
+  width: 8px;
+  height: 4px;
+  border-left: 1.6px solid var(--ac-success);
+  border-bottom: 1.6px solid var(--ac-success);
+  transform: rotate(-45deg);
+}
+
+.chip-icon.chip-err::before,
+.chip-icon.chip-err::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 4.5px;
+  width: 11px;
+  height: 1.6px;
+  background: var(--ac-error);
+}
+
+.chip-icon.chip-err::before {
+  transform: rotate(45deg);
+}
+
+.chip-icon.chip-err::after {
+  transform: rotate(-45deg);
+}
+
+@keyframes ac-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Detail pane: full args JSON plus the result line when it arrives. */
+.chip-detail {
+  padding: 0 10px 8px 28px;
+  font: var(--ac-type-code);
+}
+
+.chip-detail-args {
+  margin: 0;
+  padding: 6px 8px;
+  max-height: 160px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  background: var(--ac-bg-1);
+  border: 1px solid var(--ac-border-soft);
+  border-radius: var(--ac-radius-control);
+  color: var(--ac-text-secondary);
+  font-size: 10.5px;
+}
+
+.chip-detail-result {
+  margin-top: 5px;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
 
-.chip .chip-name {
-  color: var(--ac-text);
+.chip-detail-result.ok {
+  color: var(--ac-text-secondary);
 }
 
-.chip .chip-ok {
-  color: var(--ac-success);
-}
-
-.chip .chip-err {
+.chip-detail-result.err {
   color: var(--ac-error);
-}
-
-.chip .chip-pending {
-  color: var(--ac-warn);
-  animation: ac-blink var(--ac-loop-status) var(--ac-ease-loop) infinite;
 }
 
 /* ----- status lines ----- */
@@ -754,9 +868,32 @@ button:disabled {
   min-width: 0;
 }
 
-/* Motion reports state: the label breathes only while the turn is live. */
+/* Motion reports state: the label breathes only while the turn is live.
+   Where background-clip:text is available it becomes a light sweep, the
+   ai-elements "shimmer"; elsewhere the opacity pulse remains. */
 .work-block.live .work-label {
   animation: ac-shimmer var(--ac-loop-status) var(--ac-ease-loop) infinite;
+}
+
+@supports ((-webkit-background-clip: text) or (background-clip: text)) {
+  .work-block.live .work-label {
+    animation: ac-shimmer-sweep 1.8s linear infinite;
+    background: linear-gradient(
+      100deg,
+      var(--ac-text) 40%,
+      var(--ac-text-muted) 50%,
+      var(--ac-text) 60%
+    );
+    background-size: 220% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+}
+
+@keyframes ac-shimmer-sweep {
+  from { background-position: 200% 0; }
+  to { background-position: -20% 0; }
 }
 
 .work-elapsed,
@@ -768,14 +905,24 @@ button:disabled {
   color: var(--ac-text-muted);
 }
 
-.work-caret {
+/* Carets are drawn chevrons, not text: one shared recipe for the work
+   block, lanes and tool chips. Points right; rotated down when open. */
+.work-caret,
+.lane-caret,
+.chip-caret {
   flex: none;
-  color: var(--ac-text-muted);
+  width: 6px;
+  height: 6px;
+  border-top: 1.5px solid var(--ac-text-muted);
+  border-right: 1.5px solid var(--ac-text-muted);
+  transform: rotate(45deg) translateY(-1px);
   transition: transform var(--ac-dur-fast) var(--ac-ease);
 }
 
-.work-block.open .work-caret {
-  transform: rotate(90deg);
+.work-block.open .work-caret,
+.lane-block.open .lane-caret,
+.chip.open .chip-caret {
+  transform: rotate(135deg) translateY(-1px);
 }
 
 .work-body {
@@ -786,8 +933,12 @@ button:disabled {
   padding: 0 var(--ac-space-12) var(--ac-space-12);
 }
 
+/* Reasoning text sits on a quiet accent rail, the ai-elements "Reasoning"
+   shape — visually distinct from both chips and the reply. */
 .work-thinking {
   min-width: 0;
+  padding: 2px 0 2px 10px;
+  border-left: 2px solid var(--ac-border);
   font: var(--ac-type-secondary);
   font-style: italic;
   color: var(--ac-text-muted);
@@ -868,15 +1019,7 @@ button:disabled {
   animation: none;
 }
 
-.lane-caret {
-  flex: none;
-  color: var(--ac-text-muted);
-  transition: transform var(--ac-dur-fast) var(--ac-ease);
-}
 
-.lane-block.open .lane-caret {
-  transform: rotate(90deg);
-}
 
 .lane-body {
   display: flex;
@@ -1406,7 +1549,7 @@ button:disabled {
   .dot.up.working,
   .msg.assistant.streaming:empty::after,
   .msg.assistant.streaming > :last-child::after,
-  .chip .chip-pending,
+  .chip .chip-icon.chip-pending,
   .work-block.live .work-label,
   .lane-block.live .lane-status,
   #mic.listening {
