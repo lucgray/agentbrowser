@@ -59,66 +59,67 @@ let CLICKS = [];
 let cx0=0, cy0=0, cw0=1, ch0=1;
 
 // ---- simulated pointer ----------------------------------------------------
-// openScreen-style: one continuous eased path through the action markers.
-// Between two markers the pointer rests, then glides over in a window sized
-// by distance — it *arrives* at each marker exactly when the action happens.
+// openScreen-style: a critically-damped spring chases a waypoint chain — each
+// marker becomes the target as its time arrives, so motion is smooth, physical
+// and slightly organic (overshoot damped out), never a mechanical keyframe.
+// Stateful per frame; the render loop steps t strictly forward.
 function makePointer(markers){
   const pts = (markers||[]).filter(m=>Number.isFinite(m.x)&&Number.isFinite(m.y));
   if(!pts.length) return null;
-  // per-segment travel: slow glide, starts well before the action lands —
-  // the pointer is visibly *traveling* most of the time, like a hand
-  const segs = pts.slice(1).map((m,i)=>{
-    const a=pts[i], d=Math.hypot(m.x-a.x, m.y-a.y);
-    return {a, b:m, dur:clamp(d*2.1, 650, 1600)};
-  });
-  function pos(t){
-    if(t<=pts[0].t) return idle(pts[0], t);
-    for(const s of segs){
-      const t0 = s.b.t - s.dur;
-      if(t < s.b.t){
-        if(t<t0) return idle(s.a, t);
-        const u = smooth((t-t0)/s.dur);
-        // slight arc: sway perpendicular to motion while gliding
-        const dx=s.b.x-s.a.x, dy=s.b.y-s.a.y, d=Math.hypot(dx,dy)||1;
-        const sw = Math.sin(u*Math.PI)*Math.min(10, d*0.04);
-        return {x: lerp(s.a.x,s.b.x,u) - dy/d*sw,
-                y: lerp(s.a.y,s.b.y,u) + dx/d*sw};
-      }
-    }
-    const last = pts[pts.length-1];
-    return idle(last, t);
+  let px=pts[0].x, py=pts[0].y, vx=0, vy=0, lastT=0;
+  function target(t){
+    let cur = pts[0];
+    for(const m of pts){ if(m.t<=t) cur=m; else break; }
+    return cur;
   }
-  // resting isn't frozen: a slow ~2px drift keeps the pointer alive
-  function idle(p, t){
-    return {x: p.x + Math.sin(t*0.0009)*2.2,
-            y: p.y + Math.sin(t*0.0013+1.7)*1.8};
+  function step(t){
+    const dt = Math.min(0.05, Math.max(0.001,(t-lastT)/1000)); lastT=t;
+    const tg = target(t);
+    // resting isn't frozen: waypoint gets a slow ±2px breathing drift
+    const tx = tg.x + Math.sin(t*0.0009)*2.2, ty = tg.y + Math.sin(t*0.0013+1.7)*1.8;
+    // spring: stiffness ~180, damping ~26 → snappy but settles without bounce
+    const K=180, D=26;
+    vx += ((tx-px)*K - vx*D)*dt;  vy += ((ty-py)*K - vy*D)*dt;
+    px += vx*dt; py += vy*dt;
+    return {x:px, y:py};
   }
-  // velocity for a subtle lean while moving
   function tilt(t){
-    const a=pos(Math.max(0,t-33)), b=pos(t);
-    return clamp((b.x-a.x)*0.0016, -0.12, 0.12);
+    const v = Math.hypot(vx,vy);
+    return clamp(vx*0.00022, -0.14, 0.14) * Math.min(1, v/400);
   }
-  return {pos, tilt};
+  // fade+scale in at the start so the pointer materializes, never pops
+  function alpha(t){ return clamp((t-Math.max(0,pts[0].t-1200))/500, 0, 1); }
+  // current spring state — pure getter for the camera; step() is the mutator
+  const pos = ()=>({x:px, y:py});
+  return {step, pos, tilt, alpha};
 }
 
-// click pulse: expanding ring + cursor squash at each click marker
+// click pulse: two rings — a fast shockwave and a slower trailing ripple —
+// plus the cursor squash in drawPointer. Reads as a soft tap, not a flash.
 function drawClicks(t, toPx){
   for(const m of CLICKS){
     const dt = t-m.t;
-    if(dt<0 || dt>620) continue;
+    if(dt<0 || dt>780) continue;
     const p = toPx(m.x, m.y); if(!p) continue;
-    const pr = smooth(dt/620);
-    ctx.strokeStyle = `rgba(255,255,255,${0.85*(1-pr)})`;
-    ctx.lineWidth = 2.5*(1-pr)+0.5;
-    ctx.beginPath(); ctx.arc(p.x, p.y, 8+42*pr, 0, 7); ctx.stroke();
+    for(const [delay, R, A] of [[0,44,.9],[140,30,.5]]){
+      const d2 = dt-delay; if(d2<0||d2>620) continue;
+      const pr = smooth(d2/620);
+      ctx.strokeStyle = `rgba(255,255,255,${A*(1-pr)})`;
+      ctx.lineWidth = 2.5*(1-pr)+0.5;
+      ctx.beginPath(); ctx.arc(p.x, p.y, 6+R*pr, 0, 7); ctx.stroke();
+    }
+    // brief filled flash at the contact point
+    if(dt<160){
+      ctx.fillStyle = `rgba(255,255,255,${.5*(1-dt/160)})`;
+      ctx.beginPath(); ctx.arc(p.x, p.y, 9, 0, 7); ctx.fill();
+    }
   }
 }
 
 const ARROW = 'M4 2 L4 20.5 L8.3 16.6 L10.6 22.3 L13.6 21.1 L11.3 15.5 L17.5 15.5 Z';
 const arrowPath = new Path2D(ARROW);
-function drawPointer(t, toPx){
-  if(!pointer) return;
-  const c = pointer.pos(t);
+function drawPointer(c, t, toPx){
+  if(!pointer || !c) return;
   const p = toPx(c.x, c.y); if(!p) return;
   // squash on click
   let sc=1;
@@ -126,6 +127,7 @@ function drawPointer(t, toPx){
     if(dt>=0&&dt<220) sc = 1-0.18*smooth(1-dt/220); }
   const size = OUT_W*0.017*sc;                  // ~32px at 1920
   ctx.save();
+  ctx.globalAlpha = pointer.alpha(t);
   ctx.translate(p.x, p.y);
   ctx.rotate(pointer.tilt(t));
   const k = size/24;
@@ -159,10 +161,19 @@ function makeCam(markers){
     }
     return 1;
   }
+  // anticipation: between actions, the lens drifts toward the NEXT marker a
+  // little early, so the pan starts before the pointer visibly moves
+  function nextTarget(t){
+    const pts = (markers||[]).filter(m=>Number.isFinite(m.x)&&Number.isFinite(m.y));
+    for(const m of pts){ if(m.t>t) return m; }
+    return pts[pts.length-1] || {x:cx0+cw0/2, y:cy0+ch0/2};
+  }
   return t=>{
     const s = zoomAt(t);
-    const c = pointer ? pointer.pos(t) : {x:cx0+cw0/2, y:cy0+ch0/2};
-    return {s, fx:c.x, fy:c.y};
+    const c = (pointer && pointer.pos()) || {x:cx0+cw0/2, y:cy0+ch0/2};
+    const nx = nextTarget(t);
+    const blend = s>1 ? 0.85 : 0.65;          // zoomed: stick close to pointer
+    return {s, fx:lerp(c.x,nx.x,1-blend), fy:lerp(c.y,nx.y,1-blend)};
   };
 }
 
@@ -185,12 +196,16 @@ function makeSubs(cues){
     const i = cues.indexOf(cur);
     const end = Math.min(cur.t + Math.max(1200, cur.d||2500),
                          i+1<cues.length ? cues[i+1].t-80 : Infinity);
-    return t<=end ? cur.text : null;
+    if(t>end) return null;
+    // 150ms fade in/out instead of a hard cut
+    const a = Math.min(clamp((t-cur.t)/150,0,1), clamp((end-t)/150,0,1));
+    return {text:cur.text, a};
   };
 }
-function drawSubs(text){
-  if(!text) return;
+function drawSubs(text, opacity){
+  if(!text || opacity<=0) return;
   const fs = Math.round(cv.width*0.017);
+  ctx.save(); ctx.globalAlpha = opacity;
   ctx.font = `500 ${fs}px system-ui, sans-serif`;
   const tw = ctx.measureText(text).width;
   const pw = fs*1.2, ph = fs*0.9;
@@ -200,7 +215,7 @@ function drawSubs(text){
   roundRect(bx,by,bw,bh,bh/2); ctx.fill();
   ctx.fillStyle = '#fff'; ctx.textBaseline='middle'; ctx.textAlign='center';
   ctx.fillText(text, cv.width/2, by+bh/2+1);
-  ctx.textAlign='left';
+  ctx.restore(); ctx.textAlign='left';
 }
 
 async function main(){
@@ -286,6 +301,7 @@ async function main(){
     }
   }
   function draw(t){
+    const pcur = pointer ? pointer.step(t) : null;  // advance the spring once
     const c = cam(t);
     const s = c.s;
     drawBackdrop();
@@ -309,8 +325,9 @@ async function main(){
       ? (x,y)=>({x: VX+(x-sx)*VW/cw, y: VY+(y-sy)*VH/ch})
       : (x,y)=>({x: VX+(x-cx0)*VW/cw0, y: VY+(y-cy0)*VH/ch0});
     drawClicks(t, toPx);
-    drawPointer(t, toPx);
-    drawSubs(subs(t));
+    drawPointer(pcur, t, toPx);
+    const sub = subs(t);
+    if(sub) drawSubs(sub.text, sub.a);
   }
   // Deterministic frame-stepping: seek, wait 'seeked', draw, push the frame.
   // Occluded tabs throttle rAF/timers, so the loop is event-driven, not clock.
