@@ -9,8 +9,9 @@
 // Zoom-pan render of an agentbrowser recording (openScreen-style frame:
 // blurred source backdrop + rounded inset video + virtual cursor).
 //   ?src=<webm>  ?track=<track.json>  ?w=<output width px, default 1920>
-// Marker x/y are CSS-viewport px; the track's `viewport` field (written by
-// record_stop) maps them into video px.
+// tabCapture output is letterboxed to a fixed aspect; the track's `viewport`
+// field (CSS px, written by record_stop) tells us the real content rect so we
+// can crop the pillarbox and map markers (CSS px) into content pixels.
 const params = new URLSearchParams(location.search);
 const SRC = params.get('src') || 'record.webm';
 const TRACK = params.get('track') || SRC.replace(/\.webm$/, '.track.json');
@@ -19,7 +20,7 @@ const FPS = 30;
 const ZOOM = 1.9, EASE_IN = 420, HOLD = 1100, EASE_OUT = 460; // ms
 const PAD = 0.06;                  // inset as fraction of output width
 const RADIUS = 18;                 // corner radius in output px
-const CURSOR_MS = 550;             // cursor travel time between markers
+const CURSOR_SPEED = 0.9;          // video px per ms of cursor travel
 const hud = document.getElementById('hud');
 const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
 const v = document.getElementById('v');
@@ -47,7 +48,7 @@ function makeCam(markers){
 }
 
 // ---- virtual cursor --------------------------------------------------------
-// position: dwell at each marker, smoothstep to the next over CURSOR_MS.
+// dwell at each marker, ease to the next over a distance-proportional time.
 function makeCursor(markers){
   const pts = (markers||[]).slice().sort((a,b)=>a.t-b.t);
   if(!pts.length) return null;
@@ -55,7 +56,9 @@ function makeCursor(markers){
     let prev=pts[0], next=null;
     for(const m of pts){ if(m.t<=t) prev=m; else { next=m; break; } }
     if(!next) return {x:prev.x, y:prev.y};
-    const k = smooth(clamp((t-prev.t)/CURSOR_MS,0,1));
+    const dist = Math.hypot(next.x-prev.x, next.y-prev.y);
+    const dur = clamp(dist/CURSOR_SPEED, 250, 900);
+    const k = smooth(clamp((t-prev.t)/dur,0,1));
     return { x:lerp(prev.x,next.x,k), y:lerp(prev.y,next.y,k) };
   };
 }
@@ -107,15 +110,26 @@ async function main(){
   const OUT_H = Math.round(OUT_W*vh/vw);
   cv.width=OUT_W; cv.height=OUT_H;
   const pad = OUT_W*PAD;
-  const VX=pad, VY=pad, VW=OUT_W-2*pad, VH=OUT_H-2*pad;
-  // CSS px -> video px. Without a viewport field assume they already match.
-  const mx = track.viewport && track.viewport.w ? vw/track.viewport.w : 1;
-  const my = track.viewport && track.viewport.h ? vh/track.viewport.h : 1;
-  const toVideo = p => ({x:p.x*mx, y:p.y*my});
-  hud.textContent = `src ${vw}x${vh} ${v.duration.toFixed(1)}s | out ${OUT_W}x${OUT_H} | markers ${(track.markers||[]).length} vp ${track.viewport?track.viewport.w+'x'+track.viewport.h:'-'} | rendering…`;
 
-  // markers stored in CSS px -> work in video px from here on
-  const markers = (track.markers||[]).map(m=>({...m, ...toVideo(m)}));
+  // content rect inside the letterboxed capture (centered, fits viewport aspect)
+  let cx0=0, cy0=0, cw0=vw, ch0=vh;
+  if(track.viewport && track.viewport.w && track.viewport.h){
+    const cs = Math.min(vw/track.viewport.w, vh/track.viewport.h);
+    cw0 = track.viewport.w*cs; ch0 = track.viewport.h*cs;
+    cx0 = (vw-cw0)/2; cy0 = (vh-ch0)/2;
+  }
+  // markers: CSS px -> content-rect px
+  const mscale = cw0/(track.viewport && track.viewport.w || vw);
+  const markers = (track.markers||[]).map(m=>({...m, x:cx0+m.x*mscale, y:cy0+m.y*mscale}));
+
+  // inner frame: largest rect with content aspect inside the padded area
+  const bw = OUT_W-2*pad, bh = OUT_H-2*pad;
+  const fit = Math.min(bw/cw0, bh/ch0);
+  const VW = cw0*fit, VH = ch0*fit;
+  const VX = (OUT_W-VW)/2, VY = (OUT_H-VH)/2;
+
+  hud.textContent = `src ${vw}x${vh} content ${cw0|0}x${ch0|0} | out ${OUT_W}x${OUT_H} | markers ${markers.length} | rendering…`;
+
   const cam = makeCam(markers);
   const cursor = makeCursor(markers);
   const pulse = clickPulse(markers);
@@ -136,6 +150,12 @@ async function main(){
     ctx.fillStyle = 'rgba(12,13,18,.45)';
     ctx.fillRect(0,0,OUT_W,OUT_H);
   }
+  // source crop (video px) -> dest inner box
+  function srcCrop(s, c){
+    if(s<=1 || c.fx==null) return {x:cx0, y:cy0, w:cw0, h:ch0};
+    const w=cw0/s, h=ch0/s;
+    return { x:clamp(c.fx-w/2,cx0,cx0+cw0-w), y:clamp(c.fy-h/2,cy0,cy0+ch0-h), w, h };
+  }
   function draw(){
     const t = v.currentTime*1000;
     const c = cam(t);
@@ -146,26 +166,13 @@ async function main(){
     ctx.fillStyle='#000'; roundRect(VX,VY,VW,VH,RADIUS); ctx.fill();
     ctx.shadowColor='transparent';
     roundRect(VX,VY,VW,VH,RADIUS); ctx.clip();
-    if(s>1 && c.fx!=null){
-      const cw=vw/s, ch=vh/s;
-      const sx=clamp(c.fx-cw/2,0,vw-cw), sy=clamp(c.fy-ch/2,0,vh-ch);
-      ctx.drawImage(v, sx,sy,cw,ch, VX,VY,VW,VH);
-    } else {
-      ctx.drawImage(v, VX,VY,VW,VH);
-    }
+    const crop = srcCrop(s, c);
+    ctx.drawImage(v, crop.x,crop.y,crop.w,crop.h, VX,VY,VW,VH);
     ctx.restore();
     if(cursor){
-      const cp=cursor(t); // video px
-      let px,py;
-      if(s>1 && c.fx!=null){
-        const cw=vw/s, ch=vh/s;
-        const sx=clamp(c.fx-cw/2,0,vw-cw), sy=clamp(c.fy-ch/2,0,vh-ch);
-        px=VX+(cp.x-sx)/cw*VW; py=VY+(cp.y-sy)/ch*VH;
-      } else {
-        px=VX+cp.x/vw*VW; py=VY+cp.y/vh*VH;
-      }
-      px=clamp(px,VX,VX+VW); py=clamp(py,VY,VY+VH);
-      drawCursor(px,py,pulse(t));
+      const cp=cursor(t); // content-rect px
+      const px=VX+(cp.x-crop.x)/crop.w*VW, py=VY+(cp.y-crop.y)/crop.h*VH;
+      drawCursor(clamp(px,VX,VX+VW),clamp(py,VY,VY+VH),pulse(t));
     }
     if(!v.ended) requestAnimationFrame(draw);
   }
