@@ -1,4 +1,4 @@
-# AgentBrowser protocol v2.7
+# AgentBrowser protocol v2.8
 
 AgentBrowser is a Chrome MV3 extension with a side-panel chat UI, plus a local hub
 server. The chat is backed by a pluggable "harness" (Claude Agent SDK, Claude
@@ -565,7 +565,8 @@ offscreen <-> sw, via `chrome.runtime.sendMessage`:
 
 - `{target:"offscreen", cmd:"send", payload:<object to send over WS>}`
 - `{target:"offscreen", cmd:"connect", url}` — (re)connect to this URL
-- `{target:"offscreen", cmd:"record_start", streamId}` — start MediaRecorder on the tabCapture stream (v2.7)
+- `{target:"offscreen", cmd:"record_start", streamId, audio?, bitrate?}` — start MediaRecorder on the tabCapture stream (v2.7; audio/bitrate v2.8)
+- `{target:"offscreen", cmd:"record_pause"}` / `record_resume` — pause/resume the recorder (v2.8)
 - `{target:"offscreen", cmd:"record_stop", filename, trackJson}` — stop, save webm + track.json via chrome.downloads (v2.7)
 - `{target:"sw", cmd:"ws_message", payload:<parsed WS message>}`
 - `{target:"sw", cmd:"ws_status", connected:<bool>}`
@@ -692,8 +693,11 @@ executor, in the SDK adapter's MCP server, and in mcp-proxy.mjs.
 | `debug_wait` | `{timeoutMs?, tabId?}` | `{paused:true, reason, hitBreakpoints, callFrames, topCallFrameId}` or `{paused:false, reason:'timeout'|'detached'}` — v2.6; cap 300s |
 | `debug_eval` | `{expression, callFrameId?, tabId?}` | `{result}` or `{error}` — v2.6; paused frames only, consent-gated |
 | `debug_resume` | `{action?, tabId?}` | `{resumed:true, action}` — v2.6; resume/stepOver/stepInto/stepOut, consent-gated |
-| `record_start` | `{tabId?}` | `{recording:true, tabId, startedAt}` — v2.7; chrome.tabCapture + offscreen MediaRecorder → webm; while recording, coordinate-bearing calls append `{t,x,y,kind,label?}` to a marker track (labels become captions in `docs/zoomview.html`); consent-gated |
+| `record_start` | `{tabId?, audio?, bitrate?}` | `{recording:true, tabId, startedAt}` — v2.7; chrome.tabCapture + offscreen MediaRecorder → webm; `audio`/`bitrate` v2.8; while recording, coordinate-bearing calls append `{t,x,y,kind,label?,w?,h?,key?,text?}` to a marker track (labels become captions in `docs/zoomview.html`; w/h size the zoom, key/text drive the key HUD); consent-gated |
 | `record_stop` | `{tabId?}` | `{file, bytes, durationMs, markers}` — v2.7; saves `<Downloads>/agentbrowser/record-<ts>-tab<id>.webm` plus `<same>.track.json` (the zoom marker track) |
+| `record_pause` | `{tabId?}` | `{paused:true, at}` — v2.8; video freezes, markers pause |
+| `record_resume` | `{tabId?}` | `{paused:false}` — v2.8 |
+| `record_marker` | `{tabId?, x?, y?, kind?, label?}` | `{marked:true, markers}` — v2.8; free beat marker, no browser action (`note` caption / `nav` cross-fade) |
 
 `label` (v2.2): every tool's schema gains an optional `label` string — an
 agent-chosen display name for the call. The side panel shows it as the chip
@@ -1005,6 +1009,17 @@ die with the debugger session, so detach clears `breakpoints`, the script
 map, any pending `debug_wait` (resolved `reason:'detached'`), and pause
 state. `breakpoint_set`, `debug_eval`, and `debug_resume` are in the
 consent gate's write-tool set; the list/remove/wait tools are reads.
+
+## Recording track v2.8
+
+Marker kinds on the track: `click`, `type` (focus+typed text, `text`), `key`
+(`key`), `scroll`, `drag`/`dragend` (sweep endpoints — the renderer strokes
+the path between them), `select`, `hover`, `nav` (renderer cross-fades),
+`note` (from `record_marker`). Selector-based calls also carry `w`/`h` (the
+target element's CSS size) so the render can pick an adaptive zoom depth.
+`pausedAt` gates `mark()` — tool calls while paused leave no marker.
+`track.pauses: [{from,to}]` lists pause spans (the video freezes through
+them; timestamps stay on wall-clock so no shift is needed).
 
 ## mcp-proxy.mjs
 

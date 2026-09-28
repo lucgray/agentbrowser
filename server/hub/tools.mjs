@@ -541,11 +541,13 @@ export const TOOLS = [
 
   {
     name: "record_start",
-    description: "Start capturing this tab to webm (chrome.tabCapture + MediaRecorder; tab content only, no system cursor, no audio). While recording, every coordinate-bearing tool call (click/hover/scroll/drag/select) appends a {t,x,y,kind} marker to a zoom track. Returns {recording, tabId, startedAt}.",
+    description: "Start capturing this tab to webm (chrome.tabCapture + MediaRecorder; tab content only, no system cursor). While recording, every coordinate-bearing tool call (click/hover/scroll/drag/select/type/key/nav) appends a {t,x,y,kind} marker to a zoom track — selector-based calls also carry the element size so the renderer can pick a zoom level. Returns {recording, tabId, startedAt}.",
     args: {
       type: "object",
       properties: {
-        tabId: { type: "number", description: "Target tab id; omit for the active tab" }
+        tabId: { type: "number", description: "Target tab id; omit for the active tab" },
+        audio: { type: "boolean", description: "Capture the tab's audio track too (default false)" },
+        bitrate: { type: "number", description: "Video bits/sec, 1M-20M (default 8M)" }
       },
       required: []
     }
@@ -557,6 +559,43 @@ export const TOOLS = [
       type: "object",
       properties: {
         tabId: { type: "number", description: "Target tab id; omit for the active tab" }
+      },
+      required: []
+    }
+  },
+  {
+    name: "record_pause",
+    description: "Pause the running tab recording (video freezes; markers stop). Pair with record_resume.",
+    args: {
+      type: "object",
+      properties: {
+        tabId: { type: "number", description: "Target tab id; omit for the active tab" }
+      },
+      required: []
+    }
+  },
+  {
+    name: "record_resume",
+    description: "Resume a paused tab recording.",
+    args: {
+      type: "object",
+      properties: {
+        tabId: { type: "number", description: "Target tab id; omit for the active tab" }
+      },
+      required: []
+    }
+  },
+  {
+    name: "record_marker",
+    description: "Drop a marker on the recording track with no browser action — a beat for the edit: 'note' (default; caption only) or 'nav' (cross-fade cut). x/y omit = viewport center. label becomes the caption.",
+    args: {
+      type: "object",
+      properties: {
+        tabId: { type: "number", description: "Target tab id; omit for the active tab" },
+        x: { type: "number" },
+        y: { type: "number" },
+        kind: { type: "string", description: "'note' (default) or 'nav'" },
+        label: { type: "string", description: "Caption text shown at this beat" }
       },
       required: []
     }

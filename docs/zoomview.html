@@ -30,8 +30,9 @@ const OUT_W = Number(params.get('w')) || 1920;
 const OUT_H_PARAM = Number(params.get('h')) || 0;
 const THEME = params.get('theme') || 'studio';
 const SUBS = params.get('subs');             // unset: derive from markers
-const FPS = 30;
-const ZOOM = 1.9, EASE_IN = 420, HOLD = 1100, EASE_OUT = 460; // ms
+const FPS = Math.max(15, Math.min(Number(params.get('fps')) || 30, 60));
+const BITRATE = Math.max(1e6, Math.min(Number(params.get('bitrate')) || 8e6, 25e6));
+const ZOOM = 1.9;
 const PAD = 0.06;
 const RADIUS = 18;
 const hud = document.getElementById('hud');
@@ -141,23 +142,37 @@ function drawPointer(c, t, toPx){
 
 // ---- zoom camera ----------------------------------------------------------
 // Smooth follow: the lens always tracks the simulated pointer; zoom level is
-// an envelope around click/scroll clusters — ramps in before the action and
-// relaxes after, so the motion reads as one continuous shot, not cuts.
+// an envelope around action clusters — ramps in before the action and relaxes
+// after, so the motion reads as one continuous shot, not cuts. Zoom depth is
+// adaptive: markers that carry the target's element size (selector clicks,
+// type_text focus, hovers) zoom so the element fills ~55% of the short side
+// — a small input gets a tight push, a big region stays wide.
+const ZOOM_KINDS = new Set(['click','scroll','type','key','drag','select']);
+function markerZoom(m){
+  if(Number.isFinite(m.w) && Number.isFinite(m.h) && m.w>0 && m.h>0){
+    const box = Math.max(m.w, m.h);          // CSS px, pre-scale
+    return clamp(0.55*Math.min(cw0,ch0)/box, 1.35, 2.6);
+  }
+  return ZOOM;
+}
 function makeCam(markers){
-  const pts = (markers||[]).filter(m=>m.kind==='click'||m.kind==='scroll');
-  // merge windows [t-380, t+1500]
+  const pts = (markers||[]).filter(m=>ZOOM_KINDS.has(m.kind));
+  // merge windows [t-380, t+1500]; a merged window keeps the deepest zoom
   const wins=[];
   for(const m of pts){
-    const w=[m.t-380, m.t+1500];
+    const w={a:m.t-380, b:m.t+1500, z:markerZoom(m)};
     const last=wins[wins.length-1];
-    if(last && w[0]<=last[1]) last[1]=Math.max(last[1],w[1]); else wins.push(w);
+    if(last && w.a<=last.b){ last.b=Math.max(last.b,w.b); last.z=Math.max(last.z,w.z); }
+    else wins.push(w);
   }
   function zoomAt(t){
-    for(const [a,b] of wins){
-      if(t<a) return 1;
-      if(t<=a+460) return 1+(ZOOM-1)*smooth((t-a)/460);
-      if(t<=b) return ZOOM;
-      if(t<=b+680) return lerp(ZOOM,1,smooth((t-b)/680));
+    for(let i=0;i<wins.length;i++){
+      const w=wins[i];
+      const zNext = i+1<wins.length ? wins[i+1].z : 1;
+      if(t<w.a) return 1;
+      if(t<=w.a+460) return 1+(w.z-1)*smooth((t-w.a)/460);
+      if(t<=w.b) return w.z;
+      if(t<=w.b+680) return lerp(w.z, zNext, smooth((t-w.b)/680));
     }
     return 1;
   }
@@ -183,6 +198,76 @@ function roundRect(x,y,w,h,r){
   ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r);
   ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r);
   ctx.closePath();
+}
+
+// ---- key/type HUD --------------------------------------------------------
+// Small pill bottom-right showing the current key press or typed text — the
+// promo-video convention (Cursorful/Screen Studio style). Driven by 'key' and
+// 'type' markers; fades in/out over 120ms.
+function drawHud(t){
+  let item=null, t0=0, t1=0;
+  for(const m of markers){
+    if(m.kind!=='key' && m.kind!=='type') continue;
+    const ttl = m.kind==='key' ? 900 : Math.min(2400, 500 + (m.text||'').length*45);
+    if(t>=m.t && t<=m.t+ttl){ item=m; t0=m.t; t1=m.t+ttl; }
+  }
+  if(!item) return;
+  const a = Math.min(clamp((t-t0)/120,0,1), clamp((t1-t)/160,0,1));
+  const fs = Math.round(cv.width*0.015);
+  const text = item.kind==='key' ? item.key : `“${item.text||''}”`;
+  ctx.save(); ctx.globalAlpha = a;
+  ctx.font = `600 ${fs}px ui-monospace, SFMono-Regular, Menlo, monospace`;
+  const tw = ctx.measureText(text).width;
+  const bw = tw+fs*1.9, bh = fs*2.2;
+  const bx = cv.width-bw-cv.width*0.03, by = cv.height-bh-cv.width*0.03;
+  ctx.fillStyle='rgba(12,12,16,.78)';
+  roundRect(bx,by,bw,bh,bh*0.28); ctx.fill();
+  ctx.strokeStyle='rgba(255,255,255,.14)'; ctx.lineWidth=1; ctx.stroke();
+  ctx.fillStyle='#fff'; ctx.textBaseline='middle'; ctx.textAlign='center';
+  ctx.fillText(text, bx+bw/2, by+bh/2+1);
+  ctx.restore(); ctx.textAlign='left';
+}
+
+// ---- navigation dip -------------------------------------------------------
+// 'nav' markers: the source video hard-cuts to a new page — a 140ms dip to a
+// dark veil reads as an intentional transition instead of a dropped frame.
+function drawNavDips(t){
+  for(const m of markers){
+    if(m.kind!=='nav') continue;
+    const dt=Math.abs(t-m.t);
+    if(dt>160) continue;
+    ctx.fillStyle=`rgba(8,8,12,${0.85*(1-dt/160)})`;
+    ctx.fillRect(0,0,cv.width,cv.height);
+  }
+}
+
+// ---- drag trail -----------------------------------------------------------
+// Between 'drag' and 'dragend' markers the pointer path is stroked as a
+// fading ribbon — the viewer sees where the element traveled.
+const trail=[];
+function drawTrail(t, toPx){
+  let active=false, keep=0;
+  for(let i=0;i<markers.length;i++){
+    const m=markers[i];
+    if(m.kind!=='drag') continue;
+    const end=(markers.slice(i+1).find(n=>n.kind==='dragend')||m).t;
+    if(t>=m.t && t<=end+450){ if(t<=end) active=true; keep=Math.max(keep,end+450); }
+  }
+  if(active && pointer) trail.push({...pointer.pos(), t});
+  while(trail.length && trail[0].t<t-900) trail.shift();
+  if(!trail.length) return;
+  ctx.save(); ctx.lineCap='round'; ctx.lineJoin='round';
+  for(let i=1;i<trail.length;i++){
+    const p0=trail[i-1], p1=trail[i];
+    const age=(t-p1.t)/900; if(age<0||age>1) continue;
+    const a=0.75*(1-age);
+    const q0=toPx(p0.x,p0.y), q1=toPx(p1.x,p1.y);
+    if(!q0||!q1) continue;
+    ctx.strokeStyle=`rgba(255,255,255,${a})`;
+    ctx.lineWidth=OUT_W*0.0035;
+    ctx.beginPath(); ctx.moveTo(q0.x,q0.y); ctx.lineTo(q1.x,q1.y); ctx.stroke();
+  }
+  ctx.restore();
 }
 
 // ---- captions -------------------------------------------------------------
@@ -264,13 +349,13 @@ async function main(){
               .map(m=>({t:m.t-300, text:m.label, d:2600}));
   const subs = makeSubs(cues);
   pointer = makePointer(markers);
-  CLICKS = markers.filter(m=>m.kind==='click');
+  CLICKS = markers.filter(m=>m.kind==='click'||m.kind==='type');
 
   hud.textContent = `src ${vw}x${vh} content ${cw0|0}x${ch0|0} | out ${OUT_W}x${OUT_H} ${THEME} | markers ${markers.length} cues ${cues.length} | rendering…`;
 
   const cam = makeCam(markers);
   const stream = cv.captureStream(0);
-  const rec = new MediaRecorder(stream, {mimeType:'video/webm;codecs=vp9', videoBitsPerSecond:8e6});
+  const rec = new MediaRecorder(stream, {mimeType:'video/webm;codecs=vp9', videoBitsPerSecond:BITRATE});
   const chunks=[]; rec.ondataavailable=e=>{if(e.data.size)chunks.push(e.data)};
   const done = new Promise(r=>rec.onstop=r);
   rec.start(500);
@@ -324,10 +409,13 @@ async function main(){
     const toPx = s>1 && c.fx!=null
       ? (x,y)=>({x: VX+(x-sx)*VW/cw, y: VY+(y-sy)*VH/ch})
       : (x,y)=>({x: VX+(x-cx0)*VW/cw0, y: VY+(y-cy0)*VH/ch0});
+    drawTrail(t, toPx);
     drawClicks(t, toPx);
     drawPointer(pcur, t, toPx);
     const sub = subs(t);
     if(sub) drawSubs(sub.text, sub.a);
+    drawHud(t);
+    drawNavDips(t);   // last — a transition veils everything, pointer included
   }
   // Deterministic frame-stepping: seek, wait 'seeked', draw, push the frame.
   // Occluded tabs throttle rAF/timers, so the loop is event-driven, not clock.
