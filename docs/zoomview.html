@@ -1,0 +1,92 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>ab zoom render</title>
+<body style="margin:0;background:#111;color:#eee;font:13px monospace">
+<div id="hud" style="position:fixed;top:8px;left:8px;z-index:9;background:#000a;padding:6px 10px;border-radius:6px">loading…</div>
+<canvas id="cv" style="display:block"></canvas>
+<video id="v" muted playsinline style="display:none"></video>
+<script>
+const params = new URLSearchParams(location.search);
+const SRC = params.get('src') || 'record.webm';
+const TRACK = params.get('track') || SRC.replace(/\.webm$/, '.track.json');
+const OUT_W = 1280, OUT_H = 720, FPS = 30;
+const ZOOM = 1.9, EASE_IN = 420, HOLD = 1100, EASE_OUT = 460; // ms
+const hud = document.getElementById('hud');
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+cv.width = OUT_W; cv.height = OUT_H;
+const v = document.getElementById('v');
+
+function lerp(a,b,t){return a+(b-a)*t}
+function smooth(t){return t*t*(3-2*t)}
+
+// For each time t (ms), return {s: scale, cx, cy: focus in video px}
+function makeCam(markers, vw, vh){
+  // snap focus to latest marker, zoom on clicks/scrolls
+  const pts = (markers||[]).filter(m=>m.kind==='click'||m.kind==='scroll');
+  return function(t){
+    let focus=null;
+    for(const m of pts){ if(m.t<=t) focus=m; else break; }
+    if(!focus) return {s:1, cx:vw/2, cy:vh/2};
+    const dt = t-focus.t;
+    let s;
+    if(dt<EASE_IN) s=lerp(1,ZOOM,smooth(dt/EASE_IN));
+    else if(dt<EASE_IN+HOLD) s=ZOOM;
+    else if(dt<EASE_IN+HOLD+EASE_OUT) s=lerp(ZOOM,1,smooth((dt-EASE_IN-HOLD)/EASE_OUT));
+    else s=1;
+    // map marker viewport coords -> video px
+    const cx = focus.x/vw*vw, cy = focus.y/vh*vh;
+    return {s, cx:focus.x, cy:focus.y};
+  };
+}
+
+async function main(){
+  const [blob, track] = await Promise.all([
+    fetch(SRC).then(r=>r.blob()),
+    fetch(TRACK).then(r=>r.json()).catch(()=>({markers:[]})),
+  ]);
+  v.src = URL.createObjectURL(blob);
+  await new Promise(r=>v.onloadedmetadata=r);
+  const vw=v.videoWidth, vh=v.videoHeight;
+  hud.textContent = `src ${vw}x${vh} ${v.duration.toFixed(1)}s | markers ${track.markers.length} | rendering…`;
+
+  // markers are in page-viewport coords; video is the full captured surface.
+  // assume video==viewport at scale 1 (tab capture = viewport render).
+  const cam = makeCam(track.markers, vw, vh);
+  const stream = cv.captureStream(FPS);
+  const rec = new MediaRecorder(stream, {mimeType:'video/webm;codecs=vp9', videoBitsPerSecond:6e6});
+  const chunks=[]; rec.ondataavailable=e=>{if(e.data.size)chunks.push(e.data)};
+  const done = new Promise(r=>rec.onstop=r);
+  rec.start(500);
+
+  v.currentTime = 0; await v.play();
+  const t0 = performance.now();
+  function draw(){
+    const t = v.currentTime*1000;
+    const c = cam(t);
+    const s = c.s;
+    // crop region in source coords, centered on focus, clamped to video bounds
+    let cw = vw/s, ch = vh/s;
+    let sx = Math.min(Math.max(c.cx-cw/2,0), vw-cw);
+    let sy = Math.min(Math.max(c.cy-ch/2,0), vh-ch);
+    ctx.fillStyle='#000'; ctx.fillRect(0,0,OUT_W,OUT_H);
+    ctx.drawImage(v, sx,sy,cw,ch, 0,0,OUT_W,OUT_H);
+    // cursor dot at focus when zoomed
+    if(s>1.05){
+      ctx.fillStyle='rgba(80,140,255,.9)';
+      ctx.beginPath(); ctx.arc(OUT_W/2,OUT_H/2,5,0,7); ctx.fill();
+    }
+    if(!v.ended) requestAnimationFrame(draw);
+  }
+  draw();
+  await new Promise(r=>v.onended=r);
+  await new Promise(r=>setTimeout(r,300));
+  rec.stop(); await done;
+  const out = new Blob(chunks,{type:'video/webm'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(out);
+  a.download = SRC.replace(/\.webm$/,'.zoomed.webm');
+  a.click();
+  hud.textContent = `done: ${a.download} (${(out.size/1e6).toFixed(1)}MB, ${(performance.now()-t0)/1000|0}s render)`;
+}
+main().catch(e=>{hud.textContent='ERR '+e.message; hud.style.background='#c00'});
+</script>

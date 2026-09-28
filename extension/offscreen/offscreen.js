@@ -198,7 +198,8 @@ async function startRecording(streamId) {
 }
 
 // `trackJson` is the {t,x,y,kind}[] marker track the service worker collected
-// from tool calls; saved next to the webm as <name>.track.json.
+// from tool calls. The webm comes back as a blob: URL (same extension origin)
+// and chrome.downloads — not available in offscreen documents — runs in sw.js.
 async function stopRecording(filename, trackJson) {
   const rec = recorder;
   if (!rec || rec.state === 'inactive') throw new Error('no recording running');
@@ -216,22 +217,5 @@ async function stopRecording(filename, trackJson) {
     }
     recStream = null;
   }
-  const url = URL.createObjectURL(blob);
-  const downloadId = await chrome.downloads.download({
-    url,
-    filename,
-    saveAs: false,
-    conflictAction: 'uniquify',
-  });
-  if (trackJson) {
-    const tblob = new Blob([trackJson], { type: 'application/json' });
-    const turl = URL.createObjectURL(tblob);
-    await chrome.downloads.download({
-      url: turl,
-      filename: filename.replace(/\.webm$/, '.track.json'),
-      saveAs: false,
-      conflictAction: 'uniquify',
-    });
-  }
-  return { downloadId, filename, bytes: blob.size, durationMs };
+  return { blobUrl: URL.createObjectURL(blob), bytes: blob.size, durationMs };
 }

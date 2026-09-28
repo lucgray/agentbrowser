@@ -150,6 +150,11 @@ agentbrowser patch_revert '{"patchId":"patch-..."}'
 
 Record a tab while you work on it (v2.7):
 
+Chrome requires the tab to be "invoked" first — the user must have clicked
+the AgentBrowser icon or chosen "Ask AgentBrowser" from the right-click menu
+on that tab since its last navigation. If `record_start` errors with
+"needs an invocation", ask the user for that one click, then retry.
+
 ```bash
 agentbrowser record_start '{}'        # needs consent; starts tabCapture
 # ... keep calling tools — every click/hover/scroll/drag lands a
