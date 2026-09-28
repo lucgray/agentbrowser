@@ -208,9 +208,6 @@ function mark(tabId, x, y, kind, label) {
   const m = { t: Date.now() - r.startedAt, x: Math.round(x), y: Math.round(y), kind };
   if (typeof label === 'string' && label.trim()) m.label = label.trim().slice(0, 80);
   r.markers.push(m);
-  // The OS pointer is never captured; move the page-drawn cursor so the
-  // recording shows where each action actually lands.
-  cdp.moveCursor(tabId, x, y);
 }
 
 function awaitRecorderAck(op, timeoutMs = 15000) {
@@ -977,7 +974,6 @@ const TOOLS = {
       conflictAction: 'uniquify',
     });
     recordings.delete(tabId);
-    cdp.removeCursor(tabId);
     cdp.sendCommand(tabId, 'Runtime.evaluate', {
       expression: 'window.__agentchatRecQuiet = false; true;',
       returnByValue: true,

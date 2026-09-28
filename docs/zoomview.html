@@ -53,20 +53,103 @@ const lerp = (a,b,t)=>a+(b-a)*t;
 const smooth = t=>t*t*(3-2*t);
 const clamp = (x,a,b)=>Math.min(Math.max(x,a),b);
 
+// populated by main() after the track loads
+let pointer = null;
+let CLICKS = [];
+let cx0=0, cy0=0, cw0=1, ch0=1;
+
+// ---- simulated pointer ----------------------------------------------------
+// openScreen-style: one continuous eased path through the action markers.
+// Between two markers the pointer rests, then glides over in a window sized
+// by distance — it *arrives* at each marker exactly when the action happens.
+function makePointer(markers){
+  const pts = (markers||[]).filter(m=>Number.isFinite(m.x)&&Number.isFinite(m.y));
+  if(!pts.length) return null;
+  // per-segment travel time, distance-proportional, clamped
+  const segs = pts.slice(1).map((m,i)=>{
+    const a=pts[i], d=Math.hypot(m.x-a.x, m.y-a.y);
+    return {a, b:m, dur:clamp(d*1.1, 320, 1100)};   // ~ms, eases like a real arm
+  });
+  function pos(t){
+    if(t<=pts[0].t) return {x:pts[0].x, y:pts[0].y};
+    for(const s of segs){
+      const t0 = s.b.t - s.dur;
+      if(t < s.b.t) return t<t0 ? {x:s.a.x,y:s.a.y}
+        : {x:lerp(s.a.x,s.b.x,smooth((t-t0)/s.dur)), y:lerp(s.a.y,s.b.y,smooth((t-t0)/s.dur))};
+    }
+    const last = pts[pts.length-1];
+    return {x:last.x, y:last.y};
+  }
+  // velocity for a subtle lean while moving
+  function tilt(t){
+    const a=pos(Math.max(0,t-33)), b=pos(t);
+    return clamp((b.x-a.x)*0.0016, -0.12, 0.12);
+  }
+  return {pos, tilt};
+}
+
+// click pulse: expanding ring + cursor squash at each click marker
+function drawClicks(t, toPx){
+  for(const m of CLICKS){
+    const dt = t-m.t;
+    if(dt<0 || dt>620) continue;
+    const p = toPx(m.x, m.y); if(!p) continue;
+    const pr = smooth(dt/620);
+    ctx.strokeStyle = `rgba(255,255,255,${0.85*(1-pr)})`;
+    ctx.lineWidth = 2.5*(1-pr)+0.5;
+    ctx.beginPath(); ctx.arc(p.x, p.y, 8+42*pr, 0, 7); ctx.stroke();
+  }
+}
+
+const ARROW = 'M4 2 L4 20.5 L8.3 16.6 L10.6 22.3 L13.6 21.1 L11.3 15.5 L17.5 15.5 Z';
+const arrowPath = new Path2D(ARROW);
+function drawPointer(t, toPx){
+  if(!pointer) return;
+  const c = pointer.pos(t);
+  const p = toPx(c.x, c.y); if(!p) return;
+  // squash on click
+  let sc=1;
+  for(const m of CLICKS){ const dt=t-m.t;
+    if(dt>=0&&dt<220) sc = 1-0.18*smooth(1-dt/220); }
+  const size = OUT_W*0.017*sc;                  // ~32px at 1920
+  ctx.save();
+  ctx.translate(p.x, p.y);
+  ctx.rotate(pointer.tilt(t));
+  const k = size/24;
+  ctx.scale(k,k); ctx.translate(-2,-1);
+  ctx.shadowColor='rgba(0,0,0,.45)'; ctx.shadowBlur=6; ctx.shadowOffsetY=3;
+  ctx.fillStyle='#fff'; ctx.fill(arrowPath);
+  ctx.shadowColor='transparent';
+  ctx.strokeStyle='rgba(17,17,17,.9)'; ctx.lineWidth=1.3/k; ctx.stroke(arrowPath);
+  ctx.restore();
+}
+
 // ---- zoom camera ----------------------------------------------------------
+// Smooth follow: the lens always tracks the simulated pointer; zoom level is
+// an envelope around click/scroll clusters — ramps in before the action and
+// relaxes after, so the motion reads as one continuous shot, not cuts.
 function makeCam(markers){
   const pts = (markers||[]).filter(m=>m.kind==='click'||m.kind==='scroll');
+  // merge windows [t-380, t+1500]
+  const wins=[];
+  for(const m of pts){
+    const w=[m.t-380, m.t+1500];
+    const last=wins[wins.length-1];
+    if(last && w[0]<=last[1]) last[1]=Math.max(last[1],w[1]); else wins.push(w);
+  }
+  function zoomAt(t){
+    for(const [a,b] of wins){
+      if(t<a) return 1;
+      if(t<=a+460) return 1+(ZOOM-1)*smooth((t-a)/460);
+      if(t<=b) return ZOOM;
+      if(t<=b+680) return lerp(ZOOM,1,smooth((t-b)/680));
+    }
+    return 1;
+  }
   return t=>{
-    let focus=null;
-    for(const m of pts){ if(m.t<=t) focus=m; else break; }
-    if(!focus) return {s:1};
-    const dt=t-focus.t;
-    let s;
-    if(dt<EASE_IN) s=lerp(1,ZOOM,smooth(dt/EASE_IN));
-    else if(dt<EASE_IN+HOLD) s=ZOOM;
-    else if(dt<EASE_IN+HOLD+EASE_OUT) s=lerp(ZOOM,1,smooth((dt-EASE_IN-HOLD)/EASE_OUT));
-    else s=1;
-    return {s, fx:focus.x, fy:focus.y};
+    const s = zoomAt(t);
+    const c = pointer ? pointer.pos(t) : {x:cx0+cw0/2, y:cy0+ch0/2};
+    return {s, fx:c.x, fy:c.y};
   };
 }
 
@@ -120,7 +203,7 @@ async function main(){
   const pad = OUT_W*PAD;
 
   // content rect inside the letterboxed capture
-  let cx0=0, cy0=0, cw0=vw, ch0=vh;
+  cx0=0; cy0=0; cw0=vw; ch0=vh;
   if(track.viewport && track.viewport.w && track.viewport.h){
     const cs = Math.min(vw/track.viewport.w, vh/track.viewport.h);
     cw0 = track.viewport.w*cs; ch0 = track.viewport.h*cs;
@@ -141,6 +224,8 @@ async function main(){
   else cues = (track.markers||[]).filter(m=>m.label)
               .map(m=>({t:m.t-300, text:m.label, d:2600}));
   const subs = makeSubs(cues);
+  pointer = makePointer(markers);
+  CLICKS = markers.filter(m=>m.kind==='click');
 
   hud.textContent = `src ${vw}x${vh} content ${cw0|0}x${ch0|0} | out ${OUT_W}x${OUT_H} ${THEME} | markers ${markers.length} cues ${cues.length} | rendering…`;
 
@@ -186,14 +271,21 @@ async function main(){
     ctx.fillStyle='#000'; roundRect(VX,VY,VW,VH,RADIUS); ctx.fill();
     ctx.shadowColor='transparent';
     roundRect(VX,VY,VW,VH,RADIUS); ctx.clip();
+    let cw=cw0, ch=ch0, sx=cx0, sy=cy0;
     if(s>1 && c.fx!=null){
-      const cw=cw0/s, ch=ch0/s;
-      const sx=clamp(c.fx-cw/2,cx0,cx0+cw0-cw), sy=clamp(c.fy-ch/2,cy0,cy0+ch0-ch);
+      cw=cw0/s; ch=ch0/s;
+      sx=clamp(c.fx-cw/2,cx0,cx0+cw0-cw); sy=clamp(c.fy-ch/2,cy0,cy0+ch0-ch);
       ctx.drawImage(v, sx,sy,cw,ch, VX,VY,VW,VH);
     } else {
       ctx.drawImage(v, cx0,cy0,cw0,ch0, VX,VY,VW,VH);
     }
     ctx.restore();
+    // pointer layer — drawn in output px, mapped through the same crop
+    const toPx = s>1 && c.fx!=null
+      ? (x,y)=>({x: VX+(x-sx)*VW/cw, y: VY+(y-sy)*VH/ch})
+      : (x,y)=>({x: VX+(x-cx0)*VW/cw0, y: VY+(y-cy0)*VH/ch0});
+    drawClicks(t, toPx);
+    drawPointer(t, toPx);
     drawSubs(subs(t));
   }
   // Deterministic frame-stepping: seek, wait 'seeked', draw, push the frame.
