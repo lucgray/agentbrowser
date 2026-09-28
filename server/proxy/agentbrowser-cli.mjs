@@ -154,7 +154,9 @@ async function runSession(opts) {
           console.log(JSON.stringify({ ok: false, error: String((err && err.message) || err) }));
         }
       })
-      .catch(() => {})
+      // the per-command handler reports its own errors; this catch only sees
+      // an unexpected throw — log it and keep the queue alive.
+      .catch((err) => console.error('[agentbrowser-cli] session command failed', err))
       .then(() => {
         if (!closing) rl.prompt();
       });
