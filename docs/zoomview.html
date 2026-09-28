@@ -65,20 +65,33 @@ let cx0=0, cy0=0, cw0=1, ch0=1;
 function makePointer(markers){
   const pts = (markers||[]).filter(m=>Number.isFinite(m.x)&&Number.isFinite(m.y));
   if(!pts.length) return null;
-  // per-segment travel time, distance-proportional, clamped
+  // per-segment travel: slow glide, starts well before the action lands —
+  // the pointer is visibly *traveling* most of the time, like a hand
   const segs = pts.slice(1).map((m,i)=>{
     const a=pts[i], d=Math.hypot(m.x-a.x, m.y-a.y);
-    return {a, b:m, dur:clamp(d*1.1, 320, 1100)};   // ~ms, eases like a real arm
+    return {a, b:m, dur:clamp(d*2.1, 650, 1600)};
   });
   function pos(t){
-    if(t<=pts[0].t) return {x:pts[0].x, y:pts[0].y};
+    if(t<=pts[0].t) return idle(pts[0], t);
     for(const s of segs){
       const t0 = s.b.t - s.dur;
-      if(t < s.b.t) return t<t0 ? {x:s.a.x,y:s.a.y}
-        : {x:lerp(s.a.x,s.b.x,smooth((t-t0)/s.dur)), y:lerp(s.a.y,s.b.y,smooth((t-t0)/s.dur))};
+      if(t < s.b.t){
+        if(t<t0) return idle(s.a, t);
+        const u = smooth((t-t0)/s.dur);
+        // slight arc: sway perpendicular to motion while gliding
+        const dx=s.b.x-s.a.x, dy=s.b.y-s.a.y, d=Math.hypot(dx,dy)||1;
+        const sw = Math.sin(u*Math.PI)*Math.min(10, d*0.04);
+        return {x: lerp(s.a.x,s.b.x,u) - dy/d*sw,
+                y: lerp(s.a.y,s.b.y,u) + dx/d*sw};
+      }
     }
     const last = pts[pts.length-1];
-    return {x:last.x, y:last.y};
+    return idle(last, t);
+  }
+  // resting isn't frozen: a slow ~2px drift keeps the pointer alive
+  function idle(p, t){
+    return {x: p.x + Math.sin(t*0.0009)*2.2,
+            y: p.y + Math.sin(t*0.0013+1.7)*1.8};
   }
   // velocity for a subtle lean while moving
   function tilt(t){
