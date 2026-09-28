@@ -1087,6 +1087,40 @@ const TOOLS = {
     return cdp.viewportEmulate(tabId, args);
   },
 
+
+  async record_pause(args) {
+    const tabId = await resolveTabId(args.tabId);
+    const rec = recordings.get(tabId);
+    if (!rec || !rec.startedAt) throw new Error('no recording on this tab');
+    if (rec.pausedAt) throw new Error('recording is already paused');
+    rec.pausedAt = Date.now();
+    await sendToOffscreen({ target: 'offscreen', cmd: 'record_pause' });
+    return { paused: true, at: rec.pausedAt - rec.startedAt };
+  },
+
+  async record_resume(args) {
+    const tabId = await resolveTabId(args.tabId);
+    const rec = recordings.get(tabId);
+    if (!rec || !rec.startedAt) throw new Error('no recording on this tab');
+    if (!rec.pausedAt) throw new Error('recording is not paused');
+    rec.pauses.push({ from: rec.pausedAt - rec.startedAt, to: Date.now() - rec.startedAt });
+    rec.pausedAt = 0;
+    await sendToOffscreen({ target: 'offscreen', cmd: 'record_resume' });
+    return { paused: false };
+  },
+
+  async record_marker(args) {
+    const tabId = await resolveTabId(args.tabId);
+    const rec = recordings.get(tabId);
+    if (!rec || !rec.startedAt) throw new Error('no recording on this tab');
+    if (Number.isFinite(Number(args.x)) && Number.isFinite(Number(args.y))) {
+      mark(tabId, Number(args.x), Number(args.y), args.kind || 'note', args.label);
+    } else {
+      markCenter(tabId, args.kind || 'note', args.label);
+    }
+    return { marked: true, markers: rec.markers.length };
+  },
+
   // --- composite wrappers (v2.2) -----------------------------------------
 
   async fill(args) {
