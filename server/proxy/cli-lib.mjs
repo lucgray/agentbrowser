@@ -182,3 +182,52 @@ export function saveBase64(result, outPath) {
   writeFileSync(abs, buf);
   return { saved: abs, mimeType: payload.mimeType, bytes: buf.length };
 }
+
+// Session line grammar: "<tool> [json-args] [--output <path>] [--timeout <ms>]".
+// A quote at the START of a token wraps it — whitespace inside is literal and
+// inner quote chars are kept — so shell-style '{"tabId":1}' survives; glued
+// text after a closing quote stays part of the token.
+
+export function splitLine(line) {
+  const tokens = [];
+  let i = 0;
+  while (i < line.length) {
+    while (i < line.length && /\s/.test(line[i])) i++;
+    if (i >= line.length) break;
+    let cur = '';
+    let wrap = null;
+    if (line[i] === '"' || line[i] === "'") {
+      wrap = line[i];
+      i++;
+    }
+    while (i < line.length) {
+      const ch = line[i];
+      if (wrap && ch === wrap) {
+        i++;
+        break;
+      }
+      if (!wrap && /\s/.test(ch)) break;
+      cur += ch;
+      i++;
+    }
+    tokens.push(cur);
+    while (i < line.length && !/\s/.test(line[i])) {
+      tokens[tokens.length - 1] += line[i];
+      i++;
+    }
+  }
+  return tokens;
+}
+
+export function parseCommand(line) {
+  const tokens = splitLine(line);
+  if (!tokens.length) return null;
+  const flags = {};
+  const rest = [];
+  for (let i = 1; i < tokens.length; i++) {
+    if ((tokens[i] === '--output' || tokens[i] === '-o') && i + 1 < tokens.length) flags.output = tokens[++i];
+    else if (tokens[i] === '--timeout' && i + 1 < tokens.length) flags.timeout = Number(tokens[++i]) || undefined;
+    else rest.push(tokens[i]);
+  }
+  return { tool: tokens[0], flags, argsJson: rest.join(' ') };
+}
