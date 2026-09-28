@@ -711,7 +711,12 @@ const TOOLS = {
 
   async scroll(args) {
     const tabId = await resolveTabId(args.tabId);
-    mark(tabId, Number(args.x), Number(args.y), 'scroll', args.label);
+    // Mark the gesture anchor at dispatch time: explicit x/y, else the
+    // recording's viewport center (what cdp.scroll resolves to anyway).
+    const r = recordings.get(tabId);
+    const mx = Number.isFinite(Number(args.x)) ? Number(args.x) : r && r.viewport ? r.viewport.w / 2 : NaN;
+    const my = Number.isFinite(Number(args.y)) ? Number(args.y) : r && r.viewport ? r.viewport.h / 2 : NaN;
+    mark(tabId, mx, my, 'scroll', args.label);
     return cdp.scroll(tabId, args);
   },
 
@@ -737,7 +742,10 @@ const TOOLS = {
       await cdp.sendCommand(tabId, 'Input.insertText', { text });
       return { typed: text.length };
     }
-    return cdp.typeText(tabId, args.text, args.selector);
+    const res = await cdp.typeText(tabId, args.text, args.selector);
+    // a selector focus is a real click on the field — put it on the track
+    if (res && Number.isFinite(res.x)) mark(tabId, res.x, res.y, 'click', args.label);
+    return res;
   },
 
 
