@@ -6,3 +6,4 @@ node_modules/
 **/keys.json
 .env
 .env.*
+server/node_modules
