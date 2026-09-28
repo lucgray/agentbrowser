@@ -68,6 +68,19 @@ let cx0=0, cy0=0, cw0=1, ch0=1;
 function makePointer(markers){
   const pts = (markers||[]).filter(m=>Number.isFinite(m.x)&&Number.isFinite(m.y));
   if(!pts.length) return null;
+  // drag..dragend pairs: during a drag the pointer must trace the exact
+  // endpoint-to-endpoint path (that's where the selection lands) — spring
+  // lagging behind the real drag is what reads as "inaccurate selection".
+  const segs=[];
+  for(let i=0;i<pts.length;i++){
+    if(pts[i].kind!=='drag') continue;
+    const end = pts.slice(i+1).find(n=>n.kind==='dragend') || pts[i];
+    segs.push({a:pts[i], b:end});
+  }
+  function segAt(t){
+    for(const s of segs){ if(t>=s.a.t-60 && t<=s.b.t+240) return s; }
+    return null;
+  }
   let px=pts[0].x, py=pts[0].y, vx=0, vy=0, lastT=0;
   function target(t){
     let cur = pts[0];
@@ -76,6 +89,14 @@ function makePointer(markers){
   }
   function step(t){
     const dt = Math.min(0.05, Math.max(0.001,(t-lastT)/1000)); lastT=t;
+    const seg = segAt(t);
+    if(seg){
+      const k = clamp((t-seg.a.t)/Math.max(80, seg.b.t-seg.a.t), 0, 1);
+      px = lerp(seg.a.x, seg.b.x, smooth(k));
+      py = lerp(seg.a.y, seg.b.y, smooth(k));
+      vx = vy = 0;
+      return {x:px, y:py};
+    }
     const tg = target(t);
     // resting isn't frozen: waypoint gets a slow ±2px breathing drift
     const tx = tg.x + Math.sin(t*0.0009)*2.2, ty = tg.y + Math.sin(t*0.0013+1.7)*1.8;
@@ -158,10 +179,15 @@ function markerZoom(m){
 }
 function makeCam(markers){
   const pts = (markers||[]).filter(m=>ZOOM_KINDS.has(m.kind));
-  // merge windows [t-380, t+1500]; a merged window keeps the deepest zoom
+  // merge windows; a merged window keeps the deepest zoom. 'type'/'key' get
+  // an earlier, longer hold — zooming only for the instant the text lands
+  // reads as a jump-cut; the lens should settle before typing starts and
+  // stay through it.
   const wins=[];
   for(const m of pts){
-    const w={a:m.t-380, b:m.t+1500, z:markerZoom(m)};
+    const typing = m.kind==='type' || m.kind==='key';
+    const hold = m.kind==='type' ? Math.min(3200, 1400 + (m.text||'').length*60) : 1700;
+    const w={a:m.t-(typing?640:420), b:m.t+hold, z:markerZoom(m)};
     const last=wins[wins.length-1];
     if(last && w.a<=last.b){ last.b=Math.max(last.b,w.b); last.z=Math.max(last.z,w.z); }
     else wins.push(w);
@@ -171,9 +197,9 @@ function makeCam(markers){
       const w=wins[i];
       const zNext = i+1<wins.length ? wins[i+1].z : 1;
       if(t<w.a) return 1;
-      if(t<=w.a+460) return 1+(w.z-1)*smooth((t-w.a)/460);
+      if(t<=w.a+640) return 1+(w.z-1)*smooth((t-w.a)/640);
       if(t<=w.b) return w.z;
-      if(t<=w.b+680) return lerp(w.z, zNext, smooth((t-w.b)/680));
+      if(t<=w.b+820) return lerp(w.z, zNext, smooth((t-w.b)/820));
     }
     return 1;
   }
