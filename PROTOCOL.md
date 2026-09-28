@@ -565,8 +565,11 @@ offscreen <-> sw, via `chrome.runtime.sendMessage`:
 
 - `{target:"offscreen", cmd:"send", payload:<object to send over WS>}`
 - `{target:"offscreen", cmd:"connect", url}` — (re)connect to this URL
+- `{target:"offscreen", cmd:"record_start", streamId}` — start MediaRecorder on the tabCapture stream (v2.7)
+- `{target:"offscreen", cmd:"record_stop", filename, trackJson}` — stop, save webm + track.json via chrome.downloads (v2.7)
 - `{target:"sw", cmd:"ws_message", payload:<parsed WS message>}`
 - `{target:"sw", cmd:"ws_status", connected:<bool>}`
+- `{target:"sw", cmd:"record_started", startedAt}` / `record_result {downloadId, filename, bytes, durationMs}` / `record_error {message}` — recorder acks (v2.7)
 
 Every message carries `target`; receivers ignore messages not addressed to
 them (both listeners are on the same bus). sw.js creates the offscreen
@@ -691,6 +694,8 @@ executor, in the SDK adapter's MCP server, and in mcp-proxy.mjs.
 | `debug_wait` | `{timeoutMs?, tabId?}` | `{paused:true, reason, hitBreakpoints, callFrames, topCallFrameId}` or `{paused:false, reason:'timeout'|'detached'}` — v2.6; cap 300s |
 | `debug_eval` | `{expression, callFrameId?, tabId?}` | `{result}` or `{error}` — v2.6; paused frames only, consent-gated |
 | `debug_resume` | `{action?, tabId?}` | `{resumed:true, action}` — v2.6; resume/stepOver/stepInto/stepOut, consent-gated |
+| `record_start` | `{tabId?}` | `{recording:true, tabId, startedAt}` — v2.7; chrome.tabCapture + offscreen MediaRecorder → webm; while recording, coordinate-bearing calls append `{t,x,y,kind}` to a marker track; consent-gated |
+| `record_stop` | `{tabId?}` | `{file, bytes, durationMs, markers}` — v2.7; saves `<Downloads>/agentbrowser/record-<ts>-tab<id>.webm` plus `<same>.track.json` (the zoom marker track) |
 
 `label` (v2.2): every tool's schema gains an optional `label` string — an
 agent-chosen display name for the call. The side panel shows it as the chip
