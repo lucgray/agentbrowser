@@ -397,7 +397,12 @@ server。只会走 HTTP 的 MCP 客户端暂时接不上。
 node server/proxy/agentbrowser-cli.mjs read_page '{}'
 node server/proxy/agentbrowser-cli.mjs dom_inspect '{"selector":"h1"}'
 node server/proxy/agentbrowser-cli.mjs tools              # 列出工具
+node server/proxy/agentbrowser-cli.mjs screenshot '{}' --output page.png
 ```
+
+`--output <path>` 会把含 base64 的结果（screenshot、print_pdf）解码写入该
+文件，stdout 只打印紧凑元数据——否则原始载荷会以约 3 万 token 的 JSON
+刷屏。
 
 `npm run install-skill`（或 `node server/proxy/install-skill.mjs`）会在
 `~/.local/bin` 写入 `agentbrowser` 启动脚本，并把
