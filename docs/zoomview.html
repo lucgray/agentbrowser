@@ -7,10 +7,12 @@
 <video id="v" muted playsinline style="display:none"></video>
 <script>
 // Zoom-pan render of an agentbrowser recording (openScreen-style frame:
-// blurred source backdrop + rounded inset video + virtual cursor).
+// blurred source backdrop + rounded inset video).
 //   ?src=<webm>  ?track=<track.json>  ?w=<output width px, default 1920>
+// The cursor is baked into the recording (the extension draws a page cursor
+// while recording), so this renderer only does the zoom camera and frame.
 // tabCapture output is letterboxed to a fixed aspect; the track's `viewport`
-// field (CSS px, written by record_stop) tells us the real content rect so we
+// field (CSS px, written by record_stop) gives the real content rect so we
 // can crop the pillarbox and map markers (CSS px) into content pixels.
 const params = new URLSearchParams(location.search);
 const SRC = params.get('src') || 'record.webm';
@@ -20,7 +22,6 @@ const FPS = 30;
 const ZOOM = 1.9, EASE_IN = 420, HOLD = 1100, EASE_OUT = 460; // ms
 const PAD = 0.06;                  // inset as fraction of output width
 const RADIUS = 18;                 // corner radius in output px
-const CURSOR_SPEED = 0.9;          // video px per ms of cursor travel
 const hud = document.getElementById('hud');
 const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
 const v = document.getElementById('v');
@@ -45,52 +46,6 @@ function makeCam(markers){
     else s=1;
     return {s, fx:focus.x, fy:focus.y};
   };
-}
-
-// ---- virtual cursor --------------------------------------------------------
-// dwell at each marker, then ease toward the next so it ARRIVES at next.t —
-// the cursor visibly travels right before each action happens, like a real
-// pointer, instead of gliding away during idle gaps.
-function makeCursor(markers){
-  const pts = (markers||[]).slice().sort((a,b)=>a.t-b.t);
-  if(!pts.length) return null;
-  return t=>{
-    let prev=pts[0], next=null;
-    for(const m of pts){ if(m.t<=t) prev=m; else { next=m; break; } }
-    if(!next) return {x:prev.x, y:prev.y};
-    const dist = Math.hypot(next.x-prev.x, next.y-prev.y);
-    const dur = clamp(dist/CURSOR_SPEED, 250, 900);
-    const k = smooth(clamp((t-(next.t-dur))/dur,0,1));
-    return { x:lerp(prev.x,next.x,k), y:lerp(prev.y,next.y,k) };
-  };
-}
-// click pulse: ring expands for ~350ms after a click marker
-function clickPulse(markers){
-  const clicks=(markers||[]).filter(m=>m.kind==='click');
-  return t=>{
-    for(const m of clicks){ const dt=t-m.t; if(dt>=0&&dt<350) return 1-dt/350; }
-    return 0;
-  };
-}
-
-function drawCursor(x,y,pulse){
-  const s = cv.height/720;                    // scale cursor to canvas
-  ctx.save();
-  ctx.translate(x,y);
-  if(pulse>0){
-    ctx.beginPath(); ctx.arc(0,0,(14+26*(1-pulse))*s,0,7);
-    ctx.strokeStyle=`rgba(255,255,255,${.85*pulse})`; ctx.lineWidth=2.5*s; ctx.stroke();
-  }
-  ctx.shadowColor='rgba(0,0,0,.45)'; ctx.shadowBlur=6*s; ctx.shadowOffsetY=2*s;
-  ctx.beginPath();
-  const p=[[0,0],[0,17],[4.2,13.2],[7,19],[9.6,17.6],[6.9,12],[12,12]]; // classic arrow pts
-  ctx.moveTo(0,0);
-  for(const [px,py] of p) ctx.lineTo(px*s,py*s);
-  ctx.closePath();
-  ctx.fillStyle='#fff'; ctx.fill();
-  ctx.shadowColor='transparent';
-  ctx.strokeStyle='#111'; ctx.lineWidth=1.4*s; ctx.stroke();
-  ctx.restore();
 }
 
 function roundRect(x,y,w,h,r){
@@ -133,8 +88,6 @@ async function main(){
   hud.textContent = `src ${vw}x${vh} content ${cw0|0}x${ch0|0} | out ${OUT_W}x${OUT_H} | markers ${markers.length} | rendering…`;
 
   const cam = makeCam(markers);
-  const cursor = makeCursor(markers);
-  const pulse = clickPulse(markers);
   const stream = cv.captureStream(FPS);
   const rec = new MediaRecorder(stream, {mimeType:'video/webm;codecs=vp9', videoBitsPerSecond:8e6});
   const chunks=[]; rec.ondataavailable=e=>{if(e.data.size)chunks.push(e.data)};
@@ -152,12 +105,6 @@ async function main(){
     ctx.fillStyle = 'rgba(12,13,18,.45)';
     ctx.fillRect(0,0,OUT_W,OUT_H);
   }
-  // source crop (video px) -> dest inner box
-  function srcCrop(s, c){
-    if(s<=1 || c.fx==null) return {x:cx0, y:cy0, w:cw0, h:ch0};
-    const w=cw0/s, h=ch0/s;
-    return { x:clamp(c.fx-w/2,cx0,cx0+cw0-w), y:clamp(c.fy-h/2,cy0,cy0+ch0-h), w, h };
-  }
   function draw(){
     const t = v.currentTime*1000;
     const c = cam(t);
@@ -168,14 +115,14 @@ async function main(){
     ctx.fillStyle='#000'; roundRect(VX,VY,VW,VH,RADIUS); ctx.fill();
     ctx.shadowColor='transparent';
     roundRect(VX,VY,VW,VH,RADIUS); ctx.clip();
-    const crop = srcCrop(s, c);
-    ctx.drawImage(v, crop.x,crop.y,crop.w,crop.h, VX,VY,VW,VH);
-    ctx.restore();
-    if(cursor){
-      const cp=cursor(t); // content-rect px
-      const px=VX+(cp.x-crop.x)/crop.w*VW, py=VY+(cp.y-crop.y)/crop.h*VH;
-      drawCursor(clamp(px,VX,VX+VW),clamp(py,VY,VY+VH),pulse(t));
+    if(s>1 && c.fx!=null){
+      const cw=cw0/s, ch=ch0/s;
+      const sx=clamp(c.fx-cw/2,cx0,cx0+cw0-cw), sy=clamp(c.fy-ch/2,cy0,cy0+ch0-ch);
+      ctx.drawImage(v, sx,sy,cw,ch, VX,VY,VW,VH);
+    } else {
+      ctx.drawImage(v, cx0,cy0,cw0,ch0, VX,VY,VW,VH);
     }
+    ctx.restore();
     if(!v.ended) requestAnimationFrame(draw);
   }
   draw();
