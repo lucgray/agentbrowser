@@ -1,4 +1,4 @@
-# AgentBrowser protocol v2.8
+# AgentBrowser protocol v2.9
 
 AgentBrowser is a Chrome MV3 extension with a side-panel chat UI, plus a local hub
 server. The chat is backed by a pluggable "harness" (Claude Agent SDK, Claude
@@ -1041,7 +1041,11 @@ server. `agentbrowser-cli.mjs` is a thin WS client: `agentbrowser <tool>
 one tool_call, prints tool_result JSON, exits non-zero on tool errors.
 `tools` lists the TOOLS table; `<tool> --help` shows one schema.
 `AGENTBROWSER_HUB`/`--hub` overrides the default ws://127.0.0.1:9010;
-`--timeout` the 30s call cap. Stateless by design: console/network/patch
+`--timeout` the 30s call cap. `--output <path>` (v2.9) decodes a
+base64-bearing result (screenshot, print_pdf) into that file and prints one
+compact `{saved,mimeType,bytes}` line instead of the payload. tool_call ids
+are per-call UUIDs, so concurrent CLI processes cannot collide in the hub's
+pending table. Stateless by design: console/network/patch
 state lives in the extension, so a fresh process per call loses nothing.
 `install-skill.mjs` writes an `agentbrowser` shim (~/.local/bin) and copies
 skill/SKILL.md to ~/.claude/skills and ~/.agents/skills (or --target dirs).

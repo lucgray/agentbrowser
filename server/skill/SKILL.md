@@ -26,10 +26,14 @@ Every browser tool is a subcommand:
 agentbrowser <tool> '<json-args>'
 agentbrowser tools                 # list all tools
 agentbrowser <tool> --help         # one tool's arg schema
+agentbrowser screenshot '{}' --output /tmp/shot.png   # save base64 results to a file
 ```
 
 The result is JSON on stdout; exit code is non-zero on tool errors. Default
 hub is `ws://127.0.0.1:9010` (override with `AGENTBROWSER_HUB` or `--hub`).
+`--output <path>` decodes a base64-bearing result (screenshot, print_pdf)
+into that file and prints only `{saved,mimeType,bytes}` — without it the
+raw payload would flood stdout (a screenshot is ~30k tokens as JSON).
 
 ## Common flows
 
@@ -109,7 +113,7 @@ downloads into a directory, or print the page to PDF:
 agentbrowser set_file_input '{"selector":"input[type=file]","files":["/path/report.pdf"]}'
 agentbrowser download_configure '{"directory":"/home/user/dl"}'   # call before clicking the link
 agentbrowser downloads_list '{}'
-agentbrowser print_pdf '{"printBackground":true}' > out.json      # .base64 -> decode to file
+agentbrowser print_pdf '{"printBackground":true}' --output page.pdf   # decoded PDF, stdout = metadata
 ```
 
 Cross-origin iframes (payment widgets, embedded editors) need their own

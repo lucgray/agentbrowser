@@ -430,7 +430,12 @@ shell command — same tools, same hub, nothing long-lived:
 node server/proxy/agentbrowser-cli.mjs read_page '{}'
 node server/proxy/agentbrowser-cli.mjs dom_inspect '{"selector":"h1"}'
 node server/proxy/agentbrowser-cli.mjs tools              # list tools
+node server/proxy/agentbrowser-cli.mjs screenshot '{}' --output page.png
 ```
+
+`--output <path>` decodes a base64-bearing result (screenshot, print_pdf)
+into that file and prints only compact metadata — the raw payload would
+otherwise flood stdout as a ~30k-token JSON blob.
 
 `npm run install-skill` (or `node server/proxy/install-skill.mjs`) writes an
 `agentbrowser` shim into `~/.local/bin` and drops `server/skill/SKILL.md`
