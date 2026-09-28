@@ -38,6 +38,7 @@ const RADIUS = 18;
 const hud = document.getElementById('hud');
 const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
 const v = document.getElementById('v');
+let MARKS = [];
 
 // ---- toolbar: param-preserving navigation --------------------------------
 function go(patch){
@@ -206,7 +207,7 @@ function roundRect(x,y,w,h,r){
 // 'type' markers; fades in/out over 120ms.
 function drawHud(t){
   let item=null, t0=0, t1=0;
-  for(const m of markers){
+  for(const m of MARKS){
     if(m.kind!=='key' && m.kind!=='type') continue;
     const ttl = m.kind==='key' ? 900 : Math.min(2400, 500 + (m.text||'').length*45);
     if(t>=m.t && t<=m.t+ttl){ item=m; t0=m.t; t1=m.t+ttl; }
@@ -232,7 +233,7 @@ function drawHud(t){
 // 'nav' markers: the source video hard-cuts to a new page — a 140ms dip to a
 // dark veil reads as an intentional transition instead of a dropped frame.
 function drawNavDips(t){
-  for(const m of markers){
+  for(const m of MARKS){
     if(m.kind!=='nav') continue;
     const dt=Math.abs(t-m.t);
     if(dt>160) continue;
@@ -247,10 +248,10 @@ function drawNavDips(t){
 const trail=[];
 function drawTrail(t, toPx){
   let active=false, keep=0;
-  for(let i=0;i<markers.length;i++){
-    const m=markers[i];
+  for(let i=0;i<MARKS.length;i++){
+    const m=MARKS[i];
     if(m.kind!=='drag') continue;
-    const end=(markers.slice(i+1).find(n=>n.kind==='dragend')||m).t;
+    const end=(MARKS.slice(i+1).find(n=>n.kind==='dragend')||m).t;
     if(t>=m.t && t<=end+450){ if(t<=end) active=true; keep=Math.max(keep,end+450); }
   }
   if(active && pointer) trail.push({...pointer.pos(), t});
@@ -348,6 +349,7 @@ async function main(){
   else cues = markers.filter(m=>m.label)
               .map(m=>({t:m.t-300, text:m.label, d:2600}));
   const subs = makeSubs(cues);
+  MARKS = markers;
   pointer = makePointer(markers);
   CLICKS = markers.filter(m=>m.kind==='click'||m.kind==='type');
 
