@@ -20,6 +20,65 @@ export const OVERLAY_ROOT_ID = 'agentchat-overlay-root';
 // out and removes its node. Each new action resets this.
 export const OVERLAY_IDLE_MS = 2500;
 
+export const CURSOR_ID = 'agentchat-rec-cursor';
+
+// Page-drawn cursor used while a tab recording runs: tabCapture never sees
+// the OS pointer, so coordinate-driving tools move this node instead and the
+// capture picks it up like any other DOM content.
+export function buildCursorScript(x, y) {
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return 'false';
+  const px = Math.round(x), py = Math.round(y);
+  return `(function () {
+  try {
+    var d = document;
+    if (!d || !d.documentElement) return false;
+    var el = d.getElementById('${CURSOR_ID}');
+    if (!el) {
+      el = d.createElement('div');
+      el.id = '${CURSOR_ID}';
+      el.setAttribute('aria-hidden', 'true');
+      el.style.cssText =
+        'position:fixed;left:0;top:0;width:26px;height:26px;margin:0;padding:0;' +
+        'pointer-events:none;z-index:2147483646;' +
+        'transition:transform 140ms cubic-bezier(0.2,0,0.2,1);' +
+        'filter:drop-shadow(0 2px 4px rgba(0,0,0,0.45));';
+      var svg = d.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      svg.setAttribute('viewBox', '0 0 24 24');
+      svg.setAttribute('width', '26');
+      svg.setAttribute('height', '26');
+      var path = d.createElementNS('http://www.w3.org/2000/svg', 'path');
+      path.setAttribute('d', 'M4 2 L4 20.5 L8.3 16.6 L10.6 22.3 L13.6 21.1 L11.3 15.5 L17.5 15.5 Z');
+      path.setAttribute('fill', '#ffffff');
+      path.setAttribute('stroke', '#111111');
+      path.setAttribute('stroke-width', '1.4');
+      path.setAttribute('stroke-linejoin', 'round');
+      svg.appendChild(path);
+      el.appendChild(svg);
+      d.documentElement.appendChild(el);
+      try { void el.offsetWidth; } catch (e) { console.warn('[agentbrowser] cursor reflow failed', e); }
+    }
+    el.style.transform = 'translate(' + ${px} + 'px,' + ${py} + 'px)';
+    return true;
+  } catch (e) {
+    console.warn('[agentbrowser] cursor update failed', e);
+    return false;
+  }
+})();`;
+}
+
+export function buildCursorRemoveScript() {
+  return `(function () {
+  try {
+    var el = document.getElementById('${CURSOR_ID}');
+    if (el && el.parentNode) el.parentNode.removeChild(el);
+    return true;
+  } catch (e) {
+    console.warn('[agentbrowser] cursor removal failed', e);
+    return false;
+  }
+})();`;
+}
+
 const MAX_LABEL_CHARS = 80;
 
 // Tool name -> what the pill says. Anything unmapped falls back to "working".

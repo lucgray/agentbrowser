@@ -206,6 +206,9 @@ function mark(tabId, x, y, kind) {
   if (!r || !r.startedAt) return; // before record_started ack, or not recording
   if (!Number.isFinite(x) || !Number.isFinite(y)) return;
   r.markers.push({ t: Date.now() - r.startedAt, x: Math.round(x), y: Math.round(y), kind });
+  // The OS pointer is never captured; move the page-drawn cursor so the
+  // recording shows where each action actually lands.
+  cdp.moveCursor(tabId, x, y);
 }
 
 function awaitRecorderAck(op, timeoutMs = 15000) {
@@ -964,6 +967,7 @@ const TOOLS = {
       conflictAction: 'uniquify',
     });
     recordings.delete(tabId);
+    cdp.removeCursor(tabId);
     return { file: filename, bytes: res.bytes, durationMs: res.durationMs, markers: rec.markers.length };
   },
 
