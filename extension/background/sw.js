@@ -617,8 +617,25 @@ const TOOLS = {
 
   async click_element(args) {
     const tabId = await resolveTabId(args.tabId);
-    return cdp.clickElement(tabId, args.selector, args.dx || 0, args.dy || 0, args);
+    // nodeId comes from page_snapshot's data-ab-node stamp; keep it to a safe
+    // charset since it lands inside a selector.
+    let selector = args.selector;
+    if (args.nodeId != null) {
+      const n = String(args.nodeId);
+      if (!/^[0-9A-Za-z_-]+$/.test(n)) throw new Error('invalid nodeId');
+      selector = `[data-ab-node="${n}"]`;
+    }
+    if (args.frame) {
+      return inspect.frameClickElement(tabId, { ...args, selector });
+    }
+    return cdp.clickElement(tabId, selector, args.dx || 0, args.dy || 0, args);
   },
+
+  async page_snapshot(args) {
+    const tabId = await resolveTabId(args.tabId);
+    return inspect.pageSnapshot(tabId, args);
+  },
+
 
   async hover(args) {
     const tabId = await resolveTabId(args.tabId);
@@ -643,8 +660,17 @@ const TOOLS = {
 
   async type_text(args) {
     const tabId = await resolveTabId(args.tabId);
+    if (args.frame) {
+      // Focus via a frame-aware click first (selector required), then the
+      // root session's insertText lands in whichever frame holds focus.
+      await inspect.frameClickElement(tabId, args);
+      const text = String(args.text ?? '');
+      await cdp.sendCommand(tabId, 'Input.insertText', { text });
+      return { typed: text.length };
+    }
     return cdp.typeText(tabId, args.text, args.selector);
   },
+
 
   async press_key(args) {
     const tabId = await resolveTabId(args.tabId);
@@ -653,8 +679,10 @@ const TOOLS = {
 
   async eval_js(args) {
     const tabId = await resolveTabId(args.tabId);
+    if (args.frame) return inspect.frameEval(tabId, args);
     return cdp.evalJs(tabId, args.expression);
   },
+
 
   async annotate(args) {
     const tabId = await resolveTabId(args.tabId);
@@ -726,6 +754,7 @@ const TOOLS = {
 
   async dom_inspect(args) {
     const tabId = await resolveTabId(args.tabId);
+    if (args.frame) return inspect.frameDomInspect(tabId, args);
     return inspect.domInspect(tabId, args);
   },
 
@@ -893,7 +922,9 @@ const TOOLS = {
       `.map((el) => ({ text: String(el.innerText || el.textContent || '').trim().slice(0, ${maxChars})` +
       (attr ? `, value: el.getAttribute(${JSON.stringify(attr)})` : '') +
       ' }))';
-    const r = await cdp.evalJs(tabId, expr);
+    const r = args.frame
+      ? await inspect.frameEval(tabId, { frame: args.frame, expression: expr })
+      : await cdp.evalJs(tabId, expr);
     const elements = Array.isArray(r && r.value) ? r.value : [];
     return { count: elements.length, elements };
   },

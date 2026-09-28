@@ -16,6 +16,7 @@ import {
   outlineExpression,
   patchApplyExpression,
   patchRevertExpression,
+  pageSnapshotExpression,
 } from './inspect-core.js';
 
 const tabs = new Map(); // tabId -> {enabled:Set, console:[], requests:Map, finished:[], dialogs:[], url, patches:Map, patchSeq}
@@ -748,4 +749,17 @@ export async function waitForSettle(tabId, settleMs, capMs = 15000) {
     await new Promise((r) => setTimeout(r, 150));
   }
   return { settled: false, idleMs: Date.now() - (s.lastNetAt || 0) };
+}
+
+// page_snapshot: a compact map of the page's visible interactive layer —
+// {node, tag, role, name, text, x, y, w, h}[] — so an agent gets the whole
+// "clickable map" in one call instead of probing with dom_inspect. Elements
+// are stamped `data-ab-node` so click_element {nodeId} can address them.
+export async function pageSnapshot(tabId, args) {
+  const expr = pageSnapshotExpression({ max: args.max, maxChars: args.maxChars });
+  if (args.frame) {
+    const sessionId = cdp.findFrameSession(tabId, args.frame);
+    return evalInFrame(tabId, sessionId, expr);
+  }
+  return evaluate(tabId, expr);
 }

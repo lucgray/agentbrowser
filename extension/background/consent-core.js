@@ -120,7 +120,7 @@ function summarize(tool, a) {
     case 'click':
       return `click at (${Math.round(a.x || 0)}, ${Math.round(a.y || 0)})`;
     case 'click_element':
-      return `click '${String(a.selector || '')}'`;
+      return `click '${String(a.selector || (a.nodeId != null ? 'node ' + a.nodeId : ''))}'`;
     case 'type_text':
       return `type "${clip(a.text)}"` + (a.selector ? ` into '${a.selector}'` : '');
     case 'navigate':

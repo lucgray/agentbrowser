@@ -87,18 +87,20 @@ export const TOOLS = [
   },
   {
     name: "click_element",
-    description: "Click the first element matching a CSS selector: scrolls it into view, resolves its center, then performs a trusted CDP mouse click. Optional dx/dy offset the point; button/clickCount work like click. Returns {clicked:true, selector, tag}.",
+    description: "Click the first element matching a CSS selector (or a nodeId stamped by page_snapshot): scrolls it into view, resolves its center, then performs a trusted CDP mouse click. Optional dx/dy offset the point; button/clickCount work like click. frame scopes into a cross-origin iframe. Returns {clicked:true, selector, tag}.",
     args: {
       type: "object",
       properties: {
-        selector: { type: "string", description: "CSS selector of the element to click" },
+        selector: { type: "string", description: "CSS selector of the element to click (or pass nodeId)" },
+        nodeId: { type: "string", description: "data-ab-node id from page_snapshot — clicks that element (v2.7)" },
+        frame: { type: "string", description: "Cross-origin iframe: sessionId or url substring from frames_list; scopes this call into that frame (v2.7)" },
         dx: { type: "number", description: "X offset from the element center (default 0)" },
         dy: { type: "number", description: "Y offset from the element center (default 0)" },
         button: { type: "string", description: "left | right | middle (default left)" },
         clickCount: { type: "number", description: "1 single, 2 double, 3 triple (default 1)" },
         tabId: { type: "number", description: "Target tab id; omit for the active tab" }
       },
-      required: ["selector"]
+      required: []
     }
   },
   {
@@ -170,6 +172,7 @@ export const TOOLS = [
       properties: {
         text: { type: "string", description: "Text to insert at the caret" },
         selector: { type: "string", description: "Optional CSS selector; the element is clicked first to focus it" },
+        frame: { type: "string", description: "Cross-origin iframe: sessionId or url substring from frames_list; focuses via a frame-aware click, then types (selector required, v2.7)" },
         tabId: { type: "number", description: "Target tab id; omit for the active tab" }
       },
       required: ["text"]
@@ -194,6 +197,7 @@ export const TOOLS = [
       type: "object",
       properties: {
         expression: { type: "string", description: "JavaScript expression to evaluate" },
+        frame: { type: "string", description: "Cross-origin iframe: sessionId or url substring from frames_list; scopes this call into that frame (v2.7)" },
         tabId: { type: "number", description: "Target tab id; omit for the active tab" }
       },
       required: ["expression"]
@@ -282,6 +286,7 @@ export const TOOLS = [
       type: "object",
       properties: {
         selector: { type: "string", description: "CSS selector to match" },
+        frame: { type: "string", description: "Cross-origin iframe: sessionId or url substring from frames_list; scopes this call into that frame (v2.7)" },
         all: { type: "boolean", description: "true (default) returns all matches, false only the first" },
         styles: { type: "array", items: { type: "string" }, description: "Computed-style property names to include; omit for the default subset" },
         max: { type: "number", description: "Max elements returned (default 25)" },
@@ -614,6 +619,24 @@ export const TOOLS = [
       }
     }
   },
+  {
+    // page_snapshot (v2.7): one evaluate maps the visible interactive layer —
+    // {node, tag, role, name, text, x, y, w, h}[] — the "clickable map" an
+    // agent needs without probing dom_inspect. Each element is stamped
+    // data-ab-node, so click_element {nodeId} addresses it directly.
+    name: "page_snapshot",
+    description: "Snapshot the page's visible interactive elements (links, buttons, inputs, [role], [onclick], [tabindex]): returns {url, count, nodes:[{node, tag, role, name, text, x, y, w, h}]}. node is a data-ab-node stamp on the element — pass it as click_element's nodeId to click without a selector. frame scopes into a cross-origin iframe.",
+    args: {
+      type: "object",
+      properties: {
+        max: { type: "number", description: "Max elements returned (default 300, cap 1000)" },
+        maxChars: { type: "number", description: "Max chars per element's text (default 80, cap 500)" },
+        frame: { type: "string", description: "Cross-origin iframe: sessionId or url substring from frames_list; snapshots inside that frame (v2.7)" },
+        tabId: { type: "number", description: "Target tab id; omit for the active tab" }
+      },
+      required: []
+    }
+  },
 
   // --- composite wrappers (v2.2): one call replaces several, so the model
   // spends fewer tokens on tool envelopes and the user sees fewer chips.
@@ -653,6 +676,7 @@ export const TOOLS = [
       type: "object",
       properties: {
         selector: { type: "string", description: "CSS selector of the elements to read" },
+        frame: { type: "string", description: "Cross-origin iframe: sessionId or url substring from frames_list; scopes this call into that frame (v2.7)" },
         attr: { type: "string", description: "Optional attribute to include as value (e.g. 'href', 'value')" },
         max: { type: "number", description: "Max elements to return (default 50, cap 200)" },
         maxChars: { type: "number", description: "Max chars per element's text (default 300, cap 2000)" },
