@@ -968,6 +968,14 @@ const TOOLS = {
       console.warn('[agentbrowser] record_start viewport probe failed', err);
     }
     recordings.set(tabId, { startedAt: 0, markers: [], viewport });
+    // Hide the overlay chrome (border/pill/ripples) for the capture — it is
+    // page content and would otherwise be recorded. The rec cursor stays.
+    cdp.sendCommand(tabId, 'Runtime.evaluate', {
+      expression: 'window.__agentchatRecQuiet = true; var n = document.getElementById("agentchat-overlay-root"); if (n && n.parentNode) n.parentNode.removeChild(n); true;',
+      returnByValue: true,
+      awaitPromise: false,
+      userGesture: false,
+    }).catch((err) => console.warn('[agentbrowser] record overlay-mute failed', err));
     const ack = awaitRecorderAck('started');
     await sendToOffscreen({ target: 'offscreen', cmd: 'record_start', streamId });
     let res;
@@ -1007,6 +1015,12 @@ const TOOLS = {
     });
     recordings.delete(tabId);
     cdp.removeCursor(tabId);
+    cdp.sendCommand(tabId, 'Runtime.evaluate', {
+      expression: 'window.__agentchatRecQuiet = false; true;',
+      returnByValue: true,
+      awaitPromise: false,
+      userGesture: false,
+    }).catch((err) => console.warn('[agentbrowser] record overlay-unmute failed', err));
     return { file: filename, bytes: res.bytes, durationMs: res.durationMs, markers: rec.markers.length };
   },
 
