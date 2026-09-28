@@ -902,7 +902,17 @@ const TOOLS = {
   async record_start(args) {
     const tabId = await resolveTabId(args.tabId);
     if (recordings.get(tabId)?.startedAt) throw new Error('this tab is already recording');
-    const { streamId } = await chrome.tabCapture.getMediaStreamId({ targetTabId: tabId });
+    let streamId;
+    try {
+      // Resolves to the stream id string, not an object.
+      streamId = await chrome.tabCapture.getMediaStreamId({ targetTabId: tabId });
+    } catch (err) {
+      // tabCapture ignores host_permissions — the tab must be "invoked"
+      // (action-icon click, context menu, or command) since last navigation.
+      throw new Error(
+        `tabCapture needs an invocation on this tab: click the AgentBrowser icon (or its context-menu item) once, then retry. (${err.message || err})`
+      );
+    }
     if (!streamId) throw new Error('tabCapture returned no streamId');
     recordings.set(tabId, { startedAt: 0, markers: [] });
     const ack = awaitRecorderAck('started');
@@ -928,8 +938,22 @@ const TOOLS = {
     const ack = awaitRecorderAck('result');
     await sendToOffscreen({ target: 'offscreen', cmd: 'record_stop', filename, trackJson });
     const res = await ack;
+    // blob: URL minted in the offscreen doc; chrome.downloads lives here
+    // (same extension origin) — offscreen documents don't get that API.
+    await chrome.downloads.download({
+      url: res.blobUrl,
+      filename,
+      saveAs: false,
+      conflictAction: 'uniquify',
+    });
+    await chrome.downloads.download({
+      url: `data:application/json,${encodeURIComponent(trackJson)}`,
+      filename: filename.replace(/\.webm$/, '.track.json'),
+      saveAs: false,
+      conflictAction: 'uniquify',
+    });
     recordings.delete(tabId);
-    return { file: res.filename, bytes: res.bytes, durationMs: res.durationMs, markers: rec.markers.length };
+    return { file: filename, bytes: res.bytes, durationMs: res.durationMs, markers: rec.markers.length };
   },
 
   // --- composite wrappers (v2.2) -----------------------------------------
