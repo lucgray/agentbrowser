@@ -94,16 +94,16 @@ function makeSubs(cues){
 }
 function drawSubs(text){
   if(!text) return;
-  const fs = Math.round(OUT_W*0.017);
+  const fs = Math.round(cv.width*0.017);
   ctx.font = `500 ${fs}px system-ui, sans-serif`;
   const tw = ctx.measureText(text).width;
   const pw = fs*1.2, ph = fs*0.9;
   const bw = tw+pw*2, bh = fs+ph*2;
-  const bx = (OUT_W-bw)/2, by = OUT_H - bh - OUT_W*0.035;
+  const bx = (cv.width-bw)/2, by = cv.height - bh - cv.width*0.035;
   ctx.fillStyle = 'rgba(10,10,14,.72)';
   roundRect(bx,by,bw,bh,bh/2); ctx.fill();
   ctx.fillStyle = '#fff'; ctx.textBaseline='middle'; ctx.textAlign='center';
-  ctx.fillText(text, OUT_W/2, by+bh/2+1);
+  ctx.fillText(text, cv.width/2, by+bh/2+1);
   ctx.textAlign='left';
 }
 
@@ -145,13 +145,12 @@ async function main(){
   hud.textContent = `src ${vw}x${vh} content ${cw0|0}x${ch0|0} | out ${OUT_W}x${OUT_H} ${THEME} | markers ${markers.length} cues ${cues.length} | rendering…`;
 
   const cam = makeCam(markers);
-  const stream = cv.captureStream(FPS);
+  const stream = cv.captureStream(0);
   const rec = new MediaRecorder(stream, {mimeType:'video/webm;codecs=vp9', videoBitsPerSecond:8e6});
   const chunks=[]; rec.ondataavailable=e=>{if(e.data.size)chunks.push(e.data)};
   const done = new Promise(r=>rec.onstop=r);
   rec.start(500);
 
-  v.currentTime = 0; await v.play();
   const t0 = performance.now();
   const blurPx = OUT_W*0.05;
   function drawBackdrop(){
@@ -177,8 +176,7 @@ async function main(){
       ctx.fillStyle='rgba(12,13,18,.45)'; ctx.fillRect(0,0,OUT_W,OUT_H);
     }
   }
-  function draw(){
-    const t = v.currentTime*1000;
+  function draw(t){
     const c = cam(t);
     const s = c.s;
     drawBackdrop();
@@ -197,10 +195,23 @@ async function main(){
     }
     ctx.restore();
     drawSubs(subs(t));
-    if(!v.ended) requestAnimationFrame(draw);
   }
-  draw();
-  await new Promise(r=>v.onended=r);
+  // Deterministic frame-stepping: seek, wait 'seeked', draw, push the frame.
+  // Occluded tabs throttle rAF/timers, so the loop is event-driven, not clock.
+  const vtrack = stream.getVideoTracks()[0];
+  // MediaRecorder output carries no duration metadata (v.duration=Infinity);
+  // a huge seek clamps to the real end and reveals it.
+  await new Promise(r=>{v.onseeked=r; v.currentTime=1e6;});
+  const realDur = v.currentTime;
+  await new Promise(r=>{v.onseeked=r; v.currentTime=0;});
+  const total = Math.max(1, Math.floor(realDur*FPS));
+  for(let i=0;i<=total;i++){
+    const t = i/FPS;
+    if(Math.abs(v.currentTime-t)>0.001)
+      await new Promise(r=>{v.onseeked=r; v.currentTime=Math.min(t, Math.max(0,realDur-0.001));});
+    draw(t*1000); vtrack.requestFrame();
+    if(i%90===0) hud.textContent = `rendering… frame ${i}/${total}`;
+  }
   await new Promise(r=>setTimeout(r,300));
   rec.stop(); await done;
   const out = new Blob(chunks,{type:'video/webm'});
