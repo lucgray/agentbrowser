@@ -11,7 +11,9 @@
     "sidePanel",
     "contextMenus",
     "scripting",
-    "notifications"
+    "notifications",
+    "tabCapture",
+    "downloads"
   ],
   "host_permissions": [
     "*://*/*"

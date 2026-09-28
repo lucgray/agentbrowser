@@ -63,6 +63,16 @@ chrome.runtime.onMessage.addListener((message) => {
       lastHubTraffic = Date.now();
     }
     ws.send(JSON.stringify(message.payload));
+  } else if (message.cmd === 'record_start') {
+    startRecording(message.streamId).then(
+      () => post({ target: 'sw', cmd: 'record_started', startedAt: recStartedAt }),
+      (err) => post({ target: 'sw', cmd: 'record_error', message: String((err && err.message) || err) })
+    );
+  } else if (message.cmd === 'record_stop') {
+    stopRecording(message.filename, message.trackJson).then(
+      (res) => post({ target: 'sw', cmd: 'record_result', ...res }),
+      (err) => post({ target: 'sw', cmd: 'record_error', message: String((err && err.message) || err) })
+    );
   }
 });
 
@@ -143,4 +153,85 @@ function post(message) {
   chrome.runtime.sendMessage(message).catch((err) => {
     console.warn('[agentbrowser] offscreen -> sw message failed', err);
   });
+}
+
+// --- tab recording (v2.7) -----------------------------------------------------
+// tabCapture stream -> MediaRecorder -> webm, saved via chrome.downloads to
+// <download dir>/agentbrowser/. The offscreen document never suspends, so the
+// recorder survives service-worker shutdowns. `recStartedAt` is the clock the
+// tool markers (click coords etc.) are timestamped against, so the track file
+// lines up with the video.
+
+let recStream = null;
+let recorder = null;
+let recChunks = [];
+let recMime = 'video/webm';
+let recStartedAt = 0;
+
+async function startRecording(streamId) {
+  if (recorder) throw new Error('a recording is already running');
+  recStream = await navigator.mediaDevices.getUserMedia({
+    video: {
+      mandatory: {
+        chromeMediaSource: 'tab',
+        chromeMediaSourceId: streamId,
+        maxWidth: 3840,
+        maxHeight: 2160,
+        maxFrameRate: 30,
+      },
+    },
+    audio: false,
+  });
+  recMime = MediaRecorder.isTypeSupported('video/webm;codecs=vp9')
+    ? 'video/webm;codecs=vp9'
+    : 'video/webm';
+  recorder = new MediaRecorder(recStream, {
+    mimeType: recMime,
+    videoBitsPerSecond: 8_000_000,
+  });
+  recChunks = [];
+  recorder.ondataavailable = (e) => {
+    if (e.data && e.data.size) recChunks.push(e.data);
+  };
+  recorder.start(500); // 500ms slices — data lands incrementally, a crash loses < 1s
+  recStartedAt = Date.now();
+}
+
+// `trackJson` is the {t,x,y,kind}[] marker track the service worker collected
+// from tool calls; saved next to the webm as <name>.track.json.
+async function stopRecording(filename, trackJson) {
+  const rec = recorder;
+  if (!rec || rec.state === 'inactive') throw new Error('no recording running');
+  recorder = null;
+  await new Promise((resolve) => {
+    rec.onstop = resolve;
+    rec.stop();
+  });
+  const durationMs = Date.now() - recStartedAt;
+  const blob = new Blob(recChunks, { type: recMime });
+  recChunks = [];
+  if (recStream) {
+    for (const t of recStream.getTracks()) {
+      try { t.stop(); } catch (err) { console.warn('[agentbrowser] track stop failed', err); }
+    }
+    recStream = null;
+  }
+  const url = URL.createObjectURL(blob);
+  const downloadId = await chrome.downloads.download({
+    url,
+    filename,
+    saveAs: false,
+    conflictAction: 'uniquify',
+  });
+  if (trackJson) {
+    const tblob = new Blob([trackJson], { type: 'application/json' });
+    const turl = URL.createObjectURL(tblob);
+    await chrome.downloads.download({
+      url: turl,
+      filename: filename.replace(/\.webm$/, '.track.json'),
+      saveAs: false,
+      conflictAction: 'uniquify',
+    });
+  }
+  return { downloadId, filename, bytes: blob.size, durationMs };
 }

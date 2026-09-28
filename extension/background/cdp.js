@@ -353,7 +353,7 @@ export async function clickElement(tabId, selector, dx = 0, dy = 0, opts = {}) {
   const base = { x: center.x, y: center.y, button, clickCount, buttons: button === 'none' ? 0 : 1 << ['left', 'right', 'middle'].indexOf(button) };
   await sendCommand(tabId, 'Input.dispatchMouseEvent', { type: 'mousePressed', ...base });
   await sendCommand(tabId, 'Input.dispatchMouseEvent', { type: 'mouseReleased', ...base });
-  return { clicked: true, selector, tag: center.tag, button, clickCount };
+  return { clicked: true, selector, tag: center.tag, button, clickCount, x: center.x, y: center.y };
 }
 
 // hover: a bare mouseMoved. Pointer-over states (menus, tooltips, hover
