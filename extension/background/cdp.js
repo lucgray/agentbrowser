@@ -4,7 +4,7 @@
 // set is rebuilt lazily (an "already attached" error on re-attach is treated
 // as attached, since debugger attachments outlive the worker).
 
-import { buildOverlayScript, buildCursorScript, buildCursorRemoveScript } from '../page/overlay.js';
+import { buildOverlayScript } from '../page/overlay.js';
 
 const PROTOCOL_VERSION = '1.3';
 
@@ -269,41 +269,6 @@ export function showOverlay(tabId, action, detail) {
     );
   const bail = new Promise((resolve) => setTimeout(() => resolve(false), OVERLAY_TIMEOUT_MS));
   return Promise.race([work, bail]);
-}
-
-// Recording cursor: a page-drawn pointer moved by every coordinate-bearing
-// tool while record_start is active (tabCapture never sees the OS cursor).
-// Fire-and-forget like the overlay — cosmetic only, never fails a call.
-export function moveCursor(tabId, x, y) {
-  try {
-    const expression = buildCursorScript(x, y);
-    if (expression === 'false') return;
-    sendUnqueued(tabId, 'Runtime.evaluate', {
-      expression,
-      returnByValue: true,
-      awaitPromise: false,
-      userGesture: false,
-    }).catch((err) => {
-      console.warn('[agentbrowser] record cursor move failed (cosmetic)', err);
-    });
-  } catch (err) {
-    console.warn('[agentbrowser] record cursor move failed (cosmetic)', err);
-  }
-}
-
-export function removeCursor(tabId) {
-  try {
-    sendUnqueued(tabId, 'Runtime.evaluate', {
-      expression: buildCursorRemoveScript(),
-      returnByValue: true,
-      awaitPromise: false,
-      userGesture: false,
-    }).catch((err) => {
-      console.warn('[agentbrowser] record cursor remove failed (cosmetic)', err);
-    });
-  } catch (err) {
-    console.warn('[agentbrowser] record cursor remove failed (cosmetic)', err);
-  }
 }
 
 // Fire-and-forget wrapper: no caller ever sees this promise.
