@@ -6,37 +6,107 @@
 <canvas id="cv" style="display:block"></canvas>
 <video id="v" muted playsinline style="display:none"></video>
 <script>
+// Zoom-pan render of an agentbrowser recording.
+//   ?src=<webm>  ?track=<track.json> (default <src minus .webm>.track.json)
+// Cursor + zoom are rebuilt entirely from the marker track the extension
+// writes ({t,x,y,kind}), so the OS cursor never had to be captured.
 const params = new URLSearchParams(location.search);
 const SRC = params.get('src') || 'record.webm';
 const TRACK = params.get('track') || SRC.replace(/\.webm$/, '.track.json');
 const OUT_W = 1280, OUT_H = 720, FPS = 30;
 const ZOOM = 1.9, EASE_IN = 420, HOLD = 1100, EASE_OUT = 460; // ms
+const PAD = 0.075;                 // video inset as fraction of height
+const CURSOR_MS = 550;             // cursor travel time between markers
 const hud = document.getElementById('hud');
 const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
 cv.width = OUT_W; cv.height = OUT_H;
 const v = document.getElementById('v');
 
-function lerp(a,b,t){return a+(b-a)*t}
-function smooth(t){return t*t*(3-2*t)}
+const lerp = (a,b,t)=>a+(b-a)*t;
+const smooth = t=>t*t*(3-2*t);
+const clamp = (x,a,b)=>Math.min(Math.max(x,a),b);
 
-// For each time t (ms), return {s: scale, cx, cy: focus in video px}
-function makeCam(markers, vw, vh){
-  // snap focus to latest marker, zoom on clicks/scrolls
+// frame geometry: video inset on a gradient backdrop
+const VX = OUT_W*PAD, VY = OUT_H*PAD, VW = OUT_W*(1-2*PAD), VH = OUT_H*(1-2*PAD);
+
+// ---- zoom camera ----------------------------------------------------------
+// snap focus to the latest click/scroll marker, zoom in, hold, ease out.
+function makeCam(markers){
   const pts = (markers||[]).filter(m=>m.kind==='click'||m.kind==='scroll');
-  return function(t){
+  return t=>{
     let focus=null;
     for(const m of pts){ if(m.t<=t) focus=m; else break; }
-    if(!focus) return {s:1, cx:vw/2, cy:vh/2};
-    const dt = t-focus.t;
+    if(!focus) return {s:1};
+    const dt=t-focus.t;
     let s;
     if(dt<EASE_IN) s=lerp(1,ZOOM,smooth(dt/EASE_IN));
     else if(dt<EASE_IN+HOLD) s=ZOOM;
     else if(dt<EASE_IN+HOLD+EASE_OUT) s=lerp(ZOOM,1,smooth((dt-EASE_IN-HOLD)/EASE_OUT));
     else s=1;
-    // map marker viewport coords -> video px
-    const cx = focus.x/vw*vw, cy = focus.y/vh*vh;
-    return {s, cx:focus.x, cy:focus.y};
+    return {s, fx:focus.x, fy:focus.y};
   };
+}
+
+// ---- virtual cursor --------------------------------------------------------
+// position: dwell at each marker, smoothstep to the next over CURSOR_MS.
+function makeCursor(markers){
+  const pts = (markers||[]).slice().sort((a,b)=>a.t-b.t);
+  if(!pts.length) return null;
+  return t=>{
+    let prev=pts[0], next=null;
+    for(const m of pts){ if(m.t<=t) prev=m; else { next=m; break; } }
+    if(!next) return {x:prev.x, y:prev.y, click:prev.kind==='click'?Math.max(0,1-(t-prev.t)/350):0};
+    const k = smooth(clamp((t-prev.t)/CURSOR_MS,0,1));
+    return { x:lerp(prev.x,next.x,k), y:lerp(prev.y,next.y,k),
+             click: next.kind==='click' && t>=next.t ? 0 : 0 };
+  };
+}
+// click pulse: scale expands for ~350ms after a click marker
+function clickPulse(markers){
+  const clicks=(markers||[]).filter(m=>m.kind==='click');
+  return t=>{
+    for(const m of clicks){ const dt=t-m.t; if(dt>=0&&dt<350) return 1-dt/350; }
+    return 0;
+  };
+}
+
+function drawCursor(x,y,pulse){
+  // arrow cursor with white fill + dark outline, slight tilt; click = ring pulse
+  const s = OUT_H/720;                    // scale cursor to canvas
+  ctx.save();
+  ctx.translate(x,y);
+  if(pulse>0){
+    ctx.beginPath(); ctx.arc(0,0,(14+26*(1-pulse))*s,0,7);
+    ctx.strokeStyle=`rgba(255,255,255,${.85*pulse})`; ctx.lineWidth=2.5*s; ctx.stroke();
+  }
+  ctx.shadowColor='rgba(0,0,0,.45)'; ctx.shadowBlur=6*s; ctx.shadowOffsetY=2*s;
+  ctx.beginPath();
+  const p=[[0,0],[0,17],[4.2,13.2],[7,19],[9.6,17.6],[6.9,12],[12,12]]; // classic arrow pts
+  ctx.moveTo(0,0);
+  for(const [px,py] of p) ctx.lineTo(px*s,py*s);
+  ctx.closePath();
+  ctx.fillStyle='#fff'; ctx.fill();
+  ctx.shadowColor='transparent';
+  ctx.strokeStyle='#111'; ctx.lineWidth=1.4*s; ctx.stroke();
+  ctx.restore();
+}
+
+function roundRect(x,y,w,h,r){
+  ctx.beginPath();
+  ctx.moveTo(x+r,y);
+  ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r);
+  ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r);
+  ctx.closePath();
+}
+
+function drawBackdrop(){
+  const g=ctx.createLinearGradient(0,0,OUT_W,OUT_H);
+  g.addColorStop(0,'#2b2f3a'); g.addColorStop(.55,'#22242c'); g.addColorStop(1,'#1a1b20');
+  ctx.fillStyle=g; ctx.fillRect(0,0,OUT_W,OUT_H);
+  // subtle vignette
+  const rg=ctx.createRadialGradient(OUT_W/2,OUT_H/2,OUT_H*.3,OUT_W/2,OUT_H/2,OUT_H*.95);
+  rg.addColorStop(0,'rgba(0,0,0,0)'); rg.addColorStop(1,'rgba(0,0,0,.35)');
+  ctx.fillStyle=rg; ctx.fillRect(0,0,OUT_W,OUT_H);
 }
 
 async function main(){
@@ -47,11 +117,11 @@ async function main(){
   v.src = URL.createObjectURL(blob);
   await new Promise(r=>v.onloadedmetadata=r);
   const vw=v.videoWidth, vh=v.videoHeight;
-  hud.textContent = `src ${vw}x${vh} ${v.duration.toFixed(1)}s | markers ${track.markers.length} | rendering…`;
+  hud.textContent = `src ${vw}x${vh} ${v.duration.toFixed(1)}s | markers ${(track.markers||[]).length} | rendering…`;
 
-  // markers are in page-viewport coords; video is the full captured surface.
-  // assume video==viewport at scale 1 (tab capture = viewport render).
-  const cam = makeCam(track.markers, vw, vh);
+  const cam = makeCam(track.markers);
+  const cursor = makeCursor(track.markers);
+  const pulse = clickPulse(track.markers);
   const stream = cv.captureStream(FPS);
   const rec = new MediaRecorder(stream, {mimeType:'video/webm;codecs=vp9', videoBitsPerSecond:6e6});
   const chunks=[]; rec.ondataavailable=e=>{if(e.data.size)chunks.push(e.data)};
@@ -64,16 +134,37 @@ async function main(){
     const t = v.currentTime*1000;
     const c = cam(t);
     const s = c.s;
-    // crop region in source coords, centered on focus, clamped to video bounds
-    let cw = vw/s, ch = vh/s;
-    let sx = Math.min(Math.max(c.cx-cw/2,0), vw-cw);
-    let sy = Math.min(Math.max(c.cy-ch/2,0), vh-ch);
-    ctx.fillStyle='#000'; ctx.fillRect(0,0,OUT_W,OUT_H);
-    ctx.drawImage(v, sx,sy,cw,ch, 0,0,OUT_W,OUT_H);
-    // cursor dot at focus when zoomed
-    if(s>1.05){
-      ctx.fillStyle='rgba(80,140,255,.9)';
-      ctx.beginPath(); ctx.arc(OUT_W/2,OUT_H/2,5,0,7); ctx.fill();
+    drawBackdrop();
+    // video clipped to rounded rect, zoomed toward focus point inside it
+    ctx.save();
+    ctx.shadowColor='rgba(0,0,0,.55)'; ctx.shadowBlur=40; ctx.shadowOffsetY=14;
+    ctx.fillStyle='#000'; roundRect(VX,VY,VW,VH,14); ctx.fill();
+    ctx.shadowColor='transparent';
+    roundRect(VX,VY,VW,VH,14); ctx.clip();
+    // source crop centered on focus, in video px
+    if(s>1 && c.fx!=null){
+      const cw=vw/s, ch=vh/s;
+      const sx=clamp(c.fx-cw/2,0,vw-cw), sy=clamp(c.fy-ch/2,0,vh-ch);
+      ctx.drawImage(v, sx,sy,cw,ch, VX,VY,VW,VH);
+    } else {
+      ctx.drawImage(v, VX,VY,VW,VH);
+    }
+    ctx.restore();
+    // virtual cursor: marker coords are page-viewport px == video px (capture is viewport render)
+    if(cursor){
+      const cp=cursor(t);
+      const z=(s>1 && c.fx!=null);
+      // map video-px -> canvas coords, through the same crop when zoomed
+      let px,py;
+      if(z){
+        const cw=vw/s, ch=vh/s;
+        const sx=clamp(c.fx-cw/2,0,vw-cw), sy=clamp(c.fy-ch/2,0,vh-ch);
+        px=VX+(cp.x-sx)/cw*VW; py=VY+(cp.y-sy)/ch*VH;
+      } else {
+        px=VX+cp.x/vw*VW; py=VY+cp.y/vh*VH;
+      }
+      px=clamp(px,VX,VX+VW); py=clamp(py,VY,VY+VH);
+      drawCursor(px,py,pulse(t));
     }
     if(!v.ended) requestAnimationFrame(draw);
   }
