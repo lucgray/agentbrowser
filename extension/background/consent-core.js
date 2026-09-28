@@ -19,7 +19,7 @@ export const WRITE_TOOLS = [
   'click', 'click_element', 'type_text', 'press_key', 'navigate',
   'eval_js', 'patch_apply', 'fill',
   'breakpoint_set', 'debug_eval', 'debug_resume', 'drag', 'select_text',
-    'set_file_input', 'download_configure',
+    'set_file_input', 'download_configure', 'record_start',
   'frame_eval', 'frame_click_element',
   'annotate', 'annotate_batch', 'annotate_reply', 'annotate_clear',
   // `batch` is intentionally absent: it gates every inner step under that
@@ -143,6 +143,8 @@ function summarize(tool, a) {
       return `reply on annotation ${String(a.id || '?')}`;
     case 'annotate_clear':
       return a.id ? `remove annotation ${a.id}` : 'remove all annotations';
+    case 'record_start':
+      return 'start recording this tab';
     default:
       return tool;
   }

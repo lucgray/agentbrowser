@@ -539,6 +539,35 @@ export const TOOLS = [
     }
   },
 
+  // --- tab recording (v2.7): chrome.tabCapture + offscreen MediaRecorder →
+  // webm saved under <Downloads>/agentbrowser/. Coordinate-bearing tool calls
+  // while a recording runs are written into a {t,x,y,kind} marker track saved
+  // beside the video as <name>.track.json — zoom/pan edits can be derived from
+  // the agent's own actions with no video analysis.
+
+  {
+    name: "record_start",
+    description: "Start capturing this tab to webm (chrome.tabCapture + MediaRecorder; tab content only, no system cursor, no audio). While recording, every coordinate-bearing tool call (click/hover/scroll/drag/select) appends a {t,x,y,kind} marker to a zoom track. Returns {recording, tabId, startedAt}.",
+    args: {
+      type: "object",
+      properties: {
+        tabId: { type: "number", description: "Target tab id; omit for the active tab" }
+      },
+      required: []
+    }
+  },
+  {
+    name: "record_stop",
+    description: "Stop the tab recording and save it. Writes <Downloads>/agentbrowser/record-<ts>-tab<id>.webm plus <same>.track.json (the marker track). Returns {file, bytes, durationMs, markers}.",
+    args: {
+      type: "object",
+      properties: {
+        tabId: { type: "number", description: "Target tab id; omit for the active tab" }
+      },
+      required: []
+    }
+  },
+
   // --- OOPIF frame tools (v2.6): reach inside cross-origin iframes (payment
   // widgets, chat embeds, editors). `frame` is a sessionId or url substring
   // from frames_list. Same-origin iframes are already reachable via normal

@@ -353,7 +353,7 @@ export async function clickElement(tabId, selector, dx = 0, dy = 0, opts = {}) {
   const base = { x: center.x, y: center.y, button, clickCount, buttons: button === 'none' ? 0 : 1 << ['left', 'right', 'middle'].indexOf(button) };
   await sendCommand(tabId, 'Input.dispatchMouseEvent', { type: 'mousePressed', ...base });
   await sendCommand(tabId, 'Input.dispatchMouseEvent', { type: 'mouseReleased', ...base });
-  return { clicked: true, selector, tag: center.tag, button, clickCount };
+  return { clicked: true, selector, tag: center.tag, button, clickCount, x: center.x, y: center.y };
 }
 
 // hover: a bare mouseMoved. Pointer-over states (menus, tooltips, hover
@@ -403,7 +403,7 @@ export async function scroll(tabId, args) {
   if (args.repeatDelayMs != null) params.repeatDelayMs = Math.max(0, Number(args.repeatDelayMs));
   if (args.repeatCount != null) params.repeatCount = Math.max(0, Math.trunc(Number(args.repeatCount)));
   await sendCommand(tabId, 'Input.synthesizeScrollGesture', params);
-  return { scrolled: true, xDistance: params.xDistance, yDistance: params.yDistance };
+  return { scrolled: true, x, y, xDistance: params.xDistance, yDistance: params.yDistance };
 }
 
 // drag: two modes.
@@ -509,13 +509,14 @@ export async function selectText(tabId, args) {
 export async function typeText(tabId, text, selector) {
   const value = String(text ?? '');
   flashOverlay(tabId, 'type_text');
+  let focus = null;
   if (selector) {
     // Focus the target first — a real click, so page click handlers see it.
-    await clickElement(tabId, selector);
+    focus = await clickElement(tabId, selector);
     flashOverlay(tabId, 'type_text');
   }
   await sendCommand(tabId, 'Input.insertText', { text: value });
-  return { typed: value.length };
+  return focus ? { typed: value.length, x: focus.x, y: focus.y } : { typed: value.length };
 }
 
 export async function evalJs(tabId, expression) {

@@ -148,6 +148,25 @@ agentbrowser patch_apply '{"patches":[{"selector":"h1","styles":{"outline":"3px 
 agentbrowser patch_revert '{"patchId":"patch-..."}'
 ```
 
+Record a tab while you work on it (v2.7):
+
+Chrome requires the tab to be "invoked" first — the user must have clicked
+the AgentBrowser icon or chosen "Ask AgentBrowser" from the right-click menu
+on that tab since its last navigation. If `record_start` errors with
+"needs an invocation", ask the user for that one click, then retry.
+
+```bash
+agentbrowser record_start '{}'        # needs consent; starts tabCapture
+# ... keep calling tools — every click/hover/scroll/drag lands a
+#     {t,x,y,kind} marker on the zoom track automatically ...
+agentbrowser record_stop '{}'         # -> <Downloads>/agentbrowser/record-*.webm
+                                      #    + record-*.track.json (markers)
+```
+
+`record_start` records the tab's content only — no system cursor, no audio.
+The `.track.json` beside the video is what a zoom/pan edit tool needs: each
+marker is a timestamped coordinate from your own tool calls.
+
 ## Naming your actions (`label`)
 
 Every tool accepts an optional `label` — a short human-readable name for the

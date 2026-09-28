@@ -1,0 +1,353 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>ab zoom render</title>
+<body style="margin:0;background:#111;color:#eee;font:13px monospace">
+<div id="hud" style="position:fixed;top:8px;left:8px;z-index:9;background:#000a;padding:6px 10px;border-radius:6px">loading…</div>
+<div id="bar" style="position:fixed;top:8px;right:8px;z-index:9;display:flex;gap:6px;font:12px system-ui">
+  <select id="themeSel" style="background:#000a;color:#eee;border:1px solid #444;border-radius:6px;padding:4px 8px">
+    <option value="studio">studio (dark blur)</option>
+    <option value="brand">brand gradient</option>
+    <option value="light">light blur</option>
+  </select>
+  <button data-w="1920" data-h="1080">1080p</button>
+  <button data-w="1280" data-h="720">720p</button>
+  <button data-w="1080" data-h="1080">1:1</button>
+  <button data-w="1080" data-h="1920">9:16</button>
+</div>
+<style>#bar button{background:#000a;color:#eee;border:1px solid #444;border-radius:6px;padding:4px 10px;cursor:pointer}#bar button:hover{background:#333}</style>
+<canvas id="cv" style="display:block"></canvas>
+<video id="v" muted playsinline style="display:none"></video>
+<script>
+// Zoom-pan render of an agentbrowser recording for product demos.
+//   ?src=<webm>  ?track=<track.json>  ?w=<out width> ?h=<out height>
+//   ?theme=studio|brand|light   ?subs=<captions.json>   ?subs=0 (off)
+// Captions come from marker `label` fields by default — the agent names its
+// actions at call time and those become the voice-over text of the demo.
+const params = new URLSearchParams(location.search);
+const SRC = params.get('src') || 'record.webm';
+const TRACK = params.get('track') || SRC.replace(/\.webm$/, '.track.json');
+const OUT_W = Number(params.get('w')) || 1920;
+const OUT_H_PARAM = Number(params.get('h')) || 0;
+const THEME = params.get('theme') || 'studio';
+const SUBS = params.get('subs');             // unset: derive from markers
+const FPS = 30;
+const ZOOM = 1.9, EASE_IN = 420, HOLD = 1100, EASE_OUT = 460; // ms
+const PAD = 0.06;
+const RADIUS = 18;
+const hud = document.getElementById('hud');
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+const v = document.getElementById('v');
+
+// ---- toolbar: param-preserving navigation --------------------------------
+function go(patch){
+  const p = new URLSearchParams(location.search);
+  for(const k in patch) p.set(k, patch[k]);
+  location.search = p.toString();
+}
+document.getElementById('themeSel').value = THEME;
+document.getElementById('themeSel').onchange = e=>go({theme:e.target.value});
+for(const b of document.querySelectorAll('#bar button'))
+  b.onclick = ()=>go({w:b.dataset.w, h:b.dataset.h});
+
+const lerp = (a,b,t)=>a+(b-a)*t;
+const smooth = t=>t*t*(3-2*t);
+const clamp = (x,a,b)=>Math.min(Math.max(x,a),b);
+
+// populated by main() after the track loads
+let pointer = null;
+let CLICKS = [];
+let cx0=0, cy0=0, cw0=1, ch0=1;
+
+// ---- simulated pointer ----------------------------------------------------
+// openScreen-style: a critically-damped spring chases a waypoint chain — each
+// marker becomes the target as its time arrives, so motion is smooth, physical
+// and slightly organic (overshoot damped out), never a mechanical keyframe.
+// Stateful per frame; the render loop steps t strictly forward.
+function makePointer(markers){
+  const pts = (markers||[]).filter(m=>Number.isFinite(m.x)&&Number.isFinite(m.y));
+  if(!pts.length) return null;
+  let px=pts[0].x, py=pts[0].y, vx=0, vy=0, lastT=0;
+  function target(t){
+    let cur = pts[0];
+    for(const m of pts){ if(m.t<=t) cur=m; else break; }
+    return cur;
+  }
+  function step(t){
+    const dt = Math.min(0.05, Math.max(0.001,(t-lastT)/1000)); lastT=t;
+    const tg = target(t);
+    // resting isn't frozen: waypoint gets a slow ±2px breathing drift
+    const tx = tg.x + Math.sin(t*0.0009)*2.2, ty = tg.y + Math.sin(t*0.0013+1.7)*1.8;
+    // spring: stiffness ~180, damping ~26 → snappy but settles without bounce
+    const K=180, D=26;
+    vx += ((tx-px)*K - vx*D)*dt;  vy += ((ty-py)*K - vy*D)*dt;
+    px += vx*dt; py += vy*dt;
+    return {x:px, y:py};
+  }
+  function tilt(t){
+    const v = Math.hypot(vx,vy);
+    return clamp(vx*0.00022, -0.14, 0.14) * Math.min(1, v/400);
+  }
+  // fade+scale in at the start so the pointer materializes, never pops
+  function alpha(t){ return clamp((t-Math.max(0,pts[0].t-1200))/500, 0, 1); }
+  // current spring state — pure getter for the camera; step() is the mutator
+  const pos = ()=>({x:px, y:py});
+  return {step, pos, tilt, alpha};
+}
+
+// click pulse: two rings — a fast shockwave and a slower trailing ripple —
+// plus the cursor squash in drawPointer. Reads as a soft tap, not a flash.
+function drawClicks(t, toPx){
+  for(const m of CLICKS){
+    const dt = t-m.t;
+    if(dt<0 || dt>780) continue;
+    const p = toPx(m.x, m.y); if(!p) continue;
+    for(const [delay, R, A] of [[0,44,.9],[140,30,.5]]){
+      const d2 = dt-delay; if(d2<0||d2>620) continue;
+      const pr = smooth(d2/620);
+      ctx.strokeStyle = `rgba(255,255,255,${A*(1-pr)})`;
+      ctx.lineWidth = 2.5*(1-pr)+0.5;
+      ctx.beginPath(); ctx.arc(p.x, p.y, 6+R*pr, 0, 7); ctx.stroke();
+    }
+    // brief filled flash at the contact point
+    if(dt<160){
+      ctx.fillStyle = `rgba(255,255,255,${.5*(1-dt/160)})`;
+      ctx.beginPath(); ctx.arc(p.x, p.y, 9, 0, 7); ctx.fill();
+    }
+  }
+}
+
+const ARROW = 'M4 2 L4 20.5 L8.3 16.6 L10.6 22.3 L13.6 21.1 L11.3 15.5 L17.5 15.5 Z';
+const arrowPath = new Path2D(ARROW);
+function drawPointer(c, t, toPx){
+  if(!pointer || !c) return;
+  const p = toPx(c.x, c.y); if(!p) return;
+  // squash on click
+  let sc=1;
+  for(const m of CLICKS){ const dt=t-m.t;
+    if(dt>=0&&dt<220) sc = 1-0.18*smooth(1-dt/220); }
+  const size = OUT_W*0.017*sc;                  // ~32px at 1920
+  ctx.save();
+  ctx.globalAlpha = pointer.alpha(t);
+  ctx.translate(p.x, p.y);
+  ctx.rotate(pointer.tilt(t));
+  const k = size/24;
+  ctx.scale(k,k); ctx.translate(-2,-1);
+  ctx.shadowColor='rgba(0,0,0,.45)'; ctx.shadowBlur=6; ctx.shadowOffsetY=3;
+  ctx.fillStyle='#fff'; ctx.fill(arrowPath);
+  ctx.shadowColor='transparent';
+  ctx.strokeStyle='rgba(17,17,17,.9)'; ctx.lineWidth=1.3/k; ctx.stroke(arrowPath);
+  ctx.restore();
+}
+
+// ---- zoom camera ----------------------------------------------------------
+// Smooth follow: the lens always tracks the simulated pointer; zoom level is
+// an envelope around click/scroll clusters — ramps in before the action and
+// relaxes after, so the motion reads as one continuous shot, not cuts.
+function makeCam(markers){
+  const pts = (markers||[]).filter(m=>m.kind==='click'||m.kind==='scroll');
+  // merge windows [t-380, t+1500]
+  const wins=[];
+  for(const m of pts){
+    const w=[m.t-380, m.t+1500];
+    const last=wins[wins.length-1];
+    if(last && w[0]<=last[1]) last[1]=Math.max(last[1],w[1]); else wins.push(w);
+  }
+  function zoomAt(t){
+    for(const [a,b] of wins){
+      if(t<a) return 1;
+      if(t<=a+460) return 1+(ZOOM-1)*smooth((t-a)/460);
+      if(t<=b) return ZOOM;
+      if(t<=b+680) return lerp(ZOOM,1,smooth((t-b)/680));
+    }
+    return 1;
+  }
+  // anticipation: between actions, the lens drifts toward the NEXT marker a
+  // little early, so the pan starts before the pointer visibly moves
+  function nextTarget(t){
+    const pts = (markers||[]).filter(m=>Number.isFinite(m.x)&&Number.isFinite(m.y));
+    for(const m of pts){ if(m.t>t) return m; }
+    return pts[pts.length-1] || {x:cx0+cw0/2, y:cy0+ch0/2};
+  }
+  return t=>{
+    const s = zoomAt(t);
+    const c = (pointer && pointer.pos()) || {x:cx0+cw0/2, y:cy0+ch0/2};
+    const nx = nextTarget(t);
+    const blend = s>1 ? 0.85 : 0.65;          // zoomed: stick close to pointer
+    return {s, fx:lerp(c.x,nx.x,1-blend), fy:lerp(c.y,nx.y,1-blend)};
+  };
+}
+
+function roundRect(x,y,w,h,r){
+  ctx.beginPath();
+  ctx.moveTo(x+r,y);
+  ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r);
+  ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r);
+  ctx.closePath();
+}
+
+// ---- captions -------------------------------------------------------------
+// [{t, text}] — shows text from t until the next caption starts (min 1.2s,
+// capped at next caption minus 80ms so two captions never overlap).
+function makeSubs(cues){
+  return t=>{
+    let cur=null;
+    for(const c of cues){ if(c.t<=t) cur=c; else break; }
+    if(!cur) return null;
+    const i = cues.indexOf(cur);
+    const end = Math.min(cur.t + Math.max(1200, cur.d||2500),
+                         i+1<cues.length ? cues[i+1].t-80 : Infinity);
+    if(t>end) return null;
+    // 150ms fade in/out instead of a hard cut
+    const a = Math.min(clamp((t-cur.t)/150,0,1), clamp((end-t)/150,0,1));
+    return {text:cur.text, a};
+  };
+}
+function drawSubs(text, opacity){
+  if(!text || opacity<=0) return;
+  const fs = Math.round(cv.width*0.017);
+  ctx.save(); ctx.globalAlpha = opacity;
+  ctx.font = `500 ${fs}px system-ui, sans-serif`;
+  const tw = ctx.measureText(text).width;
+  const pw = fs*1.2, ph = fs*0.9;
+  const bw = tw+pw*2, bh = fs+ph*2;
+  const bx = (cv.width-bw)/2, by = cv.height - bh - cv.width*0.035;
+  ctx.fillStyle = 'rgba(10,10,14,.72)';
+  roundRect(bx,by,bw,bh,bh/2); ctx.fill();
+  ctx.fillStyle = '#fff'; ctx.textBaseline='middle'; ctx.textAlign='center';
+  ctx.fillText(text, cv.width/2, by+bh/2+1);
+  ctx.restore(); ctx.textAlign='left';
+}
+
+async function main(){
+  const [blob, track] = await Promise.all([
+    fetch(SRC).then(r=>r.blob()),
+    fetch(TRACK).then(r=>r.json()).catch(()=>({markers:[]})),
+  ]);
+  v.src = URL.createObjectURL(blob);
+  await new Promise(r=>v.onloadedmetadata=r);
+  const vw=v.videoWidth, vh=v.videoHeight;
+  // MediaRecorder output carries no duration metadata (v.duration=Infinity);
+  // a huge seek clamps to the real end and reveals it.
+  await new Promise(r=>{v.onseeked=r; v.currentTime=1e6;});
+  const realDur = v.currentTime;
+  await new Promise(r=>{v.onseeked=r; v.currentTime=0;});
+  const OUT_H = OUT_H_PARAM || Math.round(OUT_W*vh/vw);
+  cv.width=OUT_W; cv.height=OUT_H;
+  const pad = OUT_W*PAD;
+
+  // content rect inside the letterboxed capture
+  cx0=0; cy0=0; cw0=vw; ch0=vh;
+  if(track.viewport && track.viewport.w && track.viewport.h){
+    const cs = Math.min(vw/track.viewport.w, vh/track.viewport.h);
+    cw0 = track.viewport.w*cs; ch0 = track.viewport.h*cs;
+    cx0 = (vw-cw0)/2; cy0 = (vh-ch0)/2;
+  }
+  const mscale = cw0/(track.viewport && track.viewport.w || vw);
+  // Marker times are wall-clock (Date.now since record_start); the video's
+  // t=0 is its first frame, which arrives after getUserMedia+recorder startup
+  // — up to several hundred ms late. wallDuration - videoDuration recovers
+  // that startup lag, so clicks land on the frames where they happened.
+  const toff = (track.startedAt && track.stoppedAt)
+    ? Math.max(0, (track.stoppedAt - track.startedAt) - realDur*1000) : 0;
+  const markers = (track.markers||[]).map(m=>({...m, t:m.t-toff, x:cx0+m.x*mscale, y:cy0+m.y*mscale}));
+
+  const bw = OUT_W-2*pad, bh = OUT_H-2*pad;
+  const fit = Math.min(bw/cw0, bh/ch0);
+  const VW = cw0*fit, VH = ch0*fit;
+  const VX = (OUT_W-VW)/2, VY = (OUT_H-VH)/2;
+
+  // captions: subs file override, else marker labels
+  let cues = [];
+  if(SUBS==='0') cues = [];
+  else if(SUBS) cues = await fetch(SUBS).then(r=>r.json()).catch(()=>[]);
+  else cues = markers.filter(m=>m.label)
+              .map(m=>({t:m.t-300, text:m.label, d:2600}));
+  const subs = makeSubs(cues);
+  pointer = makePointer(markers);
+  CLICKS = markers.filter(m=>m.kind==='click');
+
+  hud.textContent = `src ${vw}x${vh} content ${cw0|0}x${ch0|0} | out ${OUT_W}x${OUT_H} ${THEME} | markers ${markers.length} cues ${cues.length} | rendering…`;
+
+  const cam = makeCam(markers);
+  const stream = cv.captureStream(0);
+  const rec = new MediaRecorder(stream, {mimeType:'video/webm;codecs=vp9', videoBitsPerSecond:8e6});
+  const chunks=[]; rec.ondataavailable=e=>{if(e.data.size)chunks.push(e.data)};
+  const done = new Promise(r=>rec.onstop=r);
+  rec.start(500);
+
+  const t0 = performance.now();
+  const blurPx = OUT_W*0.05;
+  function drawBackdrop(){
+    if(THEME==='brand'){
+      const g = ctx.createLinearGradient(0,0,OUT_W,OUT_H);
+      g.addColorStop(0,'#312e81'); g.addColorStop(.5,'#6d28d9'); g.addColorStop(1,'#0e7490');
+      ctx.fillStyle=g; ctx.fillRect(0,0,OUT_W,OUT_H);
+      ctx.save(); ctx.globalAlpha=.28;
+      ctx.filter=`blur(${blurPx}px) saturate(1.6)`;
+      ctx.drawImage(v, cx0,cy0,cw0,ch0, -pad*3,-pad*3,OUT_W+pad*6,OUT_H+pad*6);
+      ctx.restore(); ctx.globalAlpha=1;
+    } else if(THEME==='light'){
+      ctx.save();
+      ctx.filter = `blur(${blurPx}px) saturate(1.25) brightness(1.12)`;
+      ctx.drawImage(v, cx0,cy0,cw0,ch0, -pad*3,-pad*3,OUT_W+pad*6,OUT_H+pad*6);
+      ctx.restore();
+      ctx.fillStyle='rgba(245,246,250,.4)'; ctx.fillRect(0,0,OUT_W,OUT_H);
+    } else { // studio
+      ctx.save();
+      ctx.filter = `blur(${blurPx}px) saturate(1.4) brightness(.55)`;
+      ctx.drawImage(v, cx0,cy0,cw0,ch0, -pad*3,-pad*3,OUT_W+pad*6,OUT_H+pad*6);
+      ctx.restore();
+      ctx.fillStyle='rgba(12,13,18,.45)'; ctx.fillRect(0,0,OUT_W,OUT_H);
+    }
+  }
+  function draw(t){
+    const pcur = pointer ? pointer.step(t) : null;  // advance the spring once
+    const c = cam(t);
+    const s = c.s;
+    drawBackdrop();
+    ctx.save();
+    ctx.shadowColor = THEME==='light' ? 'rgba(15,23,42,.35)' : 'rgba(0,0,0,.55)';
+    ctx.shadowBlur=OUT_W*0.02; ctx.shadowOffsetY=OUT_W*0.008;
+    ctx.fillStyle='#000'; roundRect(VX,VY,VW,VH,RADIUS); ctx.fill();
+    ctx.shadowColor='transparent';
+    roundRect(VX,VY,VW,VH,RADIUS); ctx.clip();
+    let cw=cw0, ch=ch0, sx=cx0, sy=cy0;
+    if(s>1 && c.fx!=null){
+      cw=cw0/s; ch=ch0/s;
+      sx=clamp(c.fx-cw/2,cx0,cx0+cw0-cw); sy=clamp(c.fy-ch/2,cy0,cy0+ch0-ch);
+      ctx.drawImage(v, sx,sy,cw,ch, VX,VY,VW,VH);
+    } else {
+      ctx.drawImage(v, cx0,cy0,cw0,ch0, VX,VY,VW,VH);
+    }
+    ctx.restore();
+    // pointer layer — drawn in output px, mapped through the same crop
+    const toPx = s>1 && c.fx!=null
+      ? (x,y)=>({x: VX+(x-sx)*VW/cw, y: VY+(y-sy)*VH/ch})
+      : (x,y)=>({x: VX+(x-cx0)*VW/cw0, y: VY+(y-cy0)*VH/ch0});
+    drawClicks(t, toPx);
+    drawPointer(pcur, t, toPx);
+    const sub = subs(t);
+    if(sub) drawSubs(sub.text, sub.a);
+  }
+  // Deterministic frame-stepping: seek, wait 'seeked', draw, push the frame.
+  // Occluded tabs throttle rAF/timers, so the loop is event-driven, not clock.
+  const vtrack = stream.getVideoTracks()[0];
+  const total = Math.max(1, Math.floor(realDur*FPS));
+  for(let i=0;i<=total;i++){
+    const t = i/FPS;
+    if(Math.abs(v.currentTime-t)>0.001)
+      await new Promise(r=>{v.onseeked=r; v.currentTime=Math.min(t, Math.max(0,realDur-0.001));});
+    draw(t*1000); vtrack.requestFrame();
+    if(i%90===0) hud.textContent = `rendering… frame ${i}/${total}`;
+  }
+  await new Promise(r=>setTimeout(r,300));
+  rec.stop(); await done;
+  const out = new Blob(chunks,{type:'video/webm'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(out);
+  a.download = SRC.replace(/\.webm$/,'.zoomed.webm');
+  a.click();
+  hud.textContent = `done: ${a.download} (${(out.size/1e6).toFixed(1)}MB, ${(performance.now()-t0)/1000|0}s render)`;
+}
+main().catch(e=>{hud.textContent='ERR '+e.message; hud.style.background='#c00'});
+</script>

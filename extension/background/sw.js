@@ -192,10 +192,61 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 
 const annChats = new Map(); // chatId -> { tabId, annId }
 
+// --- tab recording (v2.7) ---------------------------------------------------
+// recordings: tabId -> { startedAt, markers: [{t,x,y,kind}] }. Markers are
+// pushed by coordinate-bearing tool dispatchers, so a zoom/pan edit track can
+// be derived from the agent's own actions without any video analysis.
+// The MediaRecorder itself lives in the offscreen document — it never
+// suspends, so a recording survives service-worker restarts.
+const recordings = new Map();
+const recordWaiters = new Map(); // 'started'|'result'|'error' -> {resolve, reject, timer}
+
+function mark(tabId, x, y, kind, label) {
+  const r = recordings.get(tabId);
+  if (!r || !r.startedAt) return; // before record_started ack, or not recording
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+  const m = { t: Date.now() - r.startedAt, x: Math.round(x), y: Math.round(y), kind };
+  if (typeof label === 'string' && label.trim()) m.label = label.trim().slice(0, 80);
+  r.markers.push(m);
+}
+
+function awaitRecorderAck(op, timeoutMs = 15000) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      recordWaiters.delete(op);
+      reject(new Error(`record ${op} timed out`));
+    }, timeoutMs);
+    recordWaiters.set(op, { resolve, reject, timer });
+  });
+}
+
+function settleRecorder(op, message) {
+  const w = recordWaiters.get(op);
+  if (w) {
+    clearTimeout(w.timer);
+    recordWaiters.delete(op);
+    w.resolve(message);
+    return;
+  }
+  // An error ack matches whichever op is in flight.
+  if (op === 'error') {
+    const [first] = recordWaiters.values();
+    if (first) {
+      const [key, pending] = recordWaiters.entries().next().value;
+      clearTimeout(pending.timer);
+      recordWaiters.delete(key);
+      pending.reject(new Error(message.message || 'recording failed'));
+      return;
+    }
+  }
+  console.warn('[agentbrowser] unexpected record ack', op);
+}
+
 chrome.tabs.onRemoved.addListener((tabId) => {
   for (const [chatId, ann] of annChats) {
     if (ann.tabId === tabId) annChats.delete(chatId);
   }
+  recordings.delete(tabId);
 });
 
 // The annotation script is declared in the manifest, but a page that predates
@@ -402,6 +453,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     postToPanel({ type: 'status', connected: hubConnected });
   } else if (message.cmd === 'ws_message') {
     handleHubMessage(message.payload);
+  } else if (
+    message.cmd === 'record_started' ||
+    message.cmd === 'record_result' ||
+    message.cmd === 'record_error'
+  ) {
+    settleRecorder(message.cmd.replace('record_', ''), message);
   }
 });
 
@@ -612,6 +669,7 @@ const TOOLS = {
 
   async click(args) {
     const tabId = await resolveTabId(args.tabId);
+    mark(tabId, Number(args.x), Number(args.y), 'click', args.label);
     return cdp.click(tabId, args.x, args.y, args);
   },
 
@@ -628,7 +686,10 @@ const TOOLS = {
     if (args.frame) {
       return inspect.frameClickElement(tabId, { ...args, selector });
     }
-    return cdp.clickElement(tabId, selector, args.dx || 0, args.dy || 0, args);
+    const res = await cdp.clickElement(tabId, selector, args.dx || 0, args.dy || 0, args);
+    if (res && Number.isFinite(res.x)) mark(tabId, res.x, res.y, 'click', args.label);
+    return res;
+    return res;
   },
 
   async page_snapshot(args) {
@@ -639,22 +700,35 @@ const TOOLS = {
 
   async hover(args) {
     const tabId = await resolveTabId(args.tabId);
-    if (args.selector) return cdp.hoverElement(tabId, String(args.selector));
+    if (args.selector) {
+      const res = await cdp.hoverElement(tabId, String(args.selector));
+      if (res && Number.isFinite(res.x)) mark(tabId, res.x, res.y, 'hover', args.label);
+      return res;
+    }
+    mark(tabId, Number(args.x), Number(args.y), 'hover', args.label);
     return cdp.hover(tabId, Number(args.x), Number(args.y));
   },
 
   async scroll(args) {
     const tabId = await resolveTabId(args.tabId);
+    // Mark the gesture anchor at dispatch time: explicit x/y, else the
+    // recording's viewport center (what cdp.scroll resolves to anyway).
+    const r = recordings.get(tabId);
+    const mx = Number.isFinite(Number(args.x)) ? Number(args.x) : r && r.viewport ? r.viewport.w / 2 : NaN;
+    const my = Number.isFinite(Number(args.y)) ? Number(args.y) : r && r.viewport ? r.viewport.h / 2 : NaN;
+    mark(tabId, mx, my, 'scroll', args.label);
     return cdp.scroll(tabId, args);
   },
 
   async drag(args) {
     const tabId = await resolveTabId(args.tabId);
+    mark(tabId, Number(args.x), Number(args.y), 'drag', args.label);
     return cdp.drag(tabId, args);
   },
 
   async select_text(args) {
     const tabId = await resolveTabId(args.tabId);
+    if (args.to) mark(tabId, Number(args.to.x), Number(args.to.y), 'select', args.label);
     return cdp.selectText(tabId, args);
   },
 
@@ -668,7 +742,10 @@ const TOOLS = {
       await cdp.sendCommand(tabId, 'Input.insertText', { text });
       return { typed: text.length };
     }
-    return cdp.typeText(tabId, args.text, args.selector);
+    const res = await cdp.typeText(tabId, args.text, args.selector);
+    // a selector focus is a real click on the field — put it on the track
+    if (res && Number.isFinite(res.x)) mark(tabId, res.x, res.y, 'click', args.label);
+    return res;
   },
 
 
@@ -867,7 +944,105 @@ const TOOLS = {
 
   async frame_click_element(args) {
     const tabId = await resolveTabId(args.tabId);
-    return inspect.frameClickElement(tabId, args);
+    const res = await inspect.frameClickElement(tabId, args);
+    if (res && Number.isFinite(res.x)) mark(tabId, res.x, res.y, 'click', args.label);
+    return res;
+  },
+
+  async record_start(args) {
+    const tabId = await resolveTabId(args.tabId);
+    if (recordings.get(tabId)?.startedAt) throw new Error('this tab is already recording');
+    let streamId;
+    try {
+      // Resolves to the stream id string, not an object.
+      streamId = await chrome.tabCapture.getMediaStreamId({ targetTabId: tabId });
+    } catch (err) {
+      // tabCapture ignores host_permissions — the tab must be "invoked"
+      // (action-icon click, context menu, or command) since last navigation.
+      throw new Error(
+        `tabCapture needs an invocation on this tab: click the AgentBrowser icon (or its context-menu item) once, then retry. (${err.message || err})`
+      );
+    }
+    if (!streamId) throw new Error('tabCapture returned no streamId');
+    // Markers are recorded in CSS px; the captured video is in device px, so
+    // the viewer needs the visual viewport size to map between them.
+    // window.innerWidth includes the scrollbar, which is part of the captured
+    // image — clientWidth would be ~15px short and skew the mapping.
+    let viewport = null;
+    try {
+      const res = await cdp.sendCommand(tabId, 'Runtime.evaluate', {
+        expression: '({ w: window.innerWidth, h: window.innerHeight })',
+        returnByValue: true,
+      });
+      const v = res.result && res.result.value;
+      if (v && v.w && v.h) viewport = { w: Math.round(v.w), h: Math.round(v.h) };
+    } catch (err) {
+      console.warn('[agentbrowser] record_start viewport probe failed', err);
+    }
+    if (!viewport) {
+      try {
+        const metrics = await cdp.sendCommand(tabId, 'Page.getLayoutMetrics');
+        const vp = metrics.cssLayoutViewport || metrics.layoutViewport;
+        const w = vp && (vp.clientWidth || vp.width), h = vp && (vp.clientHeight || vp.height);
+        if (w && h) viewport = { w: Math.round(w), h: Math.round(h) };
+      } catch (err) {
+        console.warn('[agentbrowser] record_start metrics fallback failed', err);
+      }
+    }
+    recordings.set(tabId, { startedAt: 0, markers: [], viewport });
+    // Hide the overlay chrome (border/pill/ripples) for the capture — it is
+    // page content and would otherwise be recorded. The rec cursor stays.
+    cdp.sendCommand(tabId, 'Runtime.evaluate', {
+      expression: 'window.__agentchatRecQuiet = true; var n = document.getElementById("agentchat-overlay-root"); if (n && n.parentNode) n.parentNode.removeChild(n); true;',
+      returnByValue: true,
+      awaitPromise: false,
+      userGesture: false,
+    }).catch((err) => console.warn('[agentbrowser] record overlay-mute failed', err));
+    const ack = awaitRecorderAck('started');
+    await sendToOffscreen({ target: 'offscreen', cmd: 'record_start', streamId });
+    let res;
+    try {
+      res = await ack;
+    } catch (err) {
+      recordings.delete(tabId);
+      throw err;
+    }
+    recordings.get(tabId).startedAt = res.startedAt || Date.now();
+    return { recording: true, tabId, startedAt: recordings.get(tabId).startedAt };
+  },
+
+  async record_stop(args) {
+    const tabId = await resolveTabId(args.tabId);
+    const rec = recordings.get(tabId);
+    if (!rec) throw new Error('no recording on this tab');
+    const stamp = new Date(rec.startedAt || Date.now()).toISOString().replace(/[:.]/g, '-').replace('T', '_').slice(0, 19);
+    const filename = `agentbrowser/record-${stamp}-tab${tabId}.webm`;
+    const trackJson = JSON.stringify({ tabId, startedAt: rec.startedAt, stoppedAt: Date.now(), viewport: rec.viewport || null, markers: rec.markers });
+    const ack = awaitRecorderAck('result');
+    await sendToOffscreen({ target: 'offscreen', cmd: 'record_stop', filename, trackJson });
+    const res = await ack;
+    // blob: URL minted in the offscreen doc; chrome.downloads lives here
+    // (same extension origin) — offscreen documents don't get that API.
+    await chrome.downloads.download({
+      url: res.blobUrl,
+      filename,
+      saveAs: false,
+      conflictAction: 'uniquify',
+    });
+    await chrome.downloads.download({
+      url: `data:application/json,${encodeURIComponent(trackJson)}`,
+      filename: filename.replace(/\.webm$/, '.track.json'),
+      saveAs: false,
+      conflictAction: 'uniquify',
+    });
+    recordings.delete(tabId);
+    cdp.sendCommand(tabId, 'Runtime.evaluate', {
+      expression: 'window.__agentchatRecQuiet = false; true;',
+      returnByValue: true,
+      awaitPromise: false,
+      userGesture: false,
+    }).catch((err) => console.warn('[agentbrowser] record overlay-unmute failed', err));
+    return { file: filename, bytes: res.bytes, durationMs: res.durationMs, markers: rec.markers.length };
   },
 
   async viewport_emulate(args) {
