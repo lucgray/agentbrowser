@@ -692,7 +692,7 @@ executor, in the SDK adapter's MCP server, and in mcp-proxy.mjs.
 | `debug_wait` | `{timeoutMs?, tabId?}` | `{paused:true, reason, hitBreakpoints, callFrames, topCallFrameId}` or `{paused:false, reason:'timeout'|'detached'}` — v2.6; cap 300s |
 | `debug_eval` | `{expression, callFrameId?, tabId?}` | `{result}` or `{error}` — v2.6; paused frames only, consent-gated |
 | `debug_resume` | `{action?, tabId?}` | `{resumed:true, action}` — v2.6; resume/stepOver/stepInto/stepOut, consent-gated |
-| `record_start` | `{tabId?}` | `{recording:true, tabId, startedAt}` — v2.7; chrome.tabCapture + offscreen MediaRecorder → webm; while recording, coordinate-bearing calls append `{t,x,y,kind}` to a marker track; consent-gated |
+| `record_start` | `{tabId?}` | `{recording:true, tabId, startedAt}` — v2.7; chrome.tabCapture + offscreen MediaRecorder → webm; while recording, coordinate-bearing calls append `{t,x,y,kind,label?}` to a marker track (labels become captions in `docs/zoomview.html`); consent-gated |
 | `record_stop` | `{tabId?}` | `{file, bytes, durationMs, markers}` — v2.7; saves `<Downloads>/agentbrowser/record-<ts>-tab<id>.webm` plus `<same>.track.json` (the zoom marker track) |
 
 `label` (v2.2): every tool's schema gains an optional `label` string — an

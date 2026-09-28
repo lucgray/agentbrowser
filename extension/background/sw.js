@@ -201,11 +201,13 @@ const annChats = new Map(); // chatId -> { tabId, annId }
 const recordings = new Map();
 const recordWaiters = new Map(); // 'started'|'result'|'error' -> {resolve, reject, timer}
 
-function mark(tabId, x, y, kind) {
+function mark(tabId, x, y, kind, label) {
   const r = recordings.get(tabId);
   if (!r || !r.startedAt) return; // before record_started ack, or not recording
   if (!Number.isFinite(x) || !Number.isFinite(y)) return;
-  r.markers.push({ t: Date.now() - r.startedAt, x: Math.round(x), y: Math.round(y), kind });
+  const m = { t: Date.now() - r.startedAt, x: Math.round(x), y: Math.round(y), kind };
+  if (typeof label === 'string' && label.trim()) m.label = label.trim().slice(0, 80);
+  r.markers.push(m);
   // The OS pointer is never captured; move the page-drawn cursor so the
   // recording shows where each action actually lands.
   cdp.moveCursor(tabId, x, y);
@@ -660,14 +662,14 @@ const TOOLS = {
 
   async click(args) {
     const tabId = await resolveTabId(args.tabId);
-    mark(tabId, Number(args.x), Number(args.y), 'click');
+    mark(tabId, Number(args.x), Number(args.y), 'click', args.label);
     return cdp.click(tabId, args.x, args.y, args);
   },
 
   async click_element(args) {
     const tabId = await resolveTabId(args.tabId);
     const res = await cdp.clickElement(tabId, args.selector, args.dx || 0, args.dy || 0, args);
-    if (res && Number.isFinite(res.x)) mark(tabId, res.x, res.y, 'click');
+    if (res && Number.isFinite(res.x)) mark(tabId, res.x, res.y, 'click', args.label);
     return res;
   },
 
@@ -675,28 +677,28 @@ const TOOLS = {
     const tabId = await resolveTabId(args.tabId);
     if (args.selector) {
       const res = await cdp.hoverElement(tabId, String(args.selector));
-      if (res && Number.isFinite(res.x)) mark(tabId, res.x, res.y, 'hover');
+      if (res && Number.isFinite(res.x)) mark(tabId, res.x, res.y, 'hover', args.label);
       return res;
     }
-    mark(tabId, Number(args.x), Number(args.y), 'hover');
+    mark(tabId, Number(args.x), Number(args.y), 'hover', args.label);
     return cdp.hover(tabId, Number(args.x), Number(args.y));
   },
 
   async scroll(args) {
     const tabId = await resolveTabId(args.tabId);
-    mark(tabId, Number(args.x), Number(args.y), 'scroll');
+    mark(tabId, Number(args.x), Number(args.y), 'scroll', args.label);
     return cdp.scroll(tabId, args);
   },
 
   async drag(args) {
     const tabId = await resolveTabId(args.tabId);
-    mark(tabId, Number(args.x), Number(args.y), 'drag');
+    mark(tabId, Number(args.x), Number(args.y), 'drag', args.label);
     return cdp.drag(tabId, args);
   },
 
   async select_text(args) {
     const tabId = await resolveTabId(args.tabId);
-    if (args.to) mark(tabId, Number(args.to.x), Number(args.to.y), 'select');
+    if (args.to) mark(tabId, Number(args.to.x), Number(args.to.y), 'select', args.label);
     return cdp.selectText(tabId, args);
   },
 
@@ -898,7 +900,7 @@ const TOOLS = {
   async frame_click_element(args) {
     const tabId = await resolveTabId(args.tabId);
     const res = await inspect.frameClickElement(tabId, args);
-    if (res && Number.isFinite(res.x)) mark(tabId, res.x, res.y, 'click');
+    if (res && Number.isFinite(res.x)) mark(tabId, res.x, res.y, 'click', args.label);
     return res;
   },
 
