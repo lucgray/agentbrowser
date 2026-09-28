@@ -959,7 +959,8 @@ const TOOLS = {
     try {
       const metrics = await cdp.sendCommand(tabId, 'Page.getLayoutMetrics');
       const vp = metrics.cssLayoutViewport || metrics.layoutViewport;
-      if (vp && vp.width && vp.height) viewport = { w: Math.round(vp.width), h: Math.round(vp.height) };
+      const w = vp && (vp.clientWidth || vp.width), h = vp && (vp.clientHeight || vp.height);
+      if (w && h) viewport = { w: Math.round(w), h: Math.round(h) };
     } catch (err) {
       console.warn('[agentbrowser] record_start viewport probe failed', err);
     }
