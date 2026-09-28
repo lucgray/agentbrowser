@@ -52,7 +52,7 @@ agentchat/
       stub-adapter.mjs     (server-hub)        token-free adapter for the e2e suite
     proxy/
       mcp-proxy.mjs        (server-adapters)   stdio MCP server for external harnesses
-      agentbrowser-cli.mjs (server-hub)        MCP-free CLI: one WS harness call per invocation (v1.6)
+      agentbrowser-cli.mjs (server-hub)        MCP-free CLI: one-shot calls, or `session` — many calls over one WS (v1.6/v2.9)
       install-skill.mjs    (server-hub)        installs the agentbrowser shim + SKILL.md for skill agents
       smoke.mjs            (server-hub)        hub routing round trip
     skill/SKILL.md         (server-hub)        the skill doc the installer copies (v1.6)
@@ -1047,6 +1047,14 @@ compact `{saved,mimeType,bytes}` line instead of the payload. tool_call ids
 are per-call UUIDs, so concurrent CLI processes cannot collide in the hub's
 pending table. Stateless by design: console/network/patch
 state lives in the extension, so a fresh process per call loses nothing.
+`agentbrowser session` (v2.9) is the opt-in persistent mode: a readline REPL
+over the same harness protocol — one line per call
+(`<tool> [json-args] [--output <path>] [--timeout <ms>]`), ids stay per-call
+UUIDs, and all calls share one WebSocket that reconnects lazily if the hub
+restarts. Results print as they complete; failures print
+`{ok:false,error}` and the loop continues; `exit`/`quit`/EOF/Ctrl+C close the
+connection cleanly. Piped lines make it a script runner. No new wire
+messages — the hub is unchanged.
 `install-skill.mjs` writes an `agentbrowser` shim (~/.local/bin) and copies
 skill/SKILL.md to ~/.claude/skills and ~/.agents/skills (or --target dirs).
 

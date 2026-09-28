@@ -410,7 +410,9 @@ node server/proxy/agentbrowser-cli.mjs screenshot '{}' --output page.png
 （其他目录用 `--target <dir>`）。读 skill 的 Agent（Claude Code、
 任意 `.agents` 布局）由此获得浏览器控制，**完全不需要 MCP 配置**。
 CLI 无状态——缓冲区与 debugger 附着都在扩展侧，一次调用一个进程不
-丢任何东西。
+丢任何东西。`agentbrowser session` 则为交互式、逐步依赖的工作保持连接
+常驻——一个进程、一条 WebSocket、每行一次调用（`exit`/EOF 干净关闭，
+管道输入即脚本模式）；失败打印 `{ok:false,error}` 后循环继续。
 
 <details>
 <summary><b>Python agent 框架</b> — LangGraph / DeepAgents，经 <code>langchain-mcp-adapters</code> 加载</summary>

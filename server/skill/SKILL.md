@@ -27,6 +27,7 @@ agentbrowser <tool> '<json-args>'
 agentbrowser tools                 # list all tools
 agentbrowser <tool> --help         # one tool's arg schema
 agentbrowser screenshot '{}' --output /tmp/shot.png   # save base64 results to a file
+agentbrowser session               # REPL: one tool call per line, connection reused
 ```
 
 The result is JSON on stdout; exit code is non-zero on tool errors. Default
@@ -34,6 +35,24 @@ hub is `ws://127.0.0.1:9010` (override with `AGENTBROWSER_HUB` or `--hub`).
 `--output <path>` decodes a base64-bearing result (screenshot, print_pdf)
 into that file and prints only `{saved,mimeType,bytes}` — without it the
 raw payload would flood stdout (a screenshot is ~30k tokens as JSON).
+
+## Interactive sessions
+
+When each step depends on the previous result, `agentbrowser session` keeps
+one process and one hub connection open — no per-call setup cost:
+
+```bash
+agentbrowser session
+```
+
+One line per call: `<tool> [json-args] [--output <path>] [--timeout <ms>]`.
+Built-ins: `tools`, `backends`, `help`, `exit`. Failures print
+`{"ok":false,"error":...}` and the loop continues. Piped lines work too, so
+scripted flows skip the per-call process + handshake:
+
+```bash
+printf 'tabs_list {}\nscreenshot {} --output /tmp/shot.png\nexit\n' | agentbrowser session
+```
 
 ## Common flows
 

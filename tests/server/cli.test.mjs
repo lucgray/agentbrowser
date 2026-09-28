@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parseArgs } from '../../server/proxy/agentbrowser-cli.mjs';
-import { createHubClient, pickBase64, saveBase64 } from '../../server/proxy/cli-lib.mjs';
+import { createHubClient, parseCommand, pickBase64, saveBase64, splitLine } from '../../server/proxy/cli-lib.mjs';
 
 // 1x1 transparent PNG
 const PNG_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
@@ -60,4 +60,27 @@ test('createHubClient: fails fast (and rejects, not hangs) when the hub is unrea
   const client = createHubClient('ws://127.0.0.1:1'); // nothing listens on port 1
   await assert.rejects(() => client.call('tabs_list', {}, 1000));
   client.close();
+});
+
+test('splitLine: quote-aware tokenizing keeps JSON and flag values intact', () => {
+  assert.deepEqual(splitLine('screenshot {}'), ['screenshot', '{}']);
+  assert.deepEqual(splitLine("tabs_list '{\"tabId\":123}'"), ['tabs_list', '{"tabId":123}']);
+  assert.deepEqual(
+    splitLine("read_page '{\"maxChars\": 100}' --output out.txt"),
+    ['read_page', '{"maxChars": 100}', '--output', 'out.txt']
+  );
+  assert.deepEqual(splitLine('  # just a comment  '), ['#', 'just', 'a', 'comment']);
+  assert.deepEqual(splitLine(''), []);
+});
+
+test('parseCommand: splits tool, per-line flags, and joined JSON args', () => {
+  const got = parseCommand("screenshot '{\"tabId\":1}' --output a.png --timeout 5000");
+  assert.equal(got.tool, 'screenshot');
+  assert.equal(got.argsJson, '{"tabId":1}');
+  assert.equal(got.flags.output, 'a.png');
+  assert.equal(got.flags.timeout, 5000);
+  const short = parseCommand('screenshot {} -o b.png');
+  assert.equal(short.flags.output, 'b.png');
+  assert.equal(short.argsJson, '{}');
+  assert.equal(parseCommand('   '), null);
 });

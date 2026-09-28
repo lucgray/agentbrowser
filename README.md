@@ -443,7 +443,10 @@ into `~/.claude/skills` and `~/.agents/skills` (`--target <dir>` for others),
 so skill-based agents — Claude Code, anything reading `.agents` layouts —
 get browser control with **no MCP config at all**. The CLI is stateless;
 buffers and debugger attachments live in the extension, so a process per
-call loses nothing.
+call loses nothing. `agentbrowser session` keeps the connection warm for
+interactive, step-by-step work — one process, one WebSocket, one line per
+call (`exit`/EOF closes it, piped lines make it a script runner); failures
+print `{ok:false,error}` and the loop continues.
 
 <details>
 <summary><b>Python agent frameworks</b> — LangGraph / DeepAgents via <code>langchain-mcp-adapters</code></summary>
