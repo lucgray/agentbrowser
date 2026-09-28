@@ -211,6 +211,11 @@ async function main(){
   v.src = URL.createObjectURL(blob);
   await new Promise(r=>v.onloadedmetadata=r);
   const vw=v.videoWidth, vh=v.videoHeight;
+  // MediaRecorder output carries no duration metadata (v.duration=Infinity);
+  // a huge seek clamps to the real end and reveals it.
+  await new Promise(r=>{v.onseeked=r; v.currentTime=1e6;});
+  const realDur = v.currentTime;
+  await new Promise(r=>{v.onseeked=r; v.currentTime=0;});
   const OUT_H = OUT_H_PARAM || Math.round(OUT_W*vh/vw);
   cv.width=OUT_W; cv.height=OUT_H;
   const pad = OUT_W*PAD;
@@ -223,7 +228,13 @@ async function main(){
     cx0 = (vw-cw0)/2; cy0 = (vh-ch0)/2;
   }
   const mscale = cw0/(track.viewport && track.viewport.w || vw);
-  const markers = (track.markers||[]).map(m=>({...m, x:cx0+m.x*mscale, y:cy0+m.y*mscale}));
+  // Marker times are wall-clock (Date.now since record_start); the video's
+  // t=0 is its first frame, which arrives after getUserMedia+recorder startup
+  // — up to several hundred ms late. wallDuration - videoDuration recovers
+  // that startup lag, so clicks land on the frames where they happened.
+  const toff = (track.startedAt && track.stoppedAt)
+    ? Math.max(0, (track.stoppedAt - track.startedAt) - realDur*1000) : 0;
+  const markers = (track.markers||[]).map(m=>({...m, t:m.t-toff, x:cx0+m.x*mscale, y:cy0+m.y*mscale}));
 
   const bw = OUT_W-2*pad, bh = OUT_H-2*pad;
   const fit = Math.min(bw/cw0, bh/ch0);
@@ -234,7 +245,7 @@ async function main(){
   let cues = [];
   if(SUBS==='0') cues = [];
   else if(SUBS) cues = await fetch(SUBS).then(r=>r.json()).catch(()=>[]);
-  else cues = (track.markers||[]).filter(m=>m.label)
+  else cues = markers.filter(m=>m.label)
               .map(m=>({t:m.t-300, text:m.label, d:2600}));
   const subs = makeSubs(cues);
   pointer = makePointer(markers);
@@ -304,11 +315,6 @@ async function main(){
   // Deterministic frame-stepping: seek, wait 'seeked', draw, push the frame.
   // Occluded tabs throttle rAF/timers, so the loop is event-driven, not clock.
   const vtrack = stream.getVideoTracks()[0];
-  // MediaRecorder output carries no duration metadata (v.duration=Infinity);
-  // a huge seek clamps to the real end and reveals it.
-  await new Promise(r=>{v.onseeked=r; v.currentTime=1e6;});
-  const realDur = v.currentTime;
-  await new Promise(r=>{v.onseeked=r; v.currentTime=0;});
   const total = Math.max(1, Math.floor(realDur*FPS));
   for(let i=0;i<=total;i++){
     const t = i/FPS;
