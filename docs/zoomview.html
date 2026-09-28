@@ -48,7 +48,9 @@ function makeCam(markers){
 }
 
 // ---- virtual cursor --------------------------------------------------------
-// dwell at each marker, ease to the next over a distance-proportional time.
+// dwell at each marker, then ease toward the next so it ARRIVES at next.t —
+// the cursor visibly travels right before each action happens, like a real
+// pointer, instead of gliding away during idle gaps.
 function makeCursor(markers){
   const pts = (markers||[]).slice().sort((a,b)=>a.t-b.t);
   if(!pts.length) return null;
@@ -58,7 +60,7 @@ function makeCursor(markers){
     if(!next) return {x:prev.x, y:prev.y};
     const dist = Math.hypot(next.x-prev.x, next.y-prev.y);
     const dur = clamp(dist/CURSOR_SPEED, 250, 900);
-    const k = smooth(clamp((t-prev.t)/dur,0,1));
+    const k = smooth(clamp((t-(next.t-dur))/dur,0,1));
     return { x:lerp(prev.x,next.x,k), y:lerp(prev.y,next.y,k) };
   };
 }
