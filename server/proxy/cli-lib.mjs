@@ -64,7 +64,7 @@ export function createHubClient(hubUrl, name = 'agentbrowser-cli') {
           connecting = null;
           reject(new Error(`cannot reach hub at ${hubUrl}`));
         }
-        try { socket.terminate(); } catch { /* already gone */ }
+        try { socket.terminate(); } catch (err) { console.warn('[agentbrowser-cli] socket terminate failed', err); }
       }, CONNECT_TIMEOUT_MS);
       socket.once('open', () => {
         clearTimeout(timer);
@@ -75,7 +75,9 @@ export function createHubClient(hubUrl, name = 'agentbrowser-cli') {
         settled = true;
         resolve();
       });
-      socket.once('error', (err) => {
+      // 'error' must stay bound for the socket's life: a second error after
+      // the connect phase has no listener under `once` and crashes the process.
+      socket.on('error', (err) => {
         clearTimeout(timer);
         if (!settled) {
           // Connect-phase failure: same surface the one-shot CLI always had.
@@ -152,7 +154,7 @@ export function createHubClient(hubUrl, name = 'agentbrowser-cli') {
     if (ws) {
       const socket = ws;
       ws = null;
-      try { socket.close(); } catch { /* already gone */ }
+      try { socket.close(); } catch (err) { console.warn('[agentbrowser-cli] socket close failed', err); }
     }
     failAllPending('closed');
   }
