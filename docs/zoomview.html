@@ -6,28 +6,27 @@
 <canvas id="cv" style="display:block"></canvas>
 <video id="v" muted playsinline style="display:none"></video>
 <script>
-// Zoom-pan render of an agentbrowser recording.
-//   ?src=<webm>  ?track=<track.json> (default <src minus .webm>.track.json)
-// Cursor + zoom are rebuilt entirely from the marker track the extension
-// writes ({t,x,y,kind}), so the OS cursor never had to be captured.
+// Zoom-pan render of an agentbrowser recording (openScreen-style frame:
+// blurred source backdrop + rounded inset video + virtual cursor).
+//   ?src=<webm>  ?track=<track.json>  ?w=<output width px, default 1920>
+// Marker x/y are CSS-viewport px; the track's `viewport` field (written by
+// record_stop) maps them into video px.
 const params = new URLSearchParams(location.search);
 const SRC = params.get('src') || 'record.webm';
 const TRACK = params.get('track') || SRC.replace(/\.webm$/, '.track.json');
-const OUT_W = 1280, OUT_H = 720, FPS = 30;
+const OUT_W = Number(params.get('w')) || 1920;
+const FPS = 30;
 const ZOOM = 1.9, EASE_IN = 420, HOLD = 1100, EASE_OUT = 460; // ms
-const PAD = 0.075;                 // video inset as fraction of height
+const PAD = 0.06;                  // inset as fraction of output width
+const RADIUS = 18;                 // corner radius in output px
 const CURSOR_MS = 550;             // cursor travel time between markers
 const hud = document.getElementById('hud');
 const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
-cv.width = OUT_W; cv.height = OUT_H;
 const v = document.getElementById('v');
 
 const lerp = (a,b,t)=>a+(b-a)*t;
 const smooth = t=>t*t*(3-2*t);
 const clamp = (x,a,b)=>Math.min(Math.max(x,a),b);
-
-// frame geometry: video inset on a gradient backdrop
-const VX = OUT_W*PAD, VY = OUT_H*PAD, VW = OUT_W*(1-2*PAD), VH = OUT_H*(1-2*PAD);
 
 // ---- zoom camera ----------------------------------------------------------
 // snap focus to the latest click/scroll marker, zoom in, hold, ease out.
@@ -55,13 +54,12 @@ function makeCursor(markers){
   return t=>{
     let prev=pts[0], next=null;
     for(const m of pts){ if(m.t<=t) prev=m; else { next=m; break; } }
-    if(!next) return {x:prev.x, y:prev.y, click:prev.kind==='click'?Math.max(0,1-(t-prev.t)/350):0};
+    if(!next) return {x:prev.x, y:prev.y};
     const k = smooth(clamp((t-prev.t)/CURSOR_MS,0,1));
-    return { x:lerp(prev.x,next.x,k), y:lerp(prev.y,next.y,k),
-             click: next.kind==='click' && t>=next.t ? 0 : 0 };
+    return { x:lerp(prev.x,next.x,k), y:lerp(prev.y,next.y,k) };
   };
 }
-// click pulse: scale expands for ~350ms after a click marker
+// click pulse: ring expands for ~350ms after a click marker
 function clickPulse(markers){
   const clicks=(markers||[]).filter(m=>m.kind==='click');
   return t=>{
@@ -71,8 +69,7 @@ function clickPulse(markers){
 }
 
 function drawCursor(x,y,pulse){
-  // arrow cursor with white fill + dark outline, slight tilt; click = ring pulse
-  const s = OUT_H/720;                    // scale cursor to canvas
+  const s = cv.height/720;                    // scale cursor to canvas
   ctx.save();
   ctx.translate(x,y);
   if(pulse>0){
@@ -99,16 +96,6 @@ function roundRect(x,y,w,h,r){
   ctx.closePath();
 }
 
-function drawBackdrop(){
-  const g=ctx.createLinearGradient(0,0,OUT_W,OUT_H);
-  g.addColorStop(0,'#2b2f3a'); g.addColorStop(.55,'#22242c'); g.addColorStop(1,'#1a1b20');
-  ctx.fillStyle=g; ctx.fillRect(0,0,OUT_W,OUT_H);
-  // subtle vignette
-  const rg=ctx.createRadialGradient(OUT_W/2,OUT_H/2,OUT_H*.3,OUT_W/2,OUT_H/2,OUT_H*.95);
-  rg.addColorStop(0,'rgba(0,0,0,0)'); rg.addColorStop(1,'rgba(0,0,0,.35)');
-  ctx.fillStyle=rg; ctx.fillRect(0,0,OUT_W,OUT_H);
-}
-
 async function main(){
   const [blob, track] = await Promise.all([
     fetch(SRC).then(r=>r.blob()),
@@ -117,31 +104,48 @@ async function main(){
   v.src = URL.createObjectURL(blob);
   await new Promise(r=>v.onloadedmetadata=r);
   const vw=v.videoWidth, vh=v.videoHeight;
-  hud.textContent = `src ${vw}x${vh} ${v.duration.toFixed(1)}s | markers ${(track.markers||[]).length} | rendering…`;
+  const OUT_H = Math.round(OUT_W*vh/vw);
+  cv.width=OUT_W; cv.height=OUT_H;
+  const pad = OUT_W*PAD;
+  const VX=pad, VY=pad, VW=OUT_W-2*pad, VH=OUT_H-2*pad;
+  // CSS px -> video px. Without a viewport field assume they already match.
+  const mx = track.viewport && track.viewport.w ? vw/track.viewport.w : 1;
+  const my = track.viewport && track.viewport.h ? vh/track.viewport.h : 1;
+  const toVideo = p => ({x:p.x*mx, y:p.y*my});
+  hud.textContent = `src ${vw}x${vh} ${v.duration.toFixed(1)}s | out ${OUT_W}x${OUT_H} | markers ${(track.markers||[]).length} vp ${track.viewport?track.viewport.w+'x'+track.viewport.h:'-'} | rendering…`;
 
-  const cam = makeCam(track.markers);
-  const cursor = makeCursor(track.markers);
-  const pulse = clickPulse(track.markers);
+  // markers stored in CSS px -> work in video px from here on
+  const markers = (track.markers||[]).map(m=>({...m, ...toVideo(m)}));
+  const cam = makeCam(markers);
+  const cursor = makeCursor(markers);
+  const pulse = clickPulse(markers);
   const stream = cv.captureStream(FPS);
-  const rec = new MediaRecorder(stream, {mimeType:'video/webm;codecs=vp9', videoBitsPerSecond:6e6});
+  const rec = new MediaRecorder(stream, {mimeType:'video/webm;codecs=vp9', videoBitsPerSecond:8e6});
   const chunks=[]; rec.ondataavailable=e=>{if(e.data.size)chunks.push(e.data)};
   const done = new Promise(r=>rec.onstop=r);
   rec.start(500);
 
   v.currentTime = 0; await v.play();
   const t0 = performance.now();
+  const blurPx = OUT_W*0.05;
+  function drawBackdrop(){
+    ctx.save();
+    ctx.filter = `blur(${blurPx}px) saturate(1.4) brightness(.55)`;
+    ctx.drawImage(v, -pad*3, -pad*3, OUT_W+pad*6, OUT_H+pad*6);
+    ctx.restore();
+    ctx.fillStyle = 'rgba(12,13,18,.45)';
+    ctx.fillRect(0,0,OUT_W,OUT_H);
+  }
   function draw(){
     const t = v.currentTime*1000;
     const c = cam(t);
     const s = c.s;
     drawBackdrop();
-    // video clipped to rounded rect, zoomed toward focus point inside it
     ctx.save();
-    ctx.shadowColor='rgba(0,0,0,.55)'; ctx.shadowBlur=40; ctx.shadowOffsetY=14;
-    ctx.fillStyle='#000'; roundRect(VX,VY,VW,VH,14); ctx.fill();
+    ctx.shadowColor='rgba(0,0,0,.55)'; ctx.shadowBlur=OUT_W*0.02; ctx.shadowOffsetY=OUT_W*0.008;
+    ctx.fillStyle='#000'; roundRect(VX,VY,VW,VH,RADIUS); ctx.fill();
     ctx.shadowColor='transparent';
-    roundRect(VX,VY,VW,VH,14); ctx.clip();
-    // source crop centered on focus, in video px
+    roundRect(VX,VY,VW,VH,RADIUS); ctx.clip();
     if(s>1 && c.fx!=null){
       const cw=vw/s, ch=vh/s;
       const sx=clamp(c.fx-cw/2,0,vw-cw), sy=clamp(c.fy-ch/2,0,vh-ch);
@@ -150,13 +154,10 @@ async function main(){
       ctx.drawImage(v, VX,VY,VW,VH);
     }
     ctx.restore();
-    // virtual cursor: marker coords are page-viewport px == video px (capture is viewport render)
     if(cursor){
-      const cp=cursor(t);
-      const z=(s>1 && c.fx!=null);
-      // map video-px -> canvas coords, through the same crop when zoomed
+      const cp=cursor(t); // video px
       let px,py;
-      if(z){
+      if(s>1 && c.fx!=null){
         const cw=vw/s, ch=vh/s;
         const sx=clamp(c.fx-cw/2,0,vw-cw), sy=clamp(c.fy-ch/2,0,vh-ch);
         px=VX+(cp.x-sx)/cw*VW; py=VY+(cp.y-sy)/ch*VH;

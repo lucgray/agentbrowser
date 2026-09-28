@@ -953,7 +953,17 @@ const TOOLS = {
       );
     }
     if (!streamId) throw new Error('tabCapture returned no streamId');
-    recordings.set(tabId, { startedAt: 0, markers: [] });
+    // Markers are recorded in CSS px; the captured video is in device px, so
+    // the viewer needs the layout viewport size to map between them.
+    let viewport = null;
+    try {
+      const metrics = await cdp.sendCommand(tabId, 'Page.getLayoutMetrics');
+      const vp = metrics.cssLayoutViewport || metrics.layoutViewport;
+      if (vp && vp.width && vp.height) viewport = { w: Math.round(vp.width), h: Math.round(vp.height) };
+    } catch (err) {
+      console.warn('[agentbrowser] record_start viewport probe failed', err);
+    }
+    recordings.set(tabId, { startedAt: 0, markers: [], viewport });
     const ack = awaitRecorderAck('started');
     await sendToOffscreen({ target: 'offscreen', cmd: 'record_start', streamId });
     let res;
@@ -973,7 +983,7 @@ const TOOLS = {
     if (!rec) throw new Error('no recording on this tab');
     const stamp = new Date(rec.startedAt || Date.now()).toISOString().replace(/[:.]/g, '-').replace('T', '_').slice(0, 19);
     const filename = `agentbrowser/record-${stamp}-tab${tabId}.webm`;
-    const trackJson = JSON.stringify({ tabId, startedAt: rec.startedAt, markers: rec.markers });
+    const trackJson = JSON.stringify({ tabId, startedAt: rec.startedAt, viewport: rec.viewport || null, markers: rec.markers });
     const ack = awaitRecorderAck('result');
     await sendToOffscreen({ target: 'offscreen', cmd: 'record_stop', filename, trackJson });
     const res = await ack;
