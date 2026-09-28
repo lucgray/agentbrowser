@@ -201,13 +201,28 @@ const annChats = new Map(); // chatId -> { tabId, annId }
 const recordings = new Map();
 const recordWaiters = new Map(); // 'started'|'result'|'error' -> {resolve, reject, timer}
 
-function mark(tabId, x, y, kind, label) {
+function mark(tabId, x, y, kind, label, extra) {
   const r = recordings.get(tabId);
-  if (!r || !r.startedAt) return; // before record_started ack, or not recording
+  if (!r || !r.startedAt || r.pausedAt) return; // before ack, stopped, or paused
   if (!Number.isFinite(x) || !Number.isFinite(y)) return;
   const m = { t: Date.now() - r.startedAt, x: Math.round(x), y: Math.round(y), kind };
   if (typeof label === 'string' && label.trim()) m.label = label.trim().slice(0, 80);
+  if (extra && typeof extra === 'object') {
+    for (const k of ['w', 'h']) {
+      if (Number.isFinite(extra[k])) m[k] = Math.round(extra[k]);
+    }
+    if (typeof extra.key === 'string' && extra.key) m.key = extra.key.slice(0, 24);
+    if (typeof extra.text === 'string' && extra.text) m.text = extra.text.slice(0, 60);
+  }
   r.markers.push(m);
+}
+
+// viewport-center anchor for tools with no coordinates (nav, key presses)
+function markCenter(tabId, kind, label, extra) {
+  const r = recordings.get(tabId);
+  const vw = r && r.viewport ? r.viewport.w / 2 : NaN;
+  const vh = r && r.viewport ? r.viewport.h / 2 : NaN;
+  mark(tabId, vw, vh, kind, label, extra);
 }
 
 function awaitRecorderAck(op, timeoutMs = 15000) {
@@ -635,6 +650,9 @@ const TOOLS = {
 
   async navigate(args) {
     const tabId = await resolveTabId(args.tabId);
+    // nav marker: the renderer cross-fades here — the recorded content cuts
+    // hard to the new page, so a dip keeps it from reading as a glitch.
+    markCenter(tabId, 'nav', args.label);
     const loaded = waitForLoad(tabId, 20000);
     await chrome.tabs.update(tabId, { url: args.url });
     await loaded;
@@ -687,8 +705,7 @@ const TOOLS = {
       return inspect.frameClickElement(tabId, { ...args, selector });
     }
     const res = await cdp.clickElement(tabId, selector, args.dx || 0, args.dy || 0, args);
-    if (res && Number.isFinite(res.x)) mark(tabId, res.x, res.y, 'click', args.label);
-    return res;
+    if (res && Number.isFinite(res.x)) mark(tabId, res.x, res.y, 'click', args.label, res);
     return res;
   },
 
@@ -702,7 +719,7 @@ const TOOLS = {
     const tabId = await resolveTabId(args.tabId);
     if (args.selector) {
       const res = await cdp.hoverElement(tabId, String(args.selector));
-      if (res && Number.isFinite(res.x)) mark(tabId, res.x, res.y, 'hover', args.label);
+      if (res && Number.isFinite(res.x)) mark(tabId, res.x, res.y, 'hover', args.label, res);
       return res;
     }
     mark(tabId, Number(args.x), Number(args.y), 'hover', args.label);
@@ -722,14 +739,25 @@ const TOOLS = {
 
   async drag(args) {
     const tabId = await resolveTabId(args.tabId);
-    mark(tabId, Number(args.x), Number(args.y), 'drag', args.label);
-    return cdp.drag(tabId, args);
+    const from = args.from || {};
+    mark(tabId, Number(from.x), Number(from.y), 'drag', args.label);
+    const res = await cdp.drag(tabId, args);
+    if (res && res.to) mark(tabId, res.to.x, res.to.y, 'dragend');
+    return res;
   },
 
   async select_text(args) {
     const tabId = await resolveTabId(args.tabId);
-    if (args.to) mark(tabId, Number(args.to.x), Number(args.to.y), 'select', args.label);
-    return cdp.selectText(tabId, args);
+    // coords mode is a physical click-drag — mark both ends so the render
+    // draws the sweep; selector mode marks the element's center afterward.
+    if (args.from) mark(tabId, Number(args.from.x), Number(args.from.y), 'drag', args.label);
+    const res = await cdp.selectText(tabId, args);
+    if (args.to && Number.isFinite(Number(args.to.x))) {
+      mark(tabId, Number(args.to.x), Number(args.to.y), 'dragend');
+    } else if (res && Number.isFinite(res.x)) {
+      mark(tabId, res.x, res.y, 'select', args.label, res);
+    }
+    return res;
   },
 
   async type_text(args) {
@@ -743,14 +771,21 @@ const TOOLS = {
       return { typed: text.length };
     }
     const res = await cdp.typeText(tabId, args.text, args.selector);
-    // a selector focus is a real click on the field — put it on the track
-    if (res && Number.isFinite(res.x)) mark(tabId, res.x, res.y, 'click', args.label);
+    // kind 'type': a selector focus is a real click AND drives the key HUD.
+    // No selector = typing into whatever has focus — still show the HUD at
+    // the viewport center (the pointer stays where the last marker put it).
+    if (res && Number.isFinite(res.x)) {
+      mark(tabId, res.x, res.y, 'type', args.label, { ...res, text: args.text });
+    } else {
+      markCenter(tabId, 'type', args.label, { text: args.text });
+    }
     return res;
   },
 
 
   async press_key(args) {
     const tabId = await resolveTabId(args.tabId);
+    markCenter(tabId, 'key', args.label, { key: args.key });
     return cdp.pressKey(tabId, args.key);
   },
 
@@ -952,6 +987,8 @@ const TOOLS = {
   async record_start(args) {
     const tabId = await resolveTabId(args.tabId);
     if (recordings.get(tabId)?.startedAt) throw new Error('this tab is already recording');
+    const audio = args.audio === true;
+    const bitrate = Math.max(1_000_000, Math.min(Number(args.bitrate) || 8_000_000, 20_000_000));
     let streamId;
     try {
       // Resolves to the stream id string, not an object.
@@ -989,7 +1026,7 @@ const TOOLS = {
         console.warn('[agentbrowser] record_start metrics fallback failed', err);
       }
     }
-    recordings.set(tabId, { startedAt: 0, markers: [], viewport });
+    recordings.set(tabId, { startedAt: 0, markers: [], viewport, pausedAt: 0, pauses: [] });
     // Hide the overlay chrome (border/pill/ripples) for the capture — it is
     // page content and would otherwise be recorded. The rec cursor stays.
     cdp.sendCommand(tabId, 'Runtime.evaluate', {
@@ -999,7 +1036,7 @@ const TOOLS = {
       userGesture: false,
     }).catch((err) => console.warn('[agentbrowser] record overlay-mute failed', err));
     const ack = awaitRecorderAck('started');
-    await sendToOffscreen({ target: 'offscreen', cmd: 'record_start', streamId });
+    await sendToOffscreen({ target: 'offscreen', cmd: 'record_start', streamId, audio, bitrate });
     let res;
     try {
       res = await ack;
@@ -1017,7 +1054,7 @@ const TOOLS = {
     if (!rec) throw new Error('no recording on this tab');
     const stamp = new Date(rec.startedAt || Date.now()).toISOString().replace(/[:.]/g, '-').replace('T', '_').slice(0, 19);
     const filename = `agentbrowser/record-${stamp}-tab${tabId}.webm`;
-    const trackJson = JSON.stringify({ tabId, startedAt: rec.startedAt, stoppedAt: Date.now(), viewport: rec.viewport || null, markers: rec.markers });
+    const trackJson = JSON.stringify({ tabId, startedAt: rec.startedAt, stoppedAt: Date.now(), viewport: rec.viewport || null, pauses: rec.pauses, markers: rec.markers });
     const ack = awaitRecorderAck('result');
     await sendToOffscreen({ target: 'offscreen', cmd: 'record_stop', filename, trackJson });
     const res = await ack;

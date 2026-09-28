@@ -336,7 +336,7 @@ async function elementCenter(tabId, selector, dx = 0, dy = 0) {
       el.scrollIntoView({ block: 'center', inline: 'center' });
       const r = el.getBoundingClientRect();
       return { found: true, x: r.left + r.width / 2, y: r.top + r.height / 2,
-               tag: el.tagName.toLowerCase() };
+               w: r.width, h: r.height, tag: el.tagName.toLowerCase() };
     })()`,
     returnByValue: true,
   });
@@ -353,7 +353,8 @@ export async function clickElement(tabId, selector, dx = 0, dy = 0, opts = {}) {
   const base = { x: center.x, y: center.y, button, clickCount, buttons: button === 'none' ? 0 : 1 << ['left', 'right', 'middle'].indexOf(button) };
   await sendCommand(tabId, 'Input.dispatchMouseEvent', { type: 'mousePressed', ...base });
   await sendCommand(tabId, 'Input.dispatchMouseEvent', { type: 'mouseReleased', ...base });
-  return { clicked: true, selector, tag: center.tag, button, clickCount, x: center.x, y: center.y };
+  return { clicked: true, selector, tag: center.tag, button, clickCount,
+           x: center.x, y: center.y, w: center.w, h: center.h };
 }
 
 // hover: a bare mouseMoved. Pointer-over states (menus, tooltips, hover
@@ -373,7 +374,7 @@ export async function hover(tabId, x, y) {
 export async function hoverElement(tabId, selector) {
   const center = await elementCenter(tabId, selector);
   const r = await hover(tabId, Math.round(center.x), Math.round(center.y));
-  return { ...r, selector, tag: center.tag };
+  return { ...r, selector, tag: center.tag, w: center.w, h: center.h };
 }
 
 // scroll: Input.synthesizeScrollGesture — real wheel/gesture semantics, so
@@ -467,7 +468,10 @@ export async function selectText(tabId, args) {
         const sel = document.getSelection();
         sel.removeAllRanges();
         sel.addRange(r);
-        return { selected: true, text: String(sel).slice(0, 2000) };
+        const b = el.getBoundingClientRect();
+        return { selected: true, text: String(sel).slice(0, 2000),
+                 x: b.left + b.width / 2, y: b.top + b.height / 2,
+                 w: b.width, h: b.height };
       })()`,
       returnByValue: true,
     });
@@ -516,7 +520,7 @@ export async function typeText(tabId, text, selector) {
     flashOverlay(tabId, 'type_text');
   }
   await sendCommand(tabId, 'Input.insertText', { text: value });
-  return focus ? { typed: value.length, x: focus.x, y: focus.y } : { typed: value.length };
+  return focus ? { typed: value.length, x: focus.x, y: focus.y, w: focus.w, h: focus.h } : { typed: value.length };
 }
 
 export async function evalJs(tabId, expression) {

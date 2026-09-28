@@ -64,10 +64,17 @@ chrome.runtime.onMessage.addListener((message) => {
     }
     ws.send(JSON.stringify(message.payload));
   } else if (message.cmd === 'record_start') {
-    startRecording(message.streamId).then(
+    startRecording(message.streamId, { audio: message.audio, bitrate: message.bitrate }).then(
       () => post({ target: 'sw', cmd: 'record_started', startedAt: recStartedAt }),
       (err) => post({ target: 'sw', cmd: 'record_error', message: String((err && err.message) || err) })
     );
+  } else if (message.cmd === 'record_pause' || message.cmd === 'record_resume') {
+    try {
+      if (!recorder || recorder.state === 'inactive') throw new Error('no recording running');
+      if (message.cmd === 'record_pause') recorder.pause(); else recorder.resume();
+    } catch (err) {
+      console.warn('[agentbrowser]', message.cmd, 'failed', err);
+    }
   } else if (message.cmd === 'record_stop') {
     stopRecording(message.filename, message.trackJson).then(
       (res) => post({ target: 'sw', cmd: 'record_result', ...res }),
@@ -168,8 +175,10 @@ let recChunks = [];
 let recMime = 'video/webm';
 let recStartedAt = 0;
 
-async function startRecording(streamId) {
+async function startRecording(streamId, opts) {
   if (recorder) throw new Error('a recording is already running');
+  const audio = !!(opts && opts.audio);
+  const bitrate = Math.max(1e6, Math.min(Number(opts && opts.bitrate) || 8e6, 20e6));
   recStream = await navigator.mediaDevices.getUserMedia({
     video: {
       mandatory: {
@@ -180,14 +189,17 @@ async function startRecording(streamId) {
         maxFrameRate: 30,
       },
     },
-    audio: false,
+    // tab audio rides the same chromeMediaSourceId; needs tabCapture to have
+    // been invoked for the tab (same gate as video).
+    audio: audio ? { mandatory: { chromeMediaSource: 'tab', chromeMediaSourceId: streamId } } : false,
   });
   recMime = MediaRecorder.isTypeSupported('video/webm;codecs=vp9')
     ? 'video/webm;codecs=vp9'
     : 'video/webm';
   recorder = new MediaRecorder(recStream, {
     mimeType: recMime,
-    videoBitsPerSecond: 8_000_000,
+    videoBitsPerSecond: bitrate,
+    ...(audio ? { audioBitsPerSecond: 128_000 } : {}),
   });
   recChunks = [];
   recorder.ondataavailable = (e) => {
