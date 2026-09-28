@@ -217,9 +217,16 @@ function mark(tabId, x, y, kind, label, extra) {
   r.markers.push(m);
 }
 
-// viewport-center anchor for tools with no coordinates (nav, key presses)
+// fallback anchor for tools with no coordinates (nav, key presses). type/key/
+// note happen wherever the pointer already is — anchor them to the last
+// positional marker so the rendered pointer doesn't dart to screen center.
 function markCenter(tabId, kind, label, extra) {
   const r = recordings.get(tabId);
+  if (r && (kind === 'type' || kind === 'key' || kind === 'note')) {
+    const last = [...r.markers].reverse()
+      .find(m => Number.isFinite(m.x) && Number.isFinite(m.y));
+    if (last) { mark(tabId, last.x, last.y, kind, label, extra); return; }
+  }
   const vw = r && r.viewport ? r.viewport.w / 2 : NaN;
   const vh = r && r.viewport ? r.viewport.h / 2 : NaN;
   mark(tabId, vw, vh, kind, label, extra);
