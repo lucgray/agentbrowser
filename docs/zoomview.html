@@ -100,7 +100,8 @@ async function main(){
   function drawBackdrop(){
     ctx.save();
     ctx.filter = `blur(${blurPx}px) saturate(1.4) brightness(.55)`;
-    ctx.drawImage(v, -pad*3, -pad*3, OUT_W+pad*6, OUT_H+pad*6);
+    // backdrop from the content rect only — the letterbox bars must not bleed
+    ctx.drawImage(v, cx0,cy0,cw0,ch0, -pad*3, -pad*3, OUT_W+pad*6, OUT_H+pad*6);
     ctx.restore();
     ctx.fillStyle = 'rgba(12,13,18,.45)';
     ctx.fillRect(0,0,OUT_W,OUT_H);

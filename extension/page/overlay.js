@@ -163,6 +163,10 @@ export function buildOverlayScript(action, detail) {
     var d = document;
     var w = window;
     if (!d || !d.documentElement) return false;
+    // While a tab recording runs the overlay chrome (green border, pill,
+    // ripples) is page content that pollutes the capture — keep it hidden.
+    // The recording cursor is a separate node and unaffected.
+    if (w.__agentchatRecQuiet) return true;
 
     var ID = D.id;
     var EASE = 'cubic-bezier(0.2,0,0.2,1)';
