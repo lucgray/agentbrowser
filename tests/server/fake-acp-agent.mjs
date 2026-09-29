@@ -9,6 +9,11 @@
 
 let buffer = '';
 const pendingPermission = new Map();
+// Test hooks via env: FAKE_ACP_NO_SET_MODEL=1 makes session/set_model fail the
+// way devin acp does; FAKE_ACP_ECHO=1 prepends a turn token that echoes the
+// spawn env + last set_config_option call so tests can assert both channels.
+const NO_SET_MODEL = process.env.FAKE_ACP_NO_SET_MODEL === '1';
+let configOption = null;
 
 function send(msg) {
   process.stdout.write(JSON.stringify(msg) + '\n');
@@ -38,6 +43,17 @@ function requestPermission(sessionId) {
 }
 
 function runTurn(sessionId, promptId) {
+  if (process.env.FAKE_ACP_ECHO === '1') {
+    notify(sessionId, {
+      sessionUpdate: 'agent_message_chunk',
+      content: {
+        type: 'text',
+        text: `env=${process.env.FAKE_ACP_MODEL_ENV || ''} cfg=${
+          configOption ? `${configOption.configId}=${configOption.value}` : ''
+        }`
+      }
+    });
+  }
   notify(sessionId, {
     sessionUpdate: 'agent_message_chunk',
     content: { type: 'text', text: 'Checking the code. ' }
@@ -112,6 +128,13 @@ process.stdin.on('data', (chunk) => {
         result: { sessionId: 'sess-1', models: { availableModels: [], currentModelId: 'fake' } }
       });
     } else if (msg.method === 'session/set_model') {
+      if (NO_SET_MODEL) {
+        send({ jsonrpc: '2.0', id: msg.id, error: { code: -32601, message: 'Method not found' } });
+      } else {
+        send({ jsonrpc: '2.0', id: msg.id, result: {} });
+      }
+    } else if (msg.method === 'session/set_config_option') {
+      configOption = msg.params;
       send({ jsonrpc: '2.0', id: msg.id, result: {} });
     } else if (msg.method === 'session/prompt') {
       runTurn(msg.params.sessionId, msg.id);

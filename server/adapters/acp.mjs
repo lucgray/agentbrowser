@@ -89,7 +89,10 @@ export const ACP_PRESETS = {
     label: 'Devin (ACP)',
     command: 'devin',
     args: ['acp'],
-    bin: 'devin'
+    bin: 'devin',
+    // devin acp rejects session/set_model; the documented channel is the
+    // DEVIN_MODEL env var the spawned server reads at startup.
+    modelEnv: 'DEVIN_MODEL'
   }
 };
 
@@ -381,8 +384,12 @@ export function createAcpSpecSession(name, spec, ctx) {
       const cliShell =
         process.platform === 'win32' &&
         (binPath === spec.command || /\.(cmd|bat)$/i.test(binPath));
+      const env = { ...process.env, ...(spec.env || {}) };
+      // ctx.model is fixed for the session's life (the hub respawns the
+      // session on a model switch), so a spawn-time env channel works.
+      if (spec.modelEnv && ctx && ctx.model) env[spec.modelEnv] = ctx.model;
       const proc = spawn(binPath, spec.args, {
-        env: { ...process.env, ...(spec.env || {}) },
+        env,
         stdio: ['pipe', 'pipe', 'pipe'],
         shell: cliShell
       });
@@ -474,8 +481,19 @@ export function createAcpSpecSession(name, spec, ctx) {
       try {
         await sendRequest('session/set_model', { sessionId, modelId: ctx.model }, CONTROL_TIMEOUT_MS);
       } catch (err) {
-        // Older agents lack set_model; the preset default still applies.
-        logWarn('session/set_model rejected, keeping agent default', err);
+        // Agents without set_model may still take a model through the newer
+        // config-option channel (devin acp exposes a "model" config option).
+        logWarn('session/set_model rejected, trying set_config_option', err);
+        try {
+          await sendRequest('session/set_config_option', {
+            sessionId,
+            configId: 'model',
+            value: ctx.model
+          }, CONTROL_TIMEOUT_MS);
+        } catch (fallbackErr) {
+          // The preset default still applies.
+          logWarn('session/set_config_option rejected, keeping agent default', fallbackErr);
+        }
       }
     }
   }

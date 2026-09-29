@@ -282,24 +282,28 @@ padding of its own.
 
 The live state of a turn. Exactly one per turn, built by the first `status`, `thinking` or `tool_use` event
 and frozen by `done` or `error`. Every tool chip and every piece of exposed reasoning for that turn is
-inside it, collapsed by default.
+inside it. The shape and behavior follow the ai-elements `Reasoning` component (elements.ai-sdk.dev):
+a brain icon, a shimmer "Thinking…" label while live, a down chevron that flips on open, auto-open
+while the stream is producing content, and auto-collapse to a duration summary when the turn ends.
 
 | Property | Value |
 |---|---|
 | block | `--ac-bg-1`, `1px solid var(--ac-border-soft)`, `--ac-radius-card`, `align-self: stretch`, `min-width: 0` |
 | head | a `<button>`: full width, `--ac-type-secondary`, `--ac-text-secondary`, padding `8px 12px`, gap `--ac-space-8`, `text-align: left`; hover fills `--ac-bg-2` with a `--ac-border` edge |
-| label | `--ac-text`, single line, ellipsis. "Thinking" / "Cooking" / "Working" in rotation, or the event's own `label`, which never rotates |
-| elapsed | `--ac-type-micro`, `--ac-text-muted`, `tabular-nums`, whole seconds, ticking at 1s |
+| icon | brain glyph, 14px, `--ac-text-muted`, first child of the head |
+| label | `--ac-text`, single line, ellipsis. Fixed "Thinking…" (localized) while live, or the event's own `label`, which overrides it |
 | step count | `--ac-type-micro`, `--ac-text-muted`, `"4 steps"`, empty at zero |
-| caret | `--ac-text-muted`, rotates 90° when open, `transform` over `--ac-dur-fast` |
-| body | `hidden` when collapsed; column, gap `--ac-space-8`, padding `0 12px 12px`, `min-width: 0` |
-| reasoning text | `--ac-type-secondary`, italic, `--ac-text-muted`, `white-space: pre-wrap`, `overflow-wrap: anywhere` |
+| caret | `--ac-text-muted`, chevron pointing down at rest, flips 180° when open, `transform` over `--ac-dur-fast` |
+| body | opens automatically once it holds content while the turn is live, and stays open until the turn ends or the user toggles it (a manual toggle wins over the automatic state both ways); `hidden` when collapsed; column, gap `--ac-space-8`, padding `0 12px 12px`, `min-width: 0` |
+| reasoning text | `--ac-type-secondary`, `--ac-text-secondary`, `white-space: pre-wrap`, `overflow-wrap: anywhere`. Chunked `thinking` events merge into one node — the ai-elements `ReasoningContent` is a single consolidated block, not one row per chunk |
+| timeline | no left rail/borders inside the body — the step dot (9px, muted ring, accent on the live step) plus the 1.5px connector between rows form the timeline; every body row indents `padding-left: 20px` so text clears the dot column |
 | shimmer | `.live .work-label` animates opacity 1 to 0.5 at `--ac-loop-status` / `--ac-ease-loop`, dropped under reduced motion |
 
 Nothing here is green: the block reports work, and the status dot already carries the live accent.
-On `done` or `error` the head becomes the static summary `Worked for 12s, 4 steps` and the block stays
-expandable. A block that ends with no steps and no reasoning text is removed; the meta line already
-reports the duration.
+On `done` or `error` an un-toggled block collapses and the head becomes the static summary
+`Thought for 12 seconds` (localized; whole seconds, minimum 1) plus the step count — the ai-elements
+`Reasoning` end state. A block that ends with no steps and no reasoning text is removed; the meta
+line already reports the duration.
 
 Accessibility: the head is a real `<button>`, so Enter and Space toggle it; it carries
 `aria-expanded` and an `aria-label`, and the body is hidden with the `hidden` attribute.
@@ -368,7 +372,7 @@ status line while it runs and opens on click, the same shape as the work block.
 | head | a `<button>`: full width, `--ac-type-secondary`, `--ac-text-secondary`, padding `8px 12px`, gap `--ac-space-8`, `text-align: left` |
 | title | `Lane 2 · Pricing page` (the wire index is 0-based, the label 1-based), single line, ellipsis; a lane with no title is just `Lane 2` |
 | status | `--ac-type-micro`, `--ac-text-muted`, `tabular-nums`: `running · 4 steps`, then `done · 6 steps` or `failed` |
-| caret | `--ac-text-muted`, rotates 90° when open |
+| caret | `--ac-text-muted`, chevron pointing down at rest, flips 180° when open |
 | body | `hidden` when collapsed; column, gap `--ac-space-8`, padding `0 12px 12px` — tool chips, reasoning text and the lane's own reply live here |
 | live | `.live .lane-status` takes the work block's shimmer, dropped under reduced motion |
 | failed | `.failed .lane-status` turns `--ac-error` and stops animating |
@@ -399,18 +403,16 @@ set` and nothing else. No px width anywhere in this view: the panel narrows to a
 
 ### Tool chip
 
-A tool call renders as one full-width row, not a bubble, inside the work block body.
+A tool call renders as one step row on the chain-of-thought timeline inside the work block body — no card, no border, no background.
 
 | Property | Value |
 |---|---|
-| background | `--ac-bg-2` |
-| border | `1px solid var(--ac-border)` |
-| radius | `--ac-radius-control` |
-| padding | `6px 10px` |
-| font | `--ac-font-mono` at `--ac-type-code` |
-| tool name | `--ac-text` |
-| args | `--ac-text-secondary`, truncated to one line, `overflow-wrap: anywhere` when wrapped |
-| status glyph | pending `--ac-warn` (pulses at `--ac-loop-status`), ok `--ac-success`, failed `--ac-error` |
+| status icon | CSS-drawn, absolute in the step-dot column (`left: 1px; top: 5px`): pending spinner ring, ok check `--ac-success`, failed cross `--ac-error` |
+| head | `--ac-type-secondary`, padding `2px 0 2px 20px` (the 20px clears the dot column), gap `--ac-space-8`, text `--ac-text-secondary`; hover text → `--ac-text` |
+| tool name | `--ac-text`, single line, ellipsis, `max-width: 60%` |
+| args preview | `--ac-text-muted`, single line, ellipsis — readable values, not raw JSON: one scalar arg shows its bare value (`npm test`), several show `key: value` pairs; full args stay in the detail pane |
+| caret | same chevron recipe as the work head, flips on `.open` |
+| detail | `hidden` until expanded, indented to the text column (`padding-left: 20px`); args JSON in a `--ac-bg-1` code block, result line under it |
 | align | `align-self: stretch`, `max-width: 100%` |
 
 ### Messages

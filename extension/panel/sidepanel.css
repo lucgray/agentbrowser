@@ -690,37 +690,34 @@ button:disabled {
   font-weight: 600;
 }
 
-/* ----- tool chip: expandable call card (ai-elements "Tool" shape) -----
-   Header row: status icon + agent-chosen label + args preview + chevron.
-   Click expands a detail pane with the full args and the tool's result. */
+/* ----- tool chip: a step row on the chain-of-thought timeline -----
+   No card — the status icon sits in the step-dot column, the label and a
+   readable arg preview carry the step text, and the chevron opens the
+   args/result detail. (ai-elements "Tool" as a chain step.) */
 
 .chip {
+  position: relative;
   align-self: stretch;
   max-width: 100%;
   min-width: 0;
-  background: var(--ac-bg-2);
-  border: 1px solid var(--ac-border);
-  border-radius: var(--ac-radius-control);
-  overflow: hidden;
 }
 
 .chip-head {
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: var(--ac-space-8);
   width: 100%;
   min-width: 0;
-  padding: 6px 10px;
+  padding: 2px 0 2px 20px;
   background: transparent;
   border: none;
-  font: var(--ac-type-code);
+  font: var(--ac-type-secondary);
   color: var(--ac-text-secondary);
   text-align: left;
   cursor: pointer;
 }
 
 .chip-head:hover {
-  background: var(--ac-bg-3, rgba(0, 0, 0, 0.04));
   color: var(--ac-text);
 }
 
@@ -751,11 +748,12 @@ button:disabled {
   color: var(--ac-error);
 }
 
-/* Status icon — drawn, not a glyph. Pending spins, ok is a check, err is a
-   cross. */
+/* Status icon — drawn, not a glyph; anchored in the step-dot column like a
+   chain-of-thought dot. Pending spins, ok is a check, err is a cross. */
 .chip-icon {
-  flex: none;
-  position: relative;
+  position: absolute;
+  left: 1px;
+  top: 5px;
   width: 11px;
   height: 11px;
 }
@@ -803,9 +801,10 @@ button:disabled {
   to { transform: rotate(360deg); }
 }
 
-/* Detail pane: full args JSON plus the result line when it arrives. */
+/* Detail pane: full args JSON plus the result line, indented to the step
+   text column. */
 .chip-detail {
-  padding: 0 10px 8px 28px;
+  padding: 0 0 6px 20px;
   font: var(--ac-type-code);
 }
 
@@ -945,7 +944,19 @@ button:disabled {
   to { background-position: -20% 0; }
 }
 
-.work-elapsed,
+.work-icon {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  color: var(--ac-text-muted);
+}
+
+.work-icon svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
 .work-steps {
   flex: none;
   font: var(--ac-type-micro);
@@ -955,7 +966,8 @@ button:disabled {
 }
 
 /* Carets are drawn chevrons, not text: one shared recipe for the work
-   block, lanes and tool chips. Points right; rotated down when open. */
+   block, lanes and tool chips. ai-elements' ChevronDown shape: points down at
+   rest, flips 180° when open. */
 .work-caret,
 .lane-caret,
 .chip-caret {
@@ -964,14 +976,14 @@ button:disabled {
   height: 6px;
   border-top: 1.5px solid var(--ac-text-muted);
   border-right: 1.5px solid var(--ac-text-muted);
-  transform: rotate(45deg) translateY(-1px);
+  transform: rotate(135deg) translateY(1px);
   transition: transform var(--ac-dur-fast) var(--ac-ease);
 }
 
 .work-block.open .work-caret,
 .lane-block.open .lane-caret,
 .chip.open .chip-caret {
-  transform: rotate(135deg) translateY(-1px);
+  transform: rotate(315deg) translateY(1px);
 }
 
 /* A block with nothing inside it yet (a bare "thinking" stretch) has nothing
@@ -993,15 +1005,11 @@ button:disabled {
   padding: 0 var(--ac-space-12) var(--ac-space-12);
 }
 
-/* Reasoning text sits on a quiet accent rail, the ai-elements "Reasoning"
-   shape — visually distinct from both chips and the reply. */
 .work-thinking {
   min-width: 0;
-  padding: 2px 0 2px 10px;
-  border-left: 2px solid var(--ac-border);
+  padding: 2px 0;
   font: var(--ac-type-secondary);
-  font-style: italic;
-  color: var(--ac-text-muted);
+  color: var(--ac-text-secondary);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
@@ -1018,43 +1026,6 @@ button:disabled {
    dot). Chips keep their own spinner/check icon as their indicator. */
 .work-body > * {
   position: relative;
-}
-
-.work-body > * + *::before {
-  content: "";
-  position: absolute;
-  left: 4px;
-  top: calc(-1 * var(--ac-space-8) - 2px);
-  height: calc(var(--ac-space-8) + 11px);
-  width: 1px;
-  background: var(--ac-border);
-}
-
-.work-body > .work-thinking {
-  border-left: none;
-  padding-left: 18px;
-}
-
-.work-body > .work-thinking::after {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 7px;
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  border: 1.5px solid var(--ac-text-muted);
-  background: var(--ac-bg-1);
-  box-sizing: border-box;
-}
-
-.work-block.live .work-body > .work-thinking:last-child {
-  color: var(--ac-text);
-}
-
-.work-block.live .work-body > .work-thinking:last-child::after {
-  border-color: var(--ac-accent);
-  background: var(--ac-accent-tint);
 }
 
 @keyframes cot-step-in {
@@ -1692,6 +1663,12 @@ button:disabled {
   padding-left: 20px;
 }
 
+/* Chips carry the 20px indent inside their own head so the status icon can
+   sit in the step-dot column; the box padding would double it. */
+.work-body > .chip {
+  padding-left: 0;
+}
+
 /* Step indicator dot on every row except tool chips, which carry their own
    spinner/check icon as the step marker. */
 .work-body > :not(.chip)::after {
@@ -1718,12 +1695,6 @@ button:disabled {
   background: var(--ac-border);
 }
 
-/* Thinking rows drop their own rail in favor of the timeline. */
-.work-body > .work-thinking {
-  border-left: none;
-  padding-left: 0;
-}
-
 /* The most recent row of a live turn is the active step. */
 .work-block.live .work-body > :not(.chip):last-child::after {
   border-color: var(--ac-accent);
@@ -1732,7 +1703,6 @@ button:disabled {
 
 .work-block.live .work-body > .work-thinking:last-child {
   color: var(--ac-text);
-  font-style: normal;
 }
 
 @keyframes work-step-in {

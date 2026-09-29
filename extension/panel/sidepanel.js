@@ -313,8 +313,8 @@ const I18N = {
     cliMissing: "cli missing",
     needsKey: "needs key",
     unavailable: "unavailable",
-    workDone: "Thinking complete",
-    workLabels: ["Thinking", "Cooking", "Working"],
+    workThinking: "Thinking\u2026",
+    workThought: (s) => "Thought for " + s + " seconds",
     listening: "Listening\u2026",
     resumedLive: "Resumed live conversation.",
   },
@@ -356,8 +356,8 @@ const I18N = {
     cliMissing: "缺少 CLI",
     needsKey: "需配置密钥",
     unavailable: "不可用",
-    workDone: "思考完成",
-    workLabels: ["思考中", "生成中", "处理中"],
+    workThinking: "思考中\u2026",
+    workThought: (s) => "思考了 " + s + " 秒",
     listening: "聆听中\u2026",
     resumedLive: "已恢复进行中的对话。",
   }
@@ -400,16 +400,6 @@ function applyI18n() {
 // Strings that live in JS state, re-applied after a language change. init()
 // assigns the real implementation once the DOM refs exist.
 let refreshDynamicI18n = () => {};
-
-export const WORK_LABELS = ["Thinking", "Cooking", "Working"];
-
-export function rotatingLabel(i) {
-  const labels = t("workLabels", WORK_LABELS);
-  const n = Number(i);
-  if (!Number.isFinite(n)) return labels[0];
-  const idx = Math.floor(n) % labels.length;
-  return labels[idx < 0 ? idx + labels.length : idx];
-}
 
 // 12432 -> "12.4s". One decimal below 100s, whole seconds above.
 export function formatDuration(ms) {
@@ -951,8 +941,7 @@ async function init() {
 
   let turnEl = null; // .turn wrapper holding the current assistant turn
   let workBlock = null; // the live thinking/cooking block for this turn
-  let workTimer = null; // 1s tick driving the elapsed counter and the label
-  let workTick = 0;
+
   let turnMeta = null; // last {kind:"meta"} event of this turn
   let actionsRow = null; // the finished turn's action row, if it has one
 
@@ -1604,6 +1593,32 @@ async function init() {
     return true;
   }
 
+  // Brain glyph (the ai-elements Reasoning trigger's leading icon).
+  function brainIcon(size) {
+    const svg = document.createElementNS(SVG_NS, "svg");
+    svg.setAttribute("viewBox", "0 0 24 24");
+    svg.setAttribute("width", String(size));
+    svg.setAttribute("height", String(size));
+    svg.setAttribute("fill", "none");
+    svg.setAttribute("stroke", "currentColor");
+    svg.setAttribute("stroke-width", "1.8");
+    svg.setAttribute("stroke-linecap", "round");
+    svg.setAttribute("stroke-linejoin", "round");
+    svg.setAttribute("aria-hidden", "true");
+    const left = document.createElementNS(SVG_NS, "path");
+    left.setAttribute(
+      "d",
+      "M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z"
+    );
+    const right = document.createElementNS(SVG_NS, "path");
+    right.setAttribute(
+      "d",
+      "M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z"
+    );
+    svg.append(left, right);
+    return svg;
+  }
+
   // Copy glyph (two offset sheets).
   function copyIcon(size) {
     const svg = document.createElementNS(SVG_NS, "svg");
@@ -1670,27 +1685,21 @@ async function init() {
     workBlock.steps.textContent = workBlock.count > 0 ? stepLabel(workBlock.count) : "";
   }
 
-  function startWorkTimer() {
-    if (workTimer) return;
-    workTimer = setInterval(() => {
-      if (!workBlock) return;
-      const ms = Date.now() - workBlock.startedAt;
-      workBlock.elapsed.textContent = Math.round(ms / 1000) + "s";
-      // Rotate the placeholder label every fourth second; a per-second swap
-      // reads as a glitch, and an adapter-supplied label never rotates.
-      if (workBlock.live && !workBlock.fixedLabel && ++workTick % 4 === 0) {
-        workBlock.label.textContent = rotatingLabel(workTick / 4);
-      }
-    }, 1000);
-  }
-
-  function stopWorkTimer() {
-    if (workTimer) clearInterval(workTimer);
-    workTimer = null;
+  // A child with no text is still empty — textContent would aggregate it the
+  // same way, but the DOM test stub's textContent only sees direct writes.
+  function nodeHasContent(node) {
+    if (node.textContent && String(node.textContent).trim() !== "") return true;
+    const kids = node.children || [];
+    for (const k of kids) {
+      if (nodeHasContent(k)) return true;
+    }
+    return false;
   }
 
   // The one live block for this turn. Created by the first status, thinking or
-  // tool event, whichever arrives first.
+  // tool event, whichever arrives first. Follows the ai-elements Reasoning
+  // shape: a shimmer "Thinking\u2026" trigger that auto-opens while the turn
+  // streams and auto-collapses when it ends, unless the user toggled it.
   function ensureWorkBlock(label) {
     if (workBlock) {
       if (label) {
@@ -1708,13 +1717,14 @@ async function init() {
     head.setAttribute("aria-expanded", "false");
     head.setAttribute("aria-label", "Show the steps in this turn");
 
+    const icon = document.createElement("span");
+    icon.className = "work-icon";
+    icon.setAttribute("aria-hidden", "true");
+    icon.appendChild(brainIcon(14));
+
     const labelEl = document.createElement("span");
     labelEl.className = "work-label";
-    labelEl.textContent = label || rotatingLabel(0);
-
-    const elapsedEl = document.createElement("span");
-    elapsedEl.className = "work-elapsed";
-    elapsedEl.textContent = "0s";
+    labelEl.textContent = label || t("workThinking");
 
     const stepsEl = document.createElement("span");
     stepsEl.className = "work-steps";
@@ -1726,7 +1736,7 @@ async function init() {
     caret.className = "work-caret";
     caret.setAttribute("aria-hidden", "true");
 
-    head.append(labelEl, elapsedEl, stepsEl, spacer, caret);
+    head.append(icon, labelEl, stepsEl, spacer, caret);
 
     const body = document.createElement("div");
     body.className = "work-body";
@@ -1739,7 +1749,6 @@ async function init() {
       el,
       head,
       label: labelEl,
-      elapsed: elapsedEl,
       steps: stepsEl,
       body,
       count: 0,
@@ -1747,40 +1756,45 @@ async function init() {
       expanded: false,
       live: true,
       fixedLabel: !!label,
+      userToggled: false
     };
     workBlock = block;
     // A <button> is keyboard-activated for free; Enter and Space both land
-    // here as a click.
-    head.addEventListener("click", () => setWorkExpanded(block, !block.expanded));
+    // here as a click. A manual toggle wins over the auto-open default.
+    head.addEventListener("click", () => {
+      block.userToggled = true;
+      setWorkExpanded(block, !block.expanded);
+    });
     // An empty block has nothing to expand: while only a bare "thinking"
     // stretch is running (no thought text, no tool rows yet) the caret hides
     // and the head goes inert, instead of expanding to an empty body. Emptiness
     // is judged by rendered content, not child count — a node with no text
     // must still count as empty.
-    const syncWorkEmpty = () => {
-      const empty = block.count === 0 && body.textContent.trim() === "";
+    block.syncEmpty = () => {
+      const empty = block.count === 0 && ![...body.children].some(nodeHasContent);
       el.classList.toggle("empty", empty);
       head.disabled = empty;
       if (empty && block.expanded) setWorkExpanded(block, false);
+      if (!empty && block.live && !block.userToggled && !block.expanded) {
+        setWorkExpanded(block, true);
+      }
     };
-    block.emptyObserver = new MutationObserver(syncWorkEmpty);
+    block.emptyObserver = new MutationObserver(block.syncEmpty);
     block.emptyObserver.observe(body, {
       childList: true,
       characterData: true,
       subtree: true
     });
-    syncWorkEmpty();
-    workTick = 0;
-    startWorkTimer();
+    block.syncEmpty();
     scrollToBottom();
     return workBlock;
   }
 
-  // Turn over: collapse the steps automatically and rename the block to
-  // "思考完成"; it stays expandable on demand. A block with nothing inside it
-  // is dropped; the meta line already reports the duration.
+  // Turn over: the block collapses to the ai-elements Reasoning summary
+  // "Thought for N seconds" and stays expandable on demand — unless the user
+  // already toggled it, which wins. A block with nothing inside it is dropped;
+  // the meta line already reports the duration.
   function closeWorkBlock() {
-    stopWorkTimer();
     if (!workBlock) return;
     const block = workBlock;
     workBlock = null;
@@ -1794,8 +1808,9 @@ async function init() {
       block.el.remove();
       return;
     }
-    if (block.expanded) setWorkExpanded(block, false);
-    block.label.textContent = t("workDone");
+    if (!block.userToggled && block.expanded) setWorkExpanded(block, false);
+    const secs = Math.max(1, Math.ceil((Date.now() - block.startedAt) / 1000));
+    block.label.textContent = t("workThought")(secs);
     block.steps.textContent = block.count > 0 ? stepLabel(block.count) : "";
     block.head.setAttribute("aria-label", "Show or hide the steps in this turn");
   }
@@ -1902,20 +1917,24 @@ async function init() {
     scrollToBottom();
   }
 
+  // Header args read as a sentence fragment, not JSON: a single scalar arg
+  // shows its bare value ("npm test"), several show "key: value" pairs.
+  // label/description name the action itself — they go on the chip name.
   function summarizeArgs(args) {
-    let s;
     try {
-      // label/description name the action itself — they go on the chip name,
-      // not in the args dump.
       const { label, description, ...rest } = args && typeof args === "object" ? args : {};
-      s = JSON.stringify(args && typeof args === "object" ? rest : args);
+      const entries = Object.entries(rest).filter(([, v]) =>
+        v != null && ["string", "number", "boolean"].includes(typeof v));
+      if (!entries.length) return "";
+      let s = entries
+        .map(([k, v]) => (entries.length === 1 ? String(v) : `${k}: ${String(v)}`))
+        .join(", ");
+      if (s.length > 80) s = s.slice(0, 77) + "...";
+      return s;
     } catch (err) {
-      console.warn("[agentbrowser] arg stringify failed, using String()", err);
-      s = String(args);
+      console.warn("[agentbrowser] arg summarize failed", err);
+      return "";
     }
-    if (s === undefined || s === "{}" || s === "null") return "";
-    if (s.length > 80) s = s.slice(0, 77) + "...";
-    return s;
   }
 
   // Full args for the expandable detail — the header only carries the
@@ -2014,8 +2033,26 @@ async function init() {
       block.count++;
       pendingChips.push(record);
       renderWorkSteps();
+      block.syncEmpty();
     }
     scrollToBottom();
+  }
+
+  // A thinking event is one chunk of the turn's reasoning stream, and chunks
+  // arrive fragmented mid-word. ai-elements consolidates all reasoning parts
+  // into a single ReasoningContent, so consecutive chunks merge into the last
+  // thinking node; a chip or another row in between starts a fresh one.
+  function appendThinking(body, text) {
+    const last = body.lastChild;
+    if (last && last.className === "work-thinking") {
+      last.textContent += text;
+      return last;
+    }
+    const node = document.createElement("div");
+    node.className = "work-thinking";
+    node.textContent = text;
+    body.appendChild(node);
+    return node;
   }
 
   function pendingListFor(laneEntry) {
@@ -2234,10 +2271,7 @@ async function init() {
       case "thinking": {
         const text = String(event.text ?? "");
         if (text.trim() === "") break;
-        const node = document.createElement("div");
-        node.className = "work-thinking";
-        node.textContent = text;
-        view.body.appendChild(node);
+        appendThinking(view.body, text);
         scrollToBottom();
         break;
       }
@@ -2344,10 +2378,8 @@ async function init() {
         const text = String(event.text ?? "");
         if (text.trim() === "") break;
         const block = ensureWorkBlock("");
-        const node = document.createElement("div");
-        node.className = "work-thinking";
-        node.textContent = text;
-        block.body.appendChild(node);
+        appendThinking(block.body, text);
+        block.syncEmpty();
         scrollToBottom();
         break;
       }
@@ -3124,9 +3156,9 @@ async function init() {
     messagesEl.textContent = "";
     assistantEl = null;
     pendingChips = [];
-    // The block's node went with messagesEl's children, but its interval did
-    // not: a live timer would keep ticking on a detached element.
-    stopWorkTimer();
+    // The block's node went with messagesEl's children; disconnect its
+    // observer so nothing reacts to mutations on a detached element.
+    if (workBlock && workBlock.emptyObserver) workBlock.emptyObserver.disconnect();
     workBlock = null;
     turnEl = null;
     turnMeta = null;
