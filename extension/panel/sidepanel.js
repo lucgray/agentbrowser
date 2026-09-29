@@ -1917,20 +1917,24 @@ async function init() {
     scrollToBottom();
   }
 
+  // Header args read as a sentence fragment, not JSON: a single scalar arg
+  // shows its bare value ("npm test"), several show "key: value" pairs.
+  // label/description name the action itself — they go on the chip name.
   function summarizeArgs(args) {
-    let s;
     try {
-      // label/description name the action itself — they go on the chip name,
-      // not in the args dump.
       const { label, description, ...rest } = args && typeof args === "object" ? args : {};
-      s = JSON.stringify(args && typeof args === "object" ? rest : args);
+      const entries = Object.entries(rest).filter(([, v]) =>
+        v != null && ["string", "number", "boolean"].includes(typeof v));
+      if (!entries.length) return "";
+      let s = entries
+        .map(([k, v]) => (entries.length === 1 ? String(v) : `${k}: ${String(v)}`))
+        .join(", ");
+      if (s.length > 80) s = s.slice(0, 77) + "...";
+      return s;
     } catch (err) {
-      console.warn("[agentbrowser] arg stringify failed, using String()", err);
-      s = String(args);
+      console.warn("[agentbrowser] arg summarize failed", err);
+      return "";
     }
-    if (s === undefined || s === "{}" || s === "null") return "";
-    if (s.length > 80) s = s.slice(0, 77) + "...";
-    return s;
   }
 
   // Full args for the expandable detail — the header only carries the

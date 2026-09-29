@@ -403,18 +403,16 @@ set` and nothing else. No px width anywhere in this view: the panel narrows to a
 
 ### Tool chip
 
-A tool call renders as one full-width row, not a bubble, inside the work block body.
+A tool call renders as one step row on the chain-of-thought timeline inside the work block body — no card, no border, no background.
 
 | Property | Value |
 |---|---|
-| background | `--ac-bg-2` |
-| border | `1px solid var(--ac-border)` |
-| radius | `--ac-radius-control` |
-| padding | `6px 10px` |
-| font | `--ac-font-mono` at `--ac-type-code` |
-| tool name | `--ac-text` |
-| args | `--ac-text-secondary`, truncated to one line, `overflow-wrap: anywhere` when wrapped |
-| status glyph | pending `--ac-warn` (pulses at `--ac-loop-status`), ok `--ac-success`, failed `--ac-error` |
+| status icon | CSS-drawn, absolute in the step-dot column (`left: 1px; top: 5px`): pending spinner ring, ok check `--ac-success`, failed cross `--ac-error` |
+| head | `--ac-type-secondary`, padding `2px 0 2px 20px` (the 20px clears the dot column), gap `--ac-space-8`, text `--ac-text-secondary`; hover text → `--ac-text` |
+| tool name | `--ac-text`, single line, ellipsis, `max-width: 60%` |
+| args preview | `--ac-text-muted`, single line, ellipsis — readable values, not raw JSON: one scalar arg shows its bare value (`npm test`), several show `key: value` pairs; full args stay in the detail pane |
+| caret | same chevron recipe as the work head, flips on `.open` |
+| detail | `hidden` until expanded, indented to the text column (`padding-left: 20px`); args JSON in a `--ac-bg-1` code block, result line under it |
 | align | `align-self: stretch`, `max-width: 100%` |
 
 ### Messages

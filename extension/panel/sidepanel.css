@@ -690,37 +690,34 @@ button:disabled {
   font-weight: 600;
 }
 
-/* ----- tool chip: expandable call card (ai-elements "Tool" shape) -----
-   Header row: status icon + agent-chosen label + args preview + chevron.
-   Click expands a detail pane with the full args and the tool's result. */
+/* ----- tool chip: a step row on the chain-of-thought timeline -----
+   No card — the status icon sits in the step-dot column, the label and a
+   readable arg preview carry the step text, and the chevron opens the
+   args/result detail. (ai-elements "Tool" as a chain step.) */
 
 .chip {
+  position: relative;
   align-self: stretch;
   max-width: 100%;
   min-width: 0;
-  background: var(--ac-bg-2);
-  border: 1px solid var(--ac-border);
-  border-radius: var(--ac-radius-control);
-  overflow: hidden;
 }
 
 .chip-head {
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: var(--ac-space-8);
   width: 100%;
   min-width: 0;
-  padding: 6px 10px;
+  padding: 2px 0 2px 20px;
   background: transparent;
   border: none;
-  font: var(--ac-type-code);
+  font: var(--ac-type-secondary);
   color: var(--ac-text-secondary);
   text-align: left;
   cursor: pointer;
 }
 
 .chip-head:hover {
-  background: var(--ac-bg-3, rgba(0, 0, 0, 0.04));
   color: var(--ac-text);
 }
 
@@ -751,11 +748,12 @@ button:disabled {
   color: var(--ac-error);
 }
 
-/* Status icon — drawn, not a glyph. Pending spins, ok is a check, err is a
-   cross. */
+/* Status icon — drawn, not a glyph; anchored in the step-dot column like a
+   chain-of-thought dot. Pending spins, ok is a check, err is a cross. */
 .chip-icon {
-  flex: none;
-  position: relative;
+  position: absolute;
+  left: 1px;
+  top: 5px;
   width: 11px;
   height: 11px;
 }
@@ -803,9 +801,10 @@ button:disabled {
   to { transform: rotate(360deg); }
 }
 
-/* Detail pane: full args JSON plus the result line when it arrives. */
+/* Detail pane: full args JSON plus the result line, indented to the step
+   text column. */
 .chip-detail {
-  padding: 0 10px 8px 28px;
+  padding: 0 0 6px 20px;
   font: var(--ac-type-code);
 }
 
@@ -1662,6 +1661,12 @@ button:disabled {
 .work-body > * {
   position: relative;
   padding-left: 20px;
+}
+
+/* Chips carry the 20px indent inside their own head so the status icon can
+   sit in the step-dot column; the box padding would double it. */
+.work-body > .chip {
+  padding-left: 0;
 }
 
 /* Step indicator dot on every row except tool chips, which carry their own
