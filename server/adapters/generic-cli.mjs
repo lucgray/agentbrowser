@@ -653,6 +653,14 @@ export const HARNESSES = {
       if (state.turnCount > 1) args.push('-c');
       return args;
     },
+    modelArgs: (model) => ['--model', model],
+    // `devin -p -c` dies with "failed to start ACP agent session" whenever the
+    // stored session can't be loaded (an aborted turn's record, a cwd-keyed
+    // lookup miss). One retry without -c degrades to a fresh conversation
+    // instead of a dead turn.
+    retryArgs(prompt, args) {
+      return args.includes('-c') ? args.filter((a) => a !== '-c') : null;
+    },
     parseOutput(text, state, emit) {
       emitPlainReply(text, emit);
     }
@@ -784,84 +792,106 @@ export function createGenericCliSession(name, ctx) {
       aborted = false;
       await new Promise((resolve) => {
         turn = { emit, resolve, startedAt: Date.now() };
-        let proc;
-        const binPath = resolveBin(preset.bin);
-        // Node refuses to spawn .cmd/.BAT directly (EINVAL since the 2024
-        // security patch), and a bare name ENOENTs — on Windows route .cmd/.bat
-        // binaries through the shell. Adapter args are flags and model ids, so
-        // cmd's naive join is safe; kill() then targets cmd.exe, which is
-        // best-effort the same way it already is for shell CLIs.
-        const cliShell =
-          process.platform === 'win32' && /\.(cmd|bat)$/i.test(binPath);
-        try {
-          proc = spawn(binPath, args, {
-            cwd: preset.runInTempDir ? state.tempDir : undefined,
-            stdio: ['ignore', 'pipe', 'pipe'],
-            shell: cliShell
-          });
-        } catch (err) {
-          endTurn(`${name} failed to start: ${err && err.message ? err.message : String(err)}`);
-          return;
-        }
-        child = proc;
-        proc.stdout.setEncoding('utf8');
-        proc.stderr.setEncoding('utf8');
-        proc.stdout.on('data', (chunk) => {
-          if (preset.stream) {
-            lineBuffer += chunk;
-            let idx;
-            while ((idx = lineBuffer.indexOf('\n')) !== -1) {
-              handleLine(lineBuffer.slice(0, idx));
-              lineBuffer = lineBuffer.slice(idx + 1);
+        let retried = false;
+        const launch = (argv) => {
+          let proc;
+          const binPath = resolveBin(preset.bin);
+          // Node refuses to spawn .cmd/.BAT directly (EINVAL since the 2024
+          // security patch), and a bare name ENOENTs — on Windows route .cmd/.bat
+          // binaries through the shell. Adapter args are flags and model ids, so
+          // cmd's naive join is safe; kill() then targets cmd.exe, which is
+          // best-effort the same way it already is for shell CLIs.
+          const cliShell =
+            process.platform === 'win32' && /\.(cmd|bat)$/i.test(binPath);
+          try {
+            proc = spawn(binPath, argv, {
+              cwd: preset.runInTempDir ? state.tempDir : undefined,
+              stdio: ['ignore', 'pipe', 'pipe'],
+              shell: cliShell
+            });
+          } catch (err) {
+            endTurn(`${name} failed to start: ${err && err.message ? err.message : String(err)}`);
+            return;
+          }
+          child = proc;
+          proc.stdout.setEncoding('utf8');
+          proc.stderr.setEncoding('utf8');
+          proc.stdout.on('data', (chunk) => {
+            if (preset.stream) {
+              lineBuffer += chunk;
+              let idx;
+              while ((idx = lineBuffer.indexOf('\n')) !== -1) {
+                handleLine(lineBuffer.slice(0, idx));
+                lineBuffer = lineBuffer.slice(idx + 1);
+              }
+            } else {
+              stdoutAll += chunk;
             }
-          } else {
-            stdoutAll += chunk;
-          }
-        });
-        proc.stderr.on('data', (chunk) => {
-          lastStderr = (lastStderr + chunk).slice(-2000);
-        });
-        proc.on('error', (err) => {
-          if (child === proc) child = null;
-          const message = err && err.code === 'ENOENT'
-            ? `${name} binary not found (looked for "${preset.bin}" on PATH; set AGENTCHAT_BIN_${preset.bin.toUpperCase()} to override)`
-            : `${name} failed to start: ${err && err.message ? err.message : String(err)}`;
-          endTurn(message);
-        });
-        proc.on('exit', (code, signal) => {
-          if (child === proc) child = null;
-          if (!turn) return;
-          if (preset.stream && lineBuffer) {
-            handleLine(lineBuffer);
-            lineBuffer = '';
-          }
-          if (aborted) {
-            safeEmit({ kind: 'info', message: 'turn aborted' });
-            endTurn(null);
-            return;
-          }
-          if (code !== 0) {
-            const detail = stripAnsi(lastStderr).trim().split('\n').pop() || '';
-            endTurn(`${name} exited (${signal || `code ${code}`})${detail ? `: ${detail}` : ''}`);
-            return;
-          }
-          if (!preset.stream && preset.parseOutput) {
-            try {
-              preset.parseOutput(stripAnsi(stdoutAll), state, safeEmit);
-            } catch (err) {
-              endTurn(`could not parse ${name} output: ${err && err.message ? err.message : String(err)}`);
+          });
+          proc.stderr.on('data', (chunk) => {
+            lastStderr = (lastStderr + chunk).slice(-2000);
+          });
+          proc.on('error', (err) => {
+            if (child === proc) child = null;
+            const message = err && err.code === 'ENOENT'
+              ? `${name} binary not found (looked for "${preset.bin}" on PATH; set AGENTCHAT_BIN_${preset.bin.toUpperCase()} to override)`
+              : `${name} failed to start: ${err && err.message ? err.message : String(err)}`;
+            endTurn(message);
+          });
+          proc.on('exit', (code, signal) => {
+            if (child === proc) child = null;
+            if (!turn) return;
+            if (preset.stream && lineBuffer) {
+              handleLine(lineBuffer);
+              lineBuffer = '';
+            }
+            if (aborted) {
+              safeEmit({ kind: 'info', message: 'turn aborted' });
+              endTurn(null);
               return;
             }
-          }
-          if (preset.afterExit) {
-            try {
-              preset.afterExit(state);
-            } catch (err) {
-              logWarn('afterExit hook threw, ending turn anyway', err);
+            if (code !== 0) {
+              const detail = stripAnsi(lastStderr).trim().split('\n').pop() || '';
+              // A preset can offer a degraded retry argv (devin drops -c when
+              // the stored conversation won't load). One retry, then the turn
+              // fails like any other exit.
+              if (!retried && preset.retryArgs) {
+                const again = preset.retryArgs(text, args, state);
+                if (again) {
+                  retried = true;
+                  stdoutAll = '';
+                  lineBuffer = '';
+                  lastStderr = '';
+                  safeEmit({
+                    kind: 'info',
+                    message: `${name} could not resume its conversation; retrying as a fresh chat`
+                  });
+                  launch(again);
+                  return;
+                }
+              }
+              endTurn(`${name} exited (${signal || `code ${code}`})${detail ? `: ${detail}` : ''}`);
+              return;
             }
-          }
-          endTurn(null);
-        });
+            if (!preset.stream && preset.parseOutput) {
+              try {
+                preset.parseOutput(stripAnsi(stdoutAll), state, safeEmit);
+              } catch (err) {
+                endTurn(`could not parse ${name} output: ${err && err.message ? err.message : String(err)}`);
+                return;
+              }
+            }
+            if (preset.afterExit) {
+              try {
+                preset.afterExit(state);
+              } catch (err) {
+                logWarn('afterExit hook threw, ending turn anyway', err);
+              }
+            }
+            endTurn(null);
+          });
+        };
+        launch(args);
       });
     },
 

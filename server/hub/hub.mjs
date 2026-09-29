@@ -919,7 +919,11 @@ const FAMILY_TABLE = [
   { family: "copilot", label: "Copilot", preferred: ["copilot", "acp-copilot"] },
   { family: "grok", label: "Grok", preferred: ["grok", "acp-grok"] },
   { family: "agy", label: "Antigravity", preferred: ["agy", "acp-agy"] },
-  { family: "devin", label: "Devin", preferred: ["devin", "acp-devin"] },
+  // devin's generic preset is the odd one out: `devin -p` buffers the whole
+  // turn (no thinking stream, no tool chips) and its -c resume dies outright
+  // when the stored session won't load, so the persistent `devin acp` server
+  // is the better transport whenever the binary is present.
+  { family: "devin", label: "Devin", preferred: ["acp-devin", "devin"] },
   { family: "anthropic", label: "Anthropic API", preferred: ["anthropic-api"] },
   { family: "openai", label: "OpenAI API", preferred: ["openai-api"] }
 ];

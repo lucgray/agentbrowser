@@ -52,6 +52,20 @@ test('a full ACP turn emits token, titled tool chip, gated result, meta, done', 
   // fake agent — proves request_permission is answered, not hung.
 }, { timeout: 15000 });
 
+test('set_model rejection falls back to set_config_option; modelEnv reaches the spawn env', async () => {
+  const spec = {
+    command: process.execPath,
+    args: [FAKE_AGENT],
+    modelEnv: 'FAKE_ACP_MODEL_ENV',
+    env: { FAKE_ACP_NO_SET_MODEL: '1', FAKE_ACP_ECHO: '1' }
+  };
+  const session = createAcpSpecSession('acp-fake', spec, { model: 'swe-2-high' });
+  const events = await collect(session, 'go');
+  session.dispose();
+  const echo = events.map((e) => e.text || '').find((t) => t.startsWith('env='));
+  assert.equal(echo, 'env=swe-2-high cfg=model=swe-2-high');
+}, { timeout: 15000 });
+
 test('concurrent send on a live turn is refused', async () => {
   const session = createAcpSpecSession('acp-fake', SPEC, { model: null });
   const first = collect(session, 'first');

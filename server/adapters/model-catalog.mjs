@@ -289,6 +289,8 @@ const PROBES = {
   codex: () => probeCodexConfig(),
   opencode: () => probeOpencode(),
   devin: () => probeDevinModels(),
+  // Same binary, same catalog — the lookup is keyed by adapter name.
+  'acp-devin': () => probeDevinModels(),
   grok: () => probeGrokConfig(),
   gemini: () =>
     toModelList(
