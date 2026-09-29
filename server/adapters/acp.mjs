@@ -15,6 +15,7 @@ import { spawn } from 'node:child_process';
 import { existsSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { resolveBin } from './generic-cli.mjs';
+import { labelFromAgentbrowser } from './cli-label.mjs';
 
 function logWarn(context, err) {
   console.error('[acp]', context, err && err.message ? err.message : err);
@@ -266,11 +267,15 @@ export function createAcpSpecSession(name, spec, ctx) {
       case 'tool_call': {
         const tool = toolNameFor(update.kind, update.title);
         if (update.toolCallId) state.toolNames.set(String(update.toolCallId), tool);
+        const raw = update.rawInput && typeof update.rawInput === 'object' ? update.rawInput : {};
         emit({
           kind: 'tool_use',
           tool,
-          label: typeof update.title === 'string' ? truncate(update.title) : undefined,
-          args: update.rawInput && typeof update.rawInput === 'object' ? update.rawInput : {},
+          label:
+            labelFromAgentbrowser(raw.command || raw.cmd) ||
+            raw.label ||
+            (typeof update.title === 'string' ? truncate(update.title) : undefined),
+          args: raw,
           id: update.toolCallId == null ? undefined : String(update.toolCallId)
         });
         return;
