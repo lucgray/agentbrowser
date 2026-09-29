@@ -296,6 +296,7 @@ while the stream is producing content, and auto-collapse to a duration summary w
 | caret | `--ac-text-muted`, chevron pointing down at rest, flips 180° when open, `transform` over `--ac-dur-fast` |
 | body | opens automatically once it holds content while the turn is live, and stays open until the turn ends or the user toggles it (a manual toggle wins over the automatic state both ways); `hidden` when collapsed; column, gap `--ac-space-8`, padding `0 12px 12px`, `min-width: 0` |
 | reasoning text | `--ac-type-secondary`, `--ac-text-secondary`, `white-space: pre-wrap`, `overflow-wrap: anywhere`. Chunked `thinking` events merge into one node — the ai-elements `ReasoningContent` is a single consolidated block, not one row per chunk |
+| timeline | no left rail/borders inside the body — the step dot (9px, muted ring, accent on the live step) plus the 1.5px connector between rows form the timeline; every body row indents `padding-left: 20px` so text clears the dot column |
 | shimmer | `.live .work-label` animates opacity 1 to 0.5 at `--ac-loop-status` / `--ac-ease-loop`, dropped under reduced motion |
 
 Nothing here is green: the block reports work, and the status dot already carries the live accent.
