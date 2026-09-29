@@ -78,6 +78,18 @@ Opening a real side panel needs a user gesture. Two reliable ways:
 - `Page.captureScreenshot` on a panel target yields a clean panel-only image.
 - ws-attach errors happen when iterating targets that just died — tolerate them.
 
+## Observing transient streaming states (auto-open, mid-turn toggles)
+
+The stock fixture finishes a turn in ms — too fast to see mid-stream UI. Copy
+the fixture and space its `notify()` calls with setTimeout (expose a PACE_MS
+env; 1500-6000ms/beat → 8-30s turns). Coordinate clicks race the turn end and
+miss small targets; for deterministic assertions drive real input through CDP
+`Input.dispatchMouseEvent` on the panel target (compute the head's
+getBoundingClientRect center in-page — no coordinate scaling needed) and poll
+element state (`body.hidden`, `.open` class, children count) each ~500ms. A
+state timeline (kids grew while hidden stayed true) is hard evidence for
+toggle/ordering claims screenshots keep missing.
+
 ## Coordinate-space pitfall on this VM
 
 The display is 1600x1200 but computer-tool coords are 1024x768 (scale 0.64).

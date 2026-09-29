@@ -1339,7 +1339,7 @@ async function handleChat(msg) {
     // their own win the race; this fires only if none arrived in 300ms.
     statusTimer = setTimeout(() => {
       if (!turn.sawStatus() && !turn.isDone()) {
-        emit({ kind: "status", state: "thinking", label: "thinking" });
+        emit({ kind: "status", state: "thinking" });
       }
     }, STATUS_INJECT_MS);
 
