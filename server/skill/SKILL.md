@@ -112,6 +112,17 @@ by steps that omit it. Steps stop at the first failure unless
 Use batch for predictable flows (login, search, form fills) — keep
 exploratory steps separate when the next move depends on what you find.
 
+Wait for dynamic content instead of polling reads (cheap — no page text
+moves per retry):
+
+```bash
+agentbrowser wait_for '{"selector":".results","label":"等结果渲染"}'
+agentbrowser wait_for '{"text":"Checkout complete","label":"等支付完成"}'   # innerText match
+```
+
+`wait_for` times out gracefully — check `found` in the result rather than
+treating a miss as an error.
+
 Emulate a device viewport without resizing the window (responsive/mobile checks):
 
 ```bash
@@ -123,6 +134,7 @@ Debug page JavaScript with breakpoints (the page's JS freezes while paused):
 
 ```bash
 agentbrowser breakpoint_set '{"urlRegex":"app\\.js","lineNumber":42,"autoResumeMs":2000}'
+agentbrowser breakpoint_list '{}'                    # -> {breakpoints:[{id,url,lineNumber}]}
 agentbrowser debug_wait '{"timeoutMs":15000}'        # -> {paused:true, callFrames, topCallFrameId}
 agentbrowser debug_eval '{"expression":"JSON.stringify(state.filters)}"'   # eval in the paused frame
 agentbrowser debug_resume '{"action":"resume"}'     # or stepOver / stepInto / stepOut
@@ -186,6 +198,9 @@ Mark up the page for the user (co-reading):
 ```bash
 agentbrowser annotate '{"quote":"exact text from the page","style":"highlight","comment":"why this is flagged"}'
 agentbrowser annotate_batch '{"annotations":[{"quote":"one phrase","style":"highlight"},{"quote":"another","style":"circle","comment":"why"}]}'
+agentbrowser annotations_list '{}'                   # marks + comment threads on the tab
+agentbrowser annotate_reply '{"id":"ann-...","text":"跟进说明"}'        # reply on a mark's thread
+agentbrowser annotate_clear '{"id":"ann-..."}'       # remove one mark; omit id to clear all
 ```
 
 Patch the page to prove a fix, then roll it back:
@@ -206,6 +221,9 @@ on that tab since its last navigation. If `record_start` errors with
 agentbrowser record_start '{}'        # needs consent; starts tabCapture
 # ... keep calling tools — every click/hover/scroll/drag lands a
 #     {t,x,y,kind} marker on the zoom track automatically ...
+agentbrowser record_pause '{}'        # pause mid-recording
+agentbrowser record_resume '{}'       # resume it
+agentbrowser record_marker '{"label":"关键时刻"}'  # bookmark a beat on the track
 agentbrowser record_stop '{}'         # -> <Downloads>/agentbrowser/record-*.webm
                                       #    + record-*.track.json (markers)
 ```
@@ -242,14 +260,16 @@ Rules of thumb:
 ## Conventions
 
 - `tabId` is optional everywhere — omit it to act on the active tab; list
-  tabs with `agentbrowser tabs_list '{}'`.
+  tabs with `agentbrowser tabs_list '{}'`, open/close with
+  `tab_new`/`tab_close`.
 - Prefer structured reads (`dom_inspect`, `a11y_tree`, `console_log`,
   `network_log`) over `eval_js`; reach for `eval_js` only when no tool covers
   what you need.
 - `network_log`/`console_log` buffers start filling on first use and reset
   on navigation — call them early if you're reproducing a bug.
-- JS dialogs are auto-dismissed after ~5s while you're driving a tab; answer
-  them yourself with `dialog_respond` if you need a specific outcome.
+- JS dialogs are auto-dismissed after ~5s while you're driving a tab; list
+  pending ones with `dialog_list`, answer with `dialog_respond` if you need
+  a specific outcome.
 - If the user enabled the consent gate (`permissions` in server/hub/config.json),
   sensitive tools may return `denied by user` — that's the user declining,
   not a bug: explain what you wanted to do and ask before retrying.
