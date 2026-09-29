@@ -441,10 +441,11 @@ tools = await client.get_tools()
 | `tab_close` | `{tabId}` | `{closed:true}` |
 | `navigate` | `{url, tabId?}` | `{url, title}`（加载完成后，上限 20s） |
 | `read_page` | `{tabId?, maxChars?}` | `{url, title, text}`（innerText，默认截断 60k 字符） |
-| `screenshot` | `{tabId?}` | `{base64, mimeType:"image/png"}` |
+| `screenshot` | `{format?, quality?, clip?, tabId?}` | `{base64, mimeType}` |
 | `click` | `{x, y, tabId?}` | `{clicked:true}` |
-| `click_element` | `{selector, dx?, dy?, tabId?}` | `{clicked:true, selector, tag}`（先滚入视口，点元素中心） |
-| `type_text` | `{text, selector?, tabId?}` | `{typed:<字符数>}`（可选 `selector` 先点击聚焦目标） |
+| `click_element` | `{selector, index?, force?, timeoutMs?, dx?, dy?, tabId?}` | `{clicked:true, selector, tag, path}`（多匹配需 `index`，不可见/被遮挡需 `force`，`timeoutMs` 等元素出现） |
+| `type_text` | `{text, selector?, index?, force?, timeoutMs?, tabId?}` | `{typed:<字符数>, focus?}`（可选 `selector` 先点击聚焦目标；`focus` 回报实际输入的元素） |
+| `element_check` | `{selector, max?, tabId?}` | `{found, count, matches:[{index,tag,text,path,visible,occluded,...}]}`（动手前查匹配） |
 | `press_key` | `{key, tabId?}` | `{pressed:key}`（如 "Enter"、"Escape"、"Meta+A"） |
 | `eval_js` | `{expression, tabId?}` | `{value}` |
 | `dom_inspect` | `{selector, all?, styles?, max?, tabId?}` | `{selector, matched, elements:[...]}` |

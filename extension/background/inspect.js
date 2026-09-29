@@ -17,6 +17,7 @@ import {
   patchApplyExpression,
   patchRevertExpression,
   pageSnapshotExpression,
+  elementCheckExpression,
 } from './inspect-core.js';
 
 const tabs = new Map(); // tabId -> {enabled:Set, console:[], requests:Map, finished:[], dialogs:[], url, patches:Map, patchSeq}
@@ -756,7 +757,19 @@ export async function waitForSettle(tabId, settleMs, capMs = 15000) {
 // "clickable map" in one call instead of probing with dom_inspect. Elements
 // are stamped `data-ab-node` so click_element {nodeId} can address them.
 export async function pageSnapshot(tabId, args) {
-  const expr = pageSnapshotExpression({ max: args.max, maxChars: args.maxChars });
+  const expr = pageSnapshotExpression({ max: args.max, maxChars: args.maxChars, full: !!args.full });
+  if (args.frame) {
+    const sessionId = cdp.findFrameSession(tabId, args.frame);
+    return evalInFrame(tabId, sessionId, expr);
+  }
+  return evaluate(tabId, expr);
+}
+
+// element_check: report a selector's matches — count, visibility, occlusion
+// and a stable path per match — so an agent can pick (or tighten) a target
+// before clicking. Read-only: never scrolls or stamps the DOM.
+export async function elementCheck(tabId, args) {
+  const expr = elementCheckExpression({ selector: args.selector, max: args.max });
   if (args.frame) {
     const sessionId = cdp.findFrameSession(tabId, args.frame);
     return evalInFrame(tabId, sessionId, expr);

@@ -475,10 +475,11 @@ tools = await client.get_tools()
 | `tab_close` | `{tabId}` | `{closed:true}` |
 | `navigate` | `{url, tabId?}` | `{url, title}` after load (20s cap) |
 | `read_page` | `{tabId?, maxChars?}` | `{url, title, text}` (innerText, 60k char default cap) |
-| `screenshot` | `{tabId?}` | `{base64, mimeType:"image/png"}` |
+| `screenshot` | `{format?, quality?, clip?, tabId?}` | `{base64, mimeType}` |
 | `click` | `{x, y, tabId?}` | `{clicked:true}` |
-| `click_element` | `{selector, dx?, dy?, tabId?}` | `{clicked:true, selector, tag}` — scrolls into view, clicks the element's center |
-| `type_text` | `{text, selector?, tabId?}` | `{typed:<charcount>}` (optional `selector` click-focuses the target first) |
+| `click_element` | `{selector, index?, force?, timeoutMs?, dx?, dy?, tabId?}` | `{clicked:true, selector, tag, path}` — multi-match needs `index`, invisible/occluded needs `force`, `timeoutMs` waits for the element |
+| `type_text` | `{text, selector?, index?, force?, timeoutMs?, tabId?}` | `{typed:<charcount>, focus?}` (optional `selector` click-focuses the target first; `focus` reports the element typed into) |
+| `element_check` | `{selector, max?, tabId?}` | `{found, count, matches:[{index,tag,text,path,visible,occluded,...}]}` — inspect matches before acting |
 | `press_key` | `{key, tabId?}` | `{pressed:key}` (e.g. "Enter", "Escape", "Meta+A") |
 | `eval_js` | `{expression, tabId?}` | `{value}` |
 | `dom_inspect` | `{selector, all?, styles?, max?, tabId?}` | `{selector, matched, elements:[...]}` |

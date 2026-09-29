@@ -75,6 +75,21 @@ agentbrowser dom_inspect '{"selector":"button.primary","styles":["display"]}'
 agentbrowser click '{"x":512,"y":340,"label":"点击确定位置"}'
 ```
 
+`click_element` verifies the target before clicking (so a wrong element is
+never silently hit): a selector matching several elements fails until
+`index` picks one, and an invisible or covered element fails until
+`force:true`. `timeoutMs` waits for the element to appear, folding
+`wait_for` + click into one call:
+
+```bash
+agentbrowser element_check '{"selector":".item"}'                        # -> {count, matches:[{index,tag,text,path,visible,occluded,...}]}
+agentbrowser click_element '{"selector":".item","index":2,"label":"点第三个条目"}'
+agentbrowser click_element '{"selector":"#save","timeoutMs":5000,"label":"等保存按钮出现再点"}'
+```
+
+Every match report carries `path` — a stable CSS selector you can reuse
+across navigations (unlike `nodeId`, which dies on navigation).
+
 Check why a page misbehaves:
 
 ```bash
@@ -117,6 +132,7 @@ moves per retry):
 
 ```bash
 agentbrowser wait_for '{"selector":".results","label":"等结果渲染"}'
+agentbrowser wait_for '{"selector":".results","visible":true}'           # rendered, not just in the DOM
 agentbrowser wait_for '{"text":"Checkout complete","label":"等支付完成"}'   # innerText match
 ```
 
@@ -189,7 +205,8 @@ also take `frame` — you don't need the frame_* variants unless you prefer them
 Get the whole clickable map in one call instead of probing with dom_inspect:
 
 ```bash
-agentbrowser page_snapshot '{}'                     # -> nodes:[{node,tag,role,name,text,x,y,w,h}]
+agentbrowser page_snapshot '{}'                     # -> nodes:[{node,tag,role,name,text,path,href,value,x,y,w,h}]
+agentbrowser page_snapshot '{"full":true}'          # whole document, not just the viewport
 agentbrowser click_element '{"nodeId":"n12"}'       # click a snapshot node, no selector needed
 ```
 

@@ -5,6 +5,7 @@
 
 import * as cdp from './cdp.js';
 import * as inspect from './inspect.js';
+import { CSS_PATH_FN } from './inspect-core.js';
 import * as consent from './consent.js';
 import { createPanelRouter, windowIdFromPortName } from './panel-router.js';
 
@@ -689,7 +690,7 @@ const TOOLS = {
 
   async screenshot(args) {
     const tabId = await resolveTabId(args.tabId);
-    return cdp.screenshot(tabId);
+    return cdp.screenshot(tabId, args);
   },
 
   async click(args) {
@@ -716,6 +717,12 @@ const TOOLS = {
     return res;
   },
 
+  async element_check(args) {
+    const tabId = await resolveTabId(args.tabId);
+    if (!args.selector) throw new Error('element_check needs selector');
+    return inspect.elementCheck(tabId, args);
+  },
+
   async page_snapshot(args) {
     const tabId = await resolveTabId(args.tabId);
     return inspect.pageSnapshot(tabId, args);
@@ -725,7 +732,7 @@ const TOOLS = {
   async hover(args) {
     const tabId = await resolveTabId(args.tabId);
     if (args.selector) {
-      const res = await cdp.hoverElement(tabId, String(args.selector));
+      const res = await cdp.hoverElement(tabId, String(args.selector), args);
       if (res && Number.isFinite(res.x)) mark(tabId, res.x, res.y, 'hover', args.label, res);
       return res;
     }
@@ -777,7 +784,7 @@ const TOOLS = {
       await cdp.sendCommand(tabId, 'Input.insertText', { text });
       return { typed: text.length };
     }
-    const res = await cdp.typeText(tabId, args.text, args.selector);
+    const res = await cdp.typeText(tabId, args.text, args.selector, args);
     // kind 'type': a selector focus is a real click AND drives the key HUD.
     // No selector = typing into whatever has focus — still show the HUD at
     // the viewport center (the pointer stays where the last marker put it).
@@ -1150,17 +1157,37 @@ const TOOLS = {
     const timeoutMs = Math.min(Math.max(Number(args.timeoutMs) || 10000, 0), 60000);
     const sel = args.selector ? String(args.selector) : '';
     const text = args.text ? String(args.text) : '';
+    const wantVisible = args.visible === true;
     if (!sel && !text) throw new Error('wait_for needs selector or text');
     const t0 = Date.now();
+    let sawInvisible = false;
     while (Date.now() - t0 < timeoutMs) {
-      const expr = sel
-        ? `!!document.querySelector(${JSON.stringify(sel)})`
-        : `!!(document.body && document.body.innerText.includes(${JSON.stringify(text)}))`;
-      const r = await cdp.evalJs(tabId, expr);
-      if (r && r.value) return { found: true, waited: Date.now() - t0 };
+      if (sel) {
+        // One eval reports existence AND visibility so `visible:true` never
+        // green-lights a display:none element.
+        const expr = `(function () {
+          var el = document.querySelector(${JSON.stringify(sel)});
+          if (!el) return { exists: false, visible: false };
+          var cs = getComputedStyle(el);
+          var r = el.getBoundingClientRect();
+          return { exists: true, visible: cs.display !== 'none' && cs.visibility === 'visible' && r.width > 0 && r.height > 0 };
+        })()`;
+        const r = await cdp.evalJs(tabId, expr);
+        const v = r && r.value;
+        if (v && v.exists && (!wantVisible || v.visible)) {
+          return { found: true, waited: Date.now() - t0, visible: v.visible };
+        }
+        if (v && v.exists && !v.visible) sawInvisible = true;
+      } else {
+        const expr = `!!(document.body && document.body.innerText.includes(${JSON.stringify(text)}))`;
+        const r = await cdp.evalJs(tabId, expr);
+        if (r && r.value) return { found: true, waited: Date.now() - t0 };
+      }
       await new Promise((res) => setTimeout(res, 250));
     }
-    return { found: false, waited: Date.now() - t0 };
+    const out = { found: false, waited: Date.now() - t0 };
+    if (sawInvisible) out.exists = true;
+    return out;
   },
 
   async read_elements(args) {
@@ -1171,10 +1198,11 @@ const TOOLS = {
     const maxChars = Math.min(Math.max(Number(args.maxChars) || 300, 1), 2000);
     const attr = args.attr ? String(args.attr) : '';
     const expr =
-      `[...document.querySelectorAll(${JSON.stringify(sel)})].slice(0, ${max})` +
-      `.map((el) => ({ text: String(el.innerText || el.textContent || '').trim().slice(0, ${maxChars})` +
+      `(function () {${CSS_PATH_FN}
+      return [...document.querySelectorAll(${JSON.stringify(sel)})].slice(0, ${max})` +
+      `.map((el) => ({ text: String(el.innerText || el.textContent || '').trim().slice(0, ${maxChars}), path: abCssPath(el)` +
       (attr ? `, value: el.getAttribute(${JSON.stringify(attr)})` : '') +
-      ' }))';
+      ' }))})()';
     const r = args.frame
       ? await inspect.frameEval(tabId, { frame: args.frame, expression: expr })
       : await cdp.evalJs(tabId, expr);
