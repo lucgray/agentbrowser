@@ -945,7 +945,19 @@ button:disabled {
   to { background-position: -20% 0; }
 }
 
-.work-elapsed,
+.work-icon {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  color: var(--ac-text-muted);
+}
+
+.work-icon svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
 .work-steps {
   flex: none;
   font: var(--ac-type-micro);
@@ -955,7 +967,8 @@ button:disabled {
 }
 
 /* Carets are drawn chevrons, not text: one shared recipe for the work
-   block, lanes and tool chips. Points right; rotated down when open. */
+   block, lanes and tool chips. ai-elements' ChevronDown shape: points down at
+   rest, flips 180° when open. */
 .work-caret,
 .lane-caret,
 .chip-caret {
@@ -964,14 +977,14 @@ button:disabled {
   height: 6px;
   border-top: 1.5px solid var(--ac-text-muted);
   border-right: 1.5px solid var(--ac-text-muted);
-  transform: rotate(45deg) translateY(-1px);
+  transform: rotate(135deg) translateY(1px);
   transition: transform var(--ac-dur-fast) var(--ac-ease);
 }
 
 .work-block.open .work-caret,
 .lane-block.open .lane-caret,
 .chip.open .chip-caret {
-  transform: rotate(135deg) translateY(-1px);
+  transform: rotate(315deg) translateY(1px);
 }
 
 /* A block with nothing inside it yet (a bare "thinking" stretch) has nothing

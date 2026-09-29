@@ -110,6 +110,12 @@ Object.defineProperty(globalThis, "navigator", {
   configurable: true,
 });
 globalThis.window = {};
+// The work block observes its body for emptiness; the stub DOM never fires
+// mutations, so a no-op class satisfies the API surface.
+globalThis.MutationObserver = class {
+  observe() {}
+  disconnect() {}
+};
 
 await import(SIDEPANEL); // init() runs on import
 
@@ -394,6 +400,37 @@ t("with no registry the palette stays shut and every slash line is chat", () => 
   assert.equal(sent.length, before + 1);
   assert.equal(lastSent().type, "chat");
   chatEvent({ kind: "done" });
+});
+
+// --- work block (ai-elements Reasoning alignment) ---------------------------
+
+t("a thinking event builds the work block already open", () => {
+  input.value = "inspect the page";
+  enter();
+  assert.equal(lastSent().type, "chat");
+  chatEvent({ kind: "thinking", text: "looking at the DOM" });
+  const block = lastTurn().children.find((c) => c.classList.contains("work-block"));
+  assert.ok(block, "a thinking event builds the work block");
+  const head = block.children[0];
+  // head children: brain icon, label, steps, spacer, caret
+  assert.equal(head.children[1].textContent, "Thinking\u2026");
+  assert.equal(head.getAttribute("aria-expanded"), "true");
+  assert.equal(block.children[1].hidden, false, "auto-opens while the turn streams");
+});
+
+t("a user toggle wins over the automatic open state", () => {
+  const block = lastTurn().children.find((c) => c.classList.contains("work-block"));
+  const head = block.children[0];
+  head.dispatch("click", {});
+  assert.equal(block.children[1].hidden, true, "clicked closed");
+  chatEvent({ kind: "thinking", text: "still going" });
+  assert.equal(block.children[1].hidden, true, "stays closed after a manual toggle");
+});
+
+t("done collapses the block to the duration summary", () => {
+  chatEvent({ kind: "done" });
+  const block = lastTurn().children.find((c) => c.classList.contains("work-block"));
+  assert.match(block.children[0].children[1].textContent, /^Thought for \d+ seconds$/);
 });
 
 console.log(`${pass} passed, ${fails.length} failed`);
