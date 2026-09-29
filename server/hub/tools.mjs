@@ -633,6 +633,50 @@ export const TOOLS = [
     }
   },
 
+  // --- document-start preloads (v2.11): Page.addScriptToEvaluateOnNewDocument
+  // — run JS before any page script, on every new document in the tab (top
+  // frame and later-created subframes). Inject BEFORE navigate/reload; the
+  // already-loaded page is untouched. `preset:"antidetect"` ships the bundled
+  // stealth script for sites that fight automation with anti-debug probes.
+
+  {
+    name: "inject_preload",
+    description: "Run a script at document start — before any page JavaScript — on every new document in the tab (CDP addScriptToEvaluateOnNewDocument). Call it BEFORE navigate/reload; it does not affect the already-loaded page. Pass {script:'<js>'} for a custom payload (wrapped in an IIFE is recommended), or {preset:'antidetect'} for the bundled stealth script that neutralises disable-devtool-style probes (console timing tables, performance.now hooks, toString source checks) on sites that fight automation. Returns {id, injected, appliesTo}.",
+    args: {
+      type: "object",
+      properties: {
+        script: { type: "string", description: "JavaScript source to evaluate at document start" },
+        preset: { type: "string", description: "Bundled preset name — currently only 'antidetect'", enum: ["antidetect"] },
+        tabId: { type: "number", description: "Target tab id; omit for the active tab" }
+      },
+      required: []
+    }
+  },
+  {
+    name: "preloads_list",
+    description: "List document-start preloads registered on the tab. Returns {tabId, preloads:[{id, preset, chars, ts}]}.",
+    args: {
+      type: "object",
+      properties: {
+        tabId: { type: "number", description: "Target tab id; omit for the active tab" }
+      },
+      required: []
+    }
+  },
+  {
+    name: "preload_remove",
+    description: "Remove document-start preloads from the tab: {id:'<id>'} for one, {all:true} for all. Returns {removed}.",
+    args: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "Preload id from inject_preload / preloads_list" },
+        all: { type: "boolean", description: "Remove every preload on the tab" },
+        tabId: { type: "number", description: "Target tab id; omit for the active tab" }
+      },
+      required: []
+    }
+  },
+
   // --- OOPIF frame tools (v2.6): reach inside cross-origin iframes (payment
   // widgets, chat embeds, editors). `frame` is a sessionId or url substring
   // from frames_list. Same-origin iframes are already reachable via normal

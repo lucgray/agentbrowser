@@ -17,7 +17,7 @@
 // informational tools never gate.
 export const WRITE_TOOLS = [
   'click', 'click_element', 'type_text', 'press_key', 'navigate',
-  'eval_js', 'patch_apply', 'fill',
+  'eval_js', 'patch_apply', 'fill', 'inject_preload',
   'breakpoint_set', 'debug_eval', 'debug_resume', 'drag', 'select_text',
     'set_file_input', 'download_configure', 'record_start',
   'frame_eval', 'frame_click_element',

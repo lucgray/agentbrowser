@@ -1,4 +1,4 @@
-# AgentBrowser protocol v2.10
+# AgentBrowser protocol v2.11
 
 AgentBrowser is a Chrome MV3 extension with a side-panel chat UI, plus a local hub
 server. The chat is backed by a pluggable "harness" (Claude Agent SDK, Claude
@@ -699,6 +699,9 @@ executor, in the SDK adapter's MCP server, and in mcp-proxy.mjs.
 | `record_start` | `{tabId?, audio?, bitrate?}` | `{recording:true, tabId, startedAt}` — v2.7; chrome.tabCapture + offscreen MediaRecorder → webm; `audio`/`bitrate` v2.8; while recording, coordinate-bearing calls append `{t,x,y,kind,label?,w?,h?,key?,text?}` to a marker track (labels become captions in `docs/zoomview.html`; w/h size the zoom, key/text drive the key HUD); consent-gated |
 | `record_stop` | `{tabId?}` | `{file, bytes, durationMs, markers}` — v2.7; saves `<Downloads>/agentbrowser/record-<ts>-tab<id>.webm` plus `<same>.track.json` (the zoom marker track) |
 | `record_pause` | `{tabId?}` | `{paused:true, at}` — v2.8; video freezes, markers pause |
+| `inject_preload` | `{script?\|preset?, tabId?}` | `{id, injected, appliesTo}` — v2.11; Page.addScriptToEvaluateOnNewDocument, runs before any page JS on new documents; call before navigate/reload; `preset:'antidetect'` = bundled stealth script; consent-gated |
+| `preloads_list` | `{tabId?}` | `{tabId, preloads:[{id, preset, chars, ts}]}` — v2.11 |
+| `preload_remove` | `{id?\|all?, tabId?}` | `{removed:<n>}` — v2.11 |
 | `record_resume` | `{tabId?}` | `{paused:false}` — v2.8 |
 | `record_marker` | `{tabId?, x?, y?, kind?, label?}` | `{marked:true, markers}` — v2.8; free beat marker, no browser action (`note` caption / `nav` cross-fade) |
 
@@ -1042,6 +1045,27 @@ and a `full:true` whole-document scan. `wait_for {selector, visible:true}`
 requires a rendered element and reports `exists` on timeout;
 `screenshot` takes `format`/`quality`/`clip`; `type_text` without a
 selector reports `focus:{tag,name,type}`.
+
+## Document-start preloads, v2.11
+
+`inject_preload` wraps `Page.addScriptToEvaluateOnNewDocument`: the source
+evaluates at document start — before any page script — on every document
+created afterwards in the tab, top frame and later-created subframes alike.
+Inject BEFORE `navigate`/reload; the already-loaded page is untouched and
+the scripts die with the debugger attachment (or `preload_remove`).
+`preloadsByTab` in sw.js is the live registry: `{id, preset, chars, ts}` per
+`{identifier}` CDP returns.
+
+`preset:'antidetect'` ships `ANTIDETECT_SCRIPT` (extension/background/
+stealth.js) — the disable-devtool counter-recipe for sites that fight
+automation (the Boss-style family): console.* timing tables become no-ops,
+`performance.now` stays monotonic off `navigationStart` (a frozen clock is
+itself a tell), and `Function.prototype.toString` reports every replaced
+function — toString included — as `function <name>() { [native code] }`.
+Caveat: neutered console methods stop emitting `Runtime.consoleAPICalled`,
+so `console_log` goes quiet on that page. `inject_preload` is consent-gated
+(write tier); a custom `{script}` payload does the same job for any
+site-specific recipe.
 
 ## mcp-proxy.mjs
 

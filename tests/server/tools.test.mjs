@@ -45,3 +45,14 @@ test('element gates ship (v2.10)', () => {
   const wait = TOOLS.find((t) => t.name === 'wait_for');
   assert.ok(wait.args.properties.visible);
 });
+
+test('document-start preload tools ship (v2.11)', () => {
+  for (const name of ['inject_preload', 'preloads_list', 'preload_remove']) {
+    assert.ok(TOOL_NAMES.includes(name), `${name} in TOOLS`);
+  }
+  const inject = TOOLS.find((t) => t.name === 'inject_preload');
+  assert.ok(inject.args.properties.script && inject.args.properties.preset);
+  assert.deepEqual(inject.args.properties.preset.enum, ['antidetect']);
+  const remove = TOOLS.find((t) => t.name === 'preload_remove');
+  assert.ok(remove.args.properties.id && remove.args.properties.all);
+});
