@@ -30,6 +30,10 @@ agentbrowser screenshot '{}' --output /tmp/shot.png   # save base64 results to a
 agentbrowser session               # REPL: one tool call per line, connection reused
 ```
 
+Every call also accepts `"label":"<short intent>"` — always set it; the
+user sees your label in the panel instead of the raw command (see
+"Naming your actions" below).
+
 The result is JSON on stdout; exit code is non-zero on tool errors. Default
 hub is `ws://127.0.0.1:9010` (override with `AGENTBROWSER_HUB` or `--hub`).
 `--output <path>` decodes a base64-bearing result (screenshot, print_pdf)
@@ -59,34 +63,54 @@ printf 'tabs_list {}\nscreenshot {} --output /tmp/shot.png\nexit\n' | agentbrows
 Read the current page the user is looking at:
 
 ```bash
-agentbrowser read_page '{}'
+agentbrowser read_page '{"label":"读当前页面"}'
 ```
 
 Find and click a button — either click the selector directly, or inspect
 first and click by coordinates:
 
 ```bash
-agentbrowser click_element '{"selector":"button.primary"}'
+agentbrowser click_element '{"selector":"button.primary","label":"点击主按钮"}'
 agentbrowser dom_inspect '{"selector":"button.primary","styles":["display"]}'
-agentbrowser click '{"x":512,"y":340}'
+agentbrowser click '{"x":512,"y":340,"label":"点击确定位置"}'
 ```
 
 Check why a page misbehaves:
 
 ```bash
-agentbrowser console_log '{"level":"error"}'
-agentbrowser network_log '{"filter":"api","limit":50}'
+agentbrowser console_log '{"level":"error","label":"检查控制台报错"}'
+agentbrowser network_log '{"filter":"api","limit":50,"label":"抓异常接口"}'
 agentbrowser network_log '{"har":true}' > page.har.json   # sanitized HAR
 ```
 
 Type into a focused field, press keys, navigate:
 
 ```bash
-agentbrowser type_text '{"text":"hello","selector":"input[name=q]"}'  # selector click-focuses first
-agentbrowser press_key '{"key":"Enter"}'
-agentbrowser navigate '{"url":"https://example.com"}'
+agentbrowser type_text '{"text":"hello","selector":"input[name=q]","label":"输入搜索词"}'  # selector click-focuses first
+agentbrowser press_key '{"key":"Enter","label":"回车提交"}'
+agentbrowser navigate '{"url":"https://example.com","label":"打开示例站"}'
 agentbrowser navigate '{"url":"https://spa.example.com","settleMs":2000}'  # SPA: wait for network silence too
 ```
+
+Planned sequences run as ONE `batch` call — plan the whole flow up front,
+execute it in one request, and put an observation tool last so you see the
+result:
+
+```bash
+agentbrowser batch '{"steps":[
+  {"tool":"click_element","args":{"selector":"#search","label":"点搜索框"}},
+  {"tool":"type_text","args":{"text":"关键词","label":"输入关键词"}},
+  {"tool":"press_key","args":{"key":"Enter","label":"回车搜索"}},
+  {"tool":"wait_for","args":{"selector":".results","label":"等结果加载"}},
+  {"tool":"page_snapshot","args":{"label":"读结果页"}}
+]}'
+```
+
+Each step names its tool + args + label; the top-level `tabId` is inherited
+by steps that omit it. Steps stop at the first failure unless
+`stopOnError:false`, and every step's result comes back in `results[]`.
+Use batch for predictable flows (login, search, form fills) — keep
+exploratory steps separate when the next move depends on what you find.
 
 Emulate a device viewport without resizing the window (responsive/mobile checks):
 
