@@ -30,6 +30,10 @@ agentbrowser screenshot '{}' --output /tmp/shot.png   # save base64 results to a
 agentbrowser session               # REPL: one tool call per line, connection reused
 ```
 
+Every call also accepts `"label":"<short intent>"` — always set it; the
+user sees your label in the panel instead of the raw command (see
+"Naming your actions" below).
+
 The result is JSON on stdout; exit code is non-zero on tool errors. Default
 hub is `ws://127.0.0.1:9010` (override with `AGENTBROWSER_HUB` or `--hub`).
 `--output <path>` decodes a base64-bearing result (screenshot, print_pdf)
@@ -59,34 +63,65 @@ printf 'tabs_list {}\nscreenshot {} --output /tmp/shot.png\nexit\n' | agentbrows
 Read the current page the user is looking at:
 
 ```bash
-agentbrowser read_page '{}'
+agentbrowser read_page '{"label":"读当前页面"}'
 ```
 
 Find and click a button — either click the selector directly, or inspect
 first and click by coordinates:
 
 ```bash
-agentbrowser click_element '{"selector":"button.primary"}'
+agentbrowser click_element '{"selector":"button.primary","label":"点击主按钮"}'
 agentbrowser dom_inspect '{"selector":"button.primary","styles":["display"]}'
-agentbrowser click '{"x":512,"y":340}'
+agentbrowser click '{"x":512,"y":340,"label":"点击确定位置"}'
 ```
 
 Check why a page misbehaves:
 
 ```bash
-agentbrowser console_log '{"level":"error"}'
-agentbrowser network_log '{"filter":"api","limit":50}'
+agentbrowser console_log '{"level":"error","label":"检查控制台报错"}'
+agentbrowser network_log '{"filter":"api","limit":50,"label":"抓异常接口"}'
 agentbrowser network_log '{"har":true}' > page.har.json   # sanitized HAR
 ```
 
 Type into a focused field, press keys, navigate:
 
 ```bash
-agentbrowser type_text '{"text":"hello","selector":"input[name=q]"}'  # selector click-focuses first
-agentbrowser press_key '{"key":"Enter"}'
-agentbrowser navigate '{"url":"https://example.com"}'
+agentbrowser type_text '{"text":"hello","selector":"input[name=q]","label":"输入搜索词"}'  # selector click-focuses first
+agentbrowser press_key '{"key":"Enter","label":"回车提交"}'
+agentbrowser navigate '{"url":"https://example.com","label":"打开示例站"}'
 agentbrowser navigate '{"url":"https://spa.example.com","settleMs":2000}'  # SPA: wait for network silence too
 ```
+
+Planned sequences run as ONE `batch` call — plan the whole flow up front,
+execute it in one request, and put an observation tool last so you see the
+result:
+
+```bash
+agentbrowser batch '{"steps":[
+  {"tool":"click_element","args":{"selector":"#search","label":"点搜索框"}},
+  {"tool":"type_text","args":{"text":"关键词","label":"输入关键词"}},
+  {"tool":"press_key","args":{"key":"Enter","label":"回车搜索"}},
+  {"tool":"wait_for","args":{"selector":".results","label":"等结果加载"}},
+  {"tool":"page_snapshot","args":{"label":"读结果页"}}
+]}'
+```
+
+Each step names its tool + args + label; the top-level `tabId` is inherited
+by steps that omit it. Steps stop at the first failure unless
+`stopOnError:false`, and every step's result comes back in `results[]`.
+Use batch for predictable flows (login, search, form fills) — keep
+exploratory steps separate when the next move depends on what you find.
+
+Wait for dynamic content instead of polling reads (cheap — no page text
+moves per retry):
+
+```bash
+agentbrowser wait_for '{"selector":".results","label":"等结果渲染"}'
+agentbrowser wait_for '{"text":"Checkout complete","label":"等支付完成"}'   # innerText match
+```
+
+`wait_for` times out gracefully — check `found` in the result rather than
+treating a miss as an error.
 
 Emulate a device viewport without resizing the window (responsive/mobile checks):
 
@@ -99,6 +134,7 @@ Debug page JavaScript with breakpoints (the page's JS freezes while paused):
 
 ```bash
 agentbrowser breakpoint_set '{"urlRegex":"app\\.js","lineNumber":42,"autoResumeMs":2000}'
+agentbrowser breakpoint_list '{}'                    # -> {breakpoints:[{id,url,lineNumber}]}
 agentbrowser debug_wait '{"timeoutMs":15000}'        # -> {paused:true, callFrames, topCallFrameId}
 agentbrowser debug_eval '{"expression":"JSON.stringify(state.filters)}"'   # eval in the paused frame
 agentbrowser debug_resume '{"action":"resume"}'     # or stepOver / stepInto / stepOut
@@ -162,6 +198,9 @@ Mark up the page for the user (co-reading):
 ```bash
 agentbrowser annotate '{"quote":"exact text from the page","style":"highlight","comment":"why this is flagged"}'
 agentbrowser annotate_batch '{"annotations":[{"quote":"one phrase","style":"highlight"},{"quote":"another","style":"circle","comment":"why"}]}'
+agentbrowser annotations_list '{}'                   # marks + comment threads on the tab
+agentbrowser annotate_reply '{"id":"ann-...","text":"跟进说明"}'        # reply on a mark's thread
+agentbrowser annotate_clear '{"id":"ann-..."}'       # remove one mark; omit id to clear all
 ```
 
 Patch the page to prove a fix, then roll it back:
@@ -182,6 +221,9 @@ on that tab since its last navigation. If `record_start` errors with
 agentbrowser record_start '{}'        # needs consent; starts tabCapture
 # ... keep calling tools — every click/hover/scroll/drag lands a
 #     {t,x,y,kind} marker on the zoom track automatically ...
+agentbrowser record_pause '{}'        # pause mid-recording
+agentbrowser record_resume '{}'       # resume it
+agentbrowser record_marker '{"label":"关键时刻"}'  # bookmark a beat on the track
 agentbrowser record_stop '{}'         # -> <Downloads>/agentbrowser/record-*.webm
                                       #    + record-*.track.json (markers)
 ```
@@ -218,14 +260,16 @@ Rules of thumb:
 ## Conventions
 
 - `tabId` is optional everywhere — omit it to act on the active tab; list
-  tabs with `agentbrowser tabs_list '{}'`.
+  tabs with `agentbrowser tabs_list '{}'`, open/close with
+  `tab_new`/`tab_close`.
 - Prefer structured reads (`dom_inspect`, `a11y_tree`, `console_log`,
   `network_log`) over `eval_js`; reach for `eval_js` only when no tool covers
   what you need.
 - `network_log`/`console_log` buffers start filling on first use and reset
   on navigation — call them early if you're reproducing a bug.
-- JS dialogs are auto-dismissed after ~5s while you're driving a tab; answer
-  them yourself with `dialog_respond` if you need a specific outcome.
+- JS dialogs are auto-dismissed after ~5s while you're driving a tab; list
+  pending ones with `dialog_list`, answer with `dialog_respond` if you need
+  a specific outcome.
 - If the user enabled the consent gate (`permissions` in server/hub/config.json),
   sensitive tools may return `denied by user` — that's the user declining,
   not a bug: explain what you wanted to do and ask before retrying.

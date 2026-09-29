@@ -8,6 +8,7 @@
 import { query, tool, createSdkMcpServer } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
 import { TOOL_NAMES } from '../hub/tools.mjs';
+import { SYSTEM_PROMPT } from './api-anthropic.mjs';
 
 const MCP_SERVER_NAME = 'browser';
 const TOOL_PREFIX = `mcp__${MCP_SERVER_NAME}__`;
@@ -15,26 +16,6 @@ const TOOL_PREFIX = `mcp__${MCP_SERVER_NAME}__`;
 function logWarn(context, err) {
   console.error('[claude-agent-sdk]', context + ':', (err && err.message) || err);
 }
-
-const SYSTEM_PROMPT = [
-  "You are a browser operator. You control the user's real, logged-in browser",
-  'through trusted CDP input using the browser tools (tabs_list, tab_new,',
-  'tab_close, navigate, read_page, screenshot, click, type_text, press_key,',
-  'eval_js). Read the page (read_page or screenshot) before acting on it.',
-  'A message may start with a <context> block listing the current tab, tabs the',
-  'user tagged, and files saved on this machine. When the user says "this page",',
-  '"this tab" or names a tagged tab, pass that tabId to read_page, screenshot',
-  'and eval_js instead of guessing, and read the tab before you act on it.',
-  'Read attached files with your file tools at the paths given.',
-  'To fill a form: first read its structure with eval_js over the inputs and',
-  'their labels, names, types and current values. Then fill one field at a time',
-  'with click on the field followed by type_text; press_key "Tab" moves focus',
-  'to the next field when that is easier. After filling, read the values back',
-  '(eval_js or read_page) and report what is in each field.',
-  'Never click submit, send, post, buy or any equivalent action, and never',
-  'publish content anywhere, unless the user explicitly asked for that',
-  'submission in this chat. Filling a form is not permission to submit it.'
-].join(' ');
 
 const tabIdSchema = z.number().optional().describe('Target tab id; omit for the active tab');
 
