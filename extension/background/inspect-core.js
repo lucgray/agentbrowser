@@ -371,7 +371,10 @@ ${CSS_PATH_FN}
   var SEL = 'a,button,input,select,textarea,summary,label,[role],[onclick],[contenteditable="true"],[tabindex]';
   var vw = window.innerWidth, vh = window.innerHeight;
   var out = [];
-  var seq = 0;
+  // Persist the stamp counter on <html>: a second snapshot keeps minting fresh
+  // node ids instead of re-issuing n1... for different elements (nodeId clicks
+  // would then match two elements at once).
+  var seq = Number(document.documentElement.getAttribute('data-ab-seq') || 0);
   var els = document.querySelectorAll(SEL);
   for (var i = 0; i < els.length; i++) {
     if (out.length >= ${cap}) break;
@@ -400,6 +403,7 @@ ${CSS_PATH_FN}
       w: Math.round(r.width), h: Math.round(r.height)
     });
   }
+  if (seq) document.documentElement.setAttribute('data-ab-seq', seq);
   return { url: location.href, count: out.length, nodes: out };
 })()`;
 }
