@@ -1,6 +1,6 @@
 ---
 name: testing-agentbrowser
-description: How to run and test the AgentBrowser Chrome extension end-to-end — stub hub, headed Chrome with real side panels, and CDP automation for side-panel windows.
+description: How to run and test the AgentBrowser Chrome extension end-to-end — stub hub, headed Chrome with real side panels, fake-CLI shims for real adapters, and CDP automation for side-panel windows.
 ---
 
 # Testing the AgentBrowser extension end-to-end
@@ -16,18 +16,49 @@ AGENTCHAT_ADAPTER_MODULE=$PWD/server/hub/stub-adapter.mjs STUB_SEND_MS=2500 \
 The stub emits `status → (~STUB_SEND_MS delay) → token "stub reply N" → meta → done`.
 Set STUB_SEND_MS≈2500 when you need to act mid-stream (close panels, reload docs).
 The hub journals chats to ~/.agentchat/chats/, so chat titles = first user message.
+NOTE: the stub module replaces the WHOLE adapter registry (no real adapters exist
+in that hub) and exports no probeAdapter, so every picker row reports status
+'unknown' → the backend button is disabled, but sends still run on the first
+adapter (claude-agent-sdk → stub). To have a stub row alongside real adapters,
+write an adapter module that re-exports base.mjs plus your extra session.
+
+## Fake-CLI shims for REAL adapters (AGENTCHAT_BIN_<NAME>)
+
+resolveBin() checks `$AGENTCHAT_BIN_<NAME>` first for every CLI probe and spawn —
+one shim makes both the generic-CLI and ACP adapters for that CLI "ready" and
+scriptable. Example: drive the real `acp-devin` transport end-to-end with the
+test fixture:
+
+```sh
+#!/bin/sh   # /tmp/fake-devin.sh
+if [ "$1" = "models" ]; then          # feeds probeDevinModels()
+  printf 'SWE-2 (swe-2)\n  swe-2-high  SWE-2 High\n  swe-2  SWE-2\n'
+  exit 0
+fi
+export FAKE_ACP_MODEL_ENV="$DEVIN_MODEL"   # echo adapter's modelEnv channel
+export FAKE_ACP_NO_SET_MODEL=1 FAKE_ACP_ECHO=1
+exec node $REPO/tests/server/fake-acp-agent.mjs "$@"   # ignores 'acp' arg
+```
+`AGENTCHAT_BIN_DEVIN=/tmp/fake-devin.sh node server/hub/hub.mjs`
+
+- Model-catalog cache gotcha: ~/.agentchat/model-catalog.json (TTL 6h) can mask a
+  fresh probe — delete it before hub start when you need new `models list` output.
+  Indented rows parse as "id␣␣label"; non-indented lines are skipped.
+- FAKE_ACP_ECHO=1 prepends a turn token `env=<FAKE_ACP_MODEL_ENV> cfg=<configId>=<value>`
+  — UI-visible proof that ctx.model reached the agent through both channels.
 
 ## Headed Chrome with REAL side panels (works on this VM's DISPLAY :0)
 
 ```
-DISPLAY=:0 chrome --user-data-dir=/tmp/abt-profile \
+DISPLAY=:0 google-chrome --user-data-dir=/tmp/abt-profile \
   --load-extension=$PWD/extension --remote-debugging-port=29333 \
   --no-first-run --no-default-browser-check https://example.com &
 ```
 
 Do NOT reuse the user's profile/`:29229` browser. Use a dedicated port (e.g. 29333)
 and a throwaway `--user-data-dir`. Never `pkill -f chrome` — kill by PID from
-`ss -ltnp | grep :29333`.
+`ss -ltnp | grep :29333`. Likewise `pkill -f hub.mjs` matches your own shell's
+cmdline — use `pkill -f "node server/hub"` carefully or kill by PID.
 
 Opening a real side panel needs a user gesture. Two reliable ways:
 - GUI: extensions puzzle menu → click the "AgentBrowser" row (openPanelOnActionClick is set).
@@ -39,49 +70,46 @@ Opening a real side panel needs a user gesture. Two reliable ways:
 
 - Side-panel documents appear in `/json/list` as `page` targets whose URL is
   `.../panel/sidepanel.html` — attach for DOM asserts (#messages, #chips,
-  #chat-switcher, #status-dot). Identify a panel's window via
-  `chrome.windows.getCurrent().id` evaluated inside it.
-- Create extra windows: `Target.createTarget {url, newWindow:true}` on the
-  browser websocket; `Browser.getWindowForTarget` maps a page → windowId;
-  `Browser.setWindowBounds` positions windows for screenshots.
-- Close a panel: `Target.closeTarget` on its target. NOTE: closing + reopening
-  within ~0.5s can revive the SAME document (same targetId, port intact). For a
-  guaranteed port disconnect/reconnect use `Page.reload` on the panel target, or
-  sleep ~1s between close and open.
-- `Page.captureScreenshot` on a panel target yields a clean panel-only image —
-  better evidence than desktop screenshots.
-- ws-attach errors (`Unexpected server response: 500`) happen when iterating
-  targets that just died — always tolerate failures when listing/attaching.
+  #chat-switcher, #status-dot). A tiny ws client script (uses the `ws` package
+  in server/node_modules) that finds that target and Runtime.evaluates is the
+  fastest way to dump rows/labels/rects.
+- `Page.reload` on the panel target forces a clean reconnect after restarting
+  the hub (e.g. swapping AGENTCHAT_ADAPTER_MODULE for a regression check).
+- `Page.captureScreenshot` on a panel target yields a clean panel-only image.
+- ws-attach errors happen when iterating targets that just died — tolerate them.
+
+## Coordinate-space pitfall on this VM
+
+The display is 1600x1200 but computer-tool coords are 1024x768 (scale 0.64).
+`getBoundingClientRect()` returns REAL px — multiply by 0.64 and add the
+browser chrome offset (~188 real px top ≈ 120 scaled) to hit small targets.
+In the two-pane backend picker, hover the adapter row then move horizontally
+RIGHT into the flyout before going up/down — a diagonal path clips sibling
+adapter rows, whose mouseover repaints the flyout with a different (often
+empty) model list and eats your click.
 
 ## Panel internals useful for assertions
 
 - Send a chat via DOM: set `#input` value → dispatch `input` → click `#send`
   (or keydown Enter on #input). Status dot class = `dot up` when hub-connected.
-- Selections delivered via chrome.storage.session.pendingSelection land as
-  chips in `#chips` (`✂ sel: "..."`), gated to the owning window by tabId.
+- Backend picker: #backend-btn opens #backend-pop; left column #backend-adapters
+  rows carry data-adapter (+ transport badge for non-CLI), hover/focus repaints
+  #backend-models flyout; model-less adapters commit on click, model rows commit
+  on click. Selection persists to chrome.storage.local {adapter, model}.
+- Turn UI: streamed `thinking` events land as `.work-thinking` divs inside the
+  collapsed `.work-block` (click `.work-head` to expand; `tool_use` becomes a
+  titled chip, `tool_result` resolves it; label becomes "Thinking complete" on
+  done). Meta line renders "<model> via <adapter> · Ns".
 - `#chat-switcher` options list hub chats; `"Title (live)"` = live session.
-  Panels auto-send `chat_list` on connect and on switcher mousedown/focus.
 
 ## ACP adapter testing (scripted fake agent)
 
 - `AGENTCHAT_ADAPTER_MODULE=tests/server/fake-acp-adapter.mjs node server/hub/hub.mjs`
-  exposes one adapter `acp-fake` ("Fake ACP (test)", model "Fake Model") backed by
-  `tests/server/fake-acp-agent.mjs` — a JSON-RPC stdio fixture that streams a
-  canned turn: text → thinking → tool_call → request_permission (auto-answered
-  allow_once by the adapter) → tool_call_update → text → done.
-- Adapter-level probing without the panel:
-  `createAcpSpecSession('acp-fake', {command: process.execPath, args: [fixture]}, ctx)`
-  then `send(text, cb)` collects `kind` events (token/thinking/tool_use/tool_result/meta/done/error).
-- To simulate an agent that ignores a control request (e.g. `session/set_model`),
-  check out an older fixture revision (`git show <rev>:tests/server/fake-acp-agent.mjs`)
-  or write a variant — control requests are bounded (~30s) while `session/prompt`
-  is intentionally unbounded.
-- To hit a mid-turn agent death reliably, send `/loop N` in the panel and run a
-  tight killer loop: `pgrep -f "^<node>.*fake-acp-agent" | head -1` → `kill -9`
-  every ~20ms. Expect per-iteration error events and agent respawn on the next
-  iteration; the hub must stay alive. ALWAYS anchor the pgrep pattern (`^`)
-  so it can't match your own shell's cmdline, and never `pkill -f`.
+  exposes `acp-fake` only (separate registry) — for Devin-family testing prefer
+  the AGENTCHAT_BIN_DEVIN shim above, which keeps the real adapter registry.
+- The fixture streams: text → thinking → tool_call → request_permission
+  (auto-answered allow_once) → tool_call_update → text → done.
 
 ## Devin Secrets Needed
 
-None for the stub-hub path. Real adapters need their provider keys/CLIs.
+None for the stub-hub or shim paths. Real adapters need their provider keys/CLIs.
