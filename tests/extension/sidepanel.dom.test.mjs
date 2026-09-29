@@ -425,6 +425,25 @@ t("a user toggle wins over the automatic open state", () => {
   assert.equal(block.children[1].hidden, true, "clicked closed");
   chatEvent({ kind: "thinking", text: "still going" });
   assert.equal(block.children[1].hidden, true, "stays closed after a manual toggle");
+  chatEvent({ kind: "done" });
+});
+
+t("consecutive thinking chunks merge into one reasoning node", () => {
+  input.value = "inspect the page";
+  enter();
+  chatEvent({ kind: "thinking", text: "first part " });
+  chatEvent({ kind: "thinking", text: "second part" });
+  const block = lastTurn().children.find((c) => c.classList.contains("work-block"));
+  const nodes = [...block.children[1].children].filter((c) => c.classList.contains("work-thinking"));
+  assert.equal(nodes.length, 1);
+  assert.equal(nodes[0].textContent, "first part second part");
+  chatEvent({ kind: "tool_use", tool: "navigate" });
+  chatEvent({ kind: "thinking", text: " third part" });
+  assert.equal(
+    [...block.children[1].children].filter((c) => c.classList.contains("work-thinking")).length,
+    2,
+    "a chip between chunks starts a fresh reasoning node",
+  );
 });
 
 t("done collapses the block to the duration summary", () => {

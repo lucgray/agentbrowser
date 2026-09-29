@@ -2034,6 +2034,23 @@ async function init() {
     scrollToBottom();
   }
 
+  // A thinking event is one chunk of the turn's reasoning stream, and chunks
+  // arrive fragmented mid-word. ai-elements consolidates all reasoning parts
+  // into a single ReasoningContent, so consecutive chunks merge into the last
+  // thinking node; a chip or another row in between starts a fresh one.
+  function appendThinking(body, text) {
+    const last = body.lastChild;
+    if (last && last.className === "work-thinking") {
+      last.textContent += text;
+      return last;
+    }
+    const node = document.createElement("div");
+    node.className = "work-thinking";
+    node.textContent = text;
+    body.appendChild(node);
+    return node;
+  }
+
   function pendingListFor(laneEntry) {
     if (!laneEntry) return pendingChips;
     return ensureLaneView(laneEntry).pending;
@@ -2250,10 +2267,7 @@ async function init() {
       case "thinking": {
         const text = String(event.text ?? "");
         if (text.trim() === "") break;
-        const node = document.createElement("div");
-        node.className = "work-thinking";
-        node.textContent = text;
-        view.body.appendChild(node);
+        appendThinking(view.body, text);
         scrollToBottom();
         break;
       }
@@ -2360,10 +2374,7 @@ async function init() {
         const text = String(event.text ?? "");
         if (text.trim() === "") break;
         const block = ensureWorkBlock("");
-        const node = document.createElement("div");
-        node.className = "work-thinking";
-        node.textContent = text;
-        block.body.appendChild(node);
+        appendThinking(block.body, text);
         block.syncEmpty();
         scrollToBottom();
         break;

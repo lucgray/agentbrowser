@@ -1013,8 +1013,7 @@ button:disabled {
   padding: 2px 0 2px 10px;
   border-left: 2px solid var(--ac-border);
   font: var(--ac-type-secondary);
-  font-style: italic;
-  color: var(--ac-text-muted);
+  color: var(--ac-text-secondary);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
