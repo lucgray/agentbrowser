@@ -15,7 +15,7 @@
   },
   "scripts": {
     "start": "node hub/hub.mjs",
-    "test": "node --test ../tests/server/pricing.test.mjs ../tests/server/api-adapters.test.mjs ../tests/server/protocol-v13.test.mjs ../tests/server/cli.test.mjs",
+    "test": "node --test ../tests/server/pricing.test.mjs ../tests/server/api-adapters.test.mjs ../tests/server/protocol-v13.test.mjs ../tests/server/cli.test.mjs ../tests/server/label.test.mjs",
     "test:e2e": "node --test ../tests/server/hub-e2e.test.mjs ../tests/server/cli-session.e2e.test.mjs",
     "smoke": "node proxy/smoke.mjs",
     "cli": "node proxy/agentbrowser-cli.mjs",

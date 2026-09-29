@@ -18,6 +18,7 @@ import {
   readdirSync, statSync, existsSync
 } from 'node:fs';
 import { randomUUID } from 'node:crypto';
+import { labelFromAgentbrowser } from './cli-label.mjs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -301,7 +302,10 @@ export const HARNESSES = {
         ? 'bash'
         : shortToolName(item.tool || item.name || 'mcp');
       if (msg.type === 'item.started') {
-        const label = pickLabel(item.label, item.title, item.summary, item.description);
+        const label = pickLabel(
+          labelFromAgentbrowser(item.command),
+          item.arguments && item.arguments.label,
+          item.label, item.title, item.summary, item.description);
         if (itemType === 'command_execution') {
           emit({ kind: 'tool_use', tool: toolName, label, args: { command: truncate(item.command || '') } });
         } else if (itemType === 'mcp_tool_call') {
@@ -390,7 +394,8 @@ export const HARNESSES = {
             summary: summarize(st.output ?? st.error ?? 'ok')
           });
         } else {
-          emit({ kind: 'tool_use', tool, label: pickLabel(part.title, st.title), args: st.input || part.input || {} });
+          const sti = st.input || part.input || {};
+          emit({ kind: 'tool_use', tool, label: pickLabel(labelFromAgentbrowser(sti.command), sti.label, part.title, st.title), args: sti });
         }
         return;
       }
@@ -572,7 +577,10 @@ export const HARNESSES = {
         emit({
           kind: 'tool_use',
           tool: shortToolName(msg.name || msg.tool),
-          label: pickLabel(msg.display_name, msg.tool_display_name, msg.label, msg.description),
+          label: pickLabel(
+            labelFromAgentbrowser((msg.input || msg.args || {}).command),
+            (msg.input || msg.args || {}).label,
+            msg.display_name, msg.tool_display_name, msg.label, msg.description),
           args: msg.input || msg.args || {}
         });
         return;
