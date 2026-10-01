@@ -122,6 +122,17 @@ empty) model list and eats your click.
 - The fixture streams: text → thinking → tool_call → request_permission
   (auto-answered allow_once) → tool_call_update → text → done.
 
+## In-process API adapters without a real key
+
+`openai-api`/`anthropic-api` can be driven end-to-end with no provider
+account: point `config.json`'s `openaiBaseUrl` at a local HTTP stub that
+answers `/v1/chat/completions` with canned SSE (shapes in
+`tests/server/mcp-bridge.test.mjs`), and write a dummy
+`~/.agentchat/keys.json` (e.g. `{"openai":"test"}`) so `keyConfigured`
+passes. The stub sees the real request body — tools table, system prompt,
+follow-up tool messages — which is how `mcpServers`/`systemPromptExtra`
+wiring was verified on PR #56.
+
 ## Devin Secrets Needed
 
 None for the stub-hub or shim paths. Real adapters need their provider keys/CLIs.

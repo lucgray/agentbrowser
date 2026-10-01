@@ -256,19 +256,26 @@ export function createClaudeAgentSdkSession(ctx) {
         await new Promise((resolve) => { wake = resolve; });
       }
     }
+    const extraServers = (ctx.config && ctx.config.mcpServers) || {};
+    const extraPrompt = (ctx.config && ctx.config.systemPromptExtra) || '';
     activeQuery = query({
       prompt: inputStream(),
       options: {
         abortController,
         model: ctx.model || (ctx.config && ctx.config.model),
-        systemPrompt: SYSTEM_PROMPT,
+        systemPrompt: extraPrompt ? `${SYSTEM_PROMPT}\n\n${extraPrompt}` : SYSTEM_PROMPT,
         permissionMode: 'bypassPermissions',
         allowDangerouslySkipPermissions: true,
         // Pre-approval list, not a restriction (the SDK's `tools` option is
         // what restricts). Read is listed because chats can carry attachments
         // the hub saved to disk and named in the prompt.
-        allowedTools: [...TOOL_NAMES.map((n) => TOOL_PREFIX + n), 'Read'],
-        mcpServers: { [MCP_SERVER_NAME]: buildMcpServer(ctx) },
+        allowedTools: [
+          ...TOOL_NAMES.map((n) => TOOL_PREFIX + n), 'Read',
+          ...Object.keys(extraServers).map((n) => `mcp__${n}`)
+        ],
+        // External servers from config.json mcpServers come first so our own
+        // browser server always wins a name collision.
+        mcpServers: { ...extraServers, [MCP_SERVER_NAME]: buildMcpServer(ctx) },
         persistSession: false
       }
     });

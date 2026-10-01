@@ -16,6 +16,7 @@
 
 import { TOOLS } from '../hub/tools.mjs';
 import { getKey } from './keystore.mjs';
+import { connectMcpServers } from './mcp-bridge.mjs';
 
 const API_URL = 'https://api.anthropic.com/v1/messages';
 const API_VERSION = '2023-06-01';
@@ -254,6 +255,20 @@ export function createAnthropicApiSession(ctx = {}) {
   const config = ctx.config || {};
   const model = ctx.model || config.model || DESCRIPTOR.defaultModel;
   const tools = toAnthropicTools(ctx.tools || TOOLS);
+  const systemPrompt = config.systemPromptExtra
+    ? `${SYSTEM_PROMPT}\n\n${config.systemPromptExtra}`
+    : SYSTEM_PROMPT;
+  // config.mcpServers starts connecting now; the first request awaits it so
+  // a user can type while servers spawn. Merged once into requestTools.
+  let requestTools = tools;
+  let mcp = null;
+  const mcpReady = connectMcpServers(config.mcpServers, {
+    log: (message) => logWarn('mcp', message)
+  }).then((bridge) => {
+    mcp = bridge;
+    if (bridge.tools.length) requestTools = tools.concat(toAnthropicTools(bridge.tools));
+    return bridge;
+  });
   const fetchImpl = ctx.fetchImpl || globalThis.fetch;
   const readKey = typeof ctx.getApiKey === 'function'
     ? (p) => ctx.getApiKey(p)
@@ -299,9 +314,9 @@ export function createAnthropicApiSession(ctx = {}) {
     const body = {
       model,
       max_tokens: MAX_TOKENS,
-      system: SYSTEM_PROMPT,
+      system: systemPrompt,
       messages,
-      tools,
+      tools: requestTools,
       stream: true
     };
     const thinking = thinkingParam(model);
@@ -447,7 +462,9 @@ export function createAnthropicApiSession(ctx = {}) {
   // the model can actually see the page.
   async function runTool(block) {
     try {
-      const result = await ctx.callBrowserTool(block.name, block.input || {});
+      const result = mcp && mcp.has(block.name)
+        ? await mcp.call(block.name, block.input || {})
+        : await ctx.callBrowserTool(block.name, block.input || {});
       if (block.name === 'screenshot' && result && result.base64) {
         return {
           ok: true,
@@ -462,11 +479,32 @@ export function createAnthropicApiSession(ctx = {}) {
           }]
         };
       }
-      return { ok: true, summary: summarize(result), content: JSON.stringify(result ?? null) };
+      const isMcpError = Boolean(result && result.isError);
+      return {
+        ok: !isMcpError,
+        summary: summarize(result),
+        content: mcpContent(result),
+        isError: isMcpError || undefined
+      };
     } catch (err) {
       logWarn('tool call failed', err);
       return { ok: false, summary: truncate(errText(err)), content: errText(err), isError: true };
     }
+  }
+
+  // MCP results are {content:[{type:text|image,...}], isError?} — already
+  // content blocks; text passes through, image needs the Anthropic source
+  // shape, anything else is stringified.
+  function mcpContent(result) {
+    if (!result || !Array.isArray(result.content)) return JSON.stringify(result ?? null);
+    const blocks = result.content.map((b) => {
+      if (b && b.type === 'text') return { type: 'text', text: b.text };
+      if (b && b.type === 'image') {
+        return { type: 'image', source: { type: 'base64', media_type: b.mimeType || 'image/png', data: b.data } };
+      }
+      return { type: 'text', text: JSON.stringify(b) };
+    });
+    return blocks;
   }
 
   function toResultBlock(block, outcome) {
@@ -516,6 +554,8 @@ export function createAnthropicApiSession(ctx = {}) {
 
     messages.push({ role: 'user', content: [{ type: 'text', text }] });
     safeEmit({ kind: 'status', state: 'thinking', label: 'Thinking' });
+
+    await mcpReady;
 
     controller = new AbortController();
     const signal = controller.signal;
@@ -636,6 +676,7 @@ export function createAnthropicApiSession(ctx = {}) {
 
     dispose() {
       closed = true;
+      mcpReady.then((bridge) => bridge.close()).catch((err) => logWarn('mcp close failed', err));
       if (controller) {
         try {
           controller.abort();

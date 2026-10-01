@@ -287,6 +287,25 @@ API adapters get the same set of browser tools the CLI adapters get, so
 don't get is a CLI's file and shell tools, so attachments arrive as paths
 they can't open. Use a CLI adapter when a turn needs to read files off disk.
 
+The in-process adapters (`anthropic-api`, `openai-api`, `claude-agent-sdk`)
+also take two fields in `server/hub/config.json` for pre-injecting tools and
+instructions:
+
+```json
+{
+  "mcpServers": {"my-server": {"command": "npx", "args": ["-y", "some-mcp-server"]}},
+  "systemPromptExtra": "extra operator instructions appended to the system prompt"
+}
+```
+
+`mcpServers` follows the harness convention — each entry is spawned as a
+stdio MCP server, and its tools reach the model namespaced
+`mcp__<server>__<tool>` alongside the browser tools. A server that fails to
+start is logged and skipped; MCP calls are external so they bypass the
+browser consent gate. `systemPromptExtra` appends your own rules to the
+shared operator prompt — preferred skills, standing instructions, house
+style.
+
 Send a chat to an API adapter with no key and nothing is spawned: the
 transcript gets an error naming the missing key and the turn ends.
 
