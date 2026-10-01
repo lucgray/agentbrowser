@@ -32,6 +32,7 @@ import {
   SCREENSHOT_HISTORY_LIMIT,
   SCREENSHOT_PLACEHOLDER
 } from './api-anthropic.mjs';
+import { connectMcpServers } from './mcp-bridge.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -152,13 +153,27 @@ export function createOpenAiApiSession(ctx = {}) {
   const model = ctx.model || config.model || DESCRIPTOR.defaultModel;
   const baseUrl = resolveBaseUrl(config);
   const tools = toOpenAiTools(ctx.tools || TOOLS);
+  const systemPrompt = config.systemPromptExtra
+    ? `${SYSTEM_PROMPT}\n\n${config.systemPromptExtra}`
+    : SYSTEM_PROMPT;
+  // config.mcpServers starts connecting now; the first request awaits it so
+  // a user can type while servers spawn. Merged once into requestTools.
+  let requestTools = tools;
+  let mcp = null;
+  const mcpReady = connectMcpServers(config.mcpServers, {
+    log: (context, err) => logWarn(`mcp ${context}`, err)
+  }).then((bridge) => {
+    mcp = bridge;
+    if (bridge.tools.length) requestTools = tools.concat(toOpenAiTools(bridge.tools));
+    return bridge;
+  });
   const fetchImpl = ctx.fetchImpl || globalThis.fetch;
   const readKey = typeof ctx.getApiKey === 'function'
     ? (p) => ctx.getApiKey(p)
     : (p) => getKey(p);
 
   // Persisted across send() calls: this is the conversation.
-  const messages = [{ role: 'system', content: SYSTEM_PROMPT }];
+  const messages = [{ role: 'system', content: systemPrompt }];
 
   let closed = false;
   let controller = null;
@@ -195,7 +210,7 @@ export function createOpenAiApiSession(ctx = {}) {
     const body = {
       model,
       messages,
-      tools,
+      tools: requestTools,
       stream: true,
       // Tolerated as unknown by most local servers; when it is honoured we get
       // a final usage chunk for the meta event.
@@ -314,7 +329,11 @@ export function createOpenAiApiSession(ctx = {}) {
   async function runTool(call) {
     const args = safeJson(call.args);
     try {
-      const result = await ctx.callBrowserTool(call.name, args);
+      const isMcp = mcp && mcp.has(call.name);
+      const result = isMcp
+        ? await mcp.call(call.name, args)
+        : await ctx.callBrowserTool(call.name, args);
+      if (isMcp) return mcpOutcome(result);
       if (call.name === 'screenshot' && result && result.base64) {
         const mime = result.mimeType || 'image/png';
         return {
@@ -335,6 +354,41 @@ export function createOpenAiApiSession(ctx = {}) {
       logWarn('tool call failed', err);
       return { ok: false, summary: truncate(errText(err)), content: `Error: ${errText(err)}` };
     }
+  }
+
+  // MCP results are {content:[{type:text|image,...}], isError?}. OpenAI tool
+  // messages are text-only, so text blocks join into the tool message and
+  // image blocks ride as image_url parts in the same follow-up user message
+  // a screenshot uses.
+  function mcpOutcome(result) {
+    const blocks = (result && Array.isArray(result.content)) ? result.content : [];
+    const text = [];
+    const images = [];
+    for (const b of blocks) {
+      if (b && b.type === 'text') text.push(b.text);
+      else if (b && b.type === 'image') images.push(b);
+      else text.push(JSON.stringify(b));
+    }
+    const isError = Boolean(result && result.isError);
+    const out = {
+      ok: !isError,
+      summary: summarize(result),
+      content: text.join('\n') || JSON.stringify(result ?? null),
+      isError: isError || undefined
+    };
+    if (images.length) {
+      out.followUp = {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'Image content from an MCP tool:' },
+          ...images.map((b) => ({
+            type: 'image_url',
+            image_url: { url: `data:${b.mimeType || 'image/png'};base64,${b.data}` }
+          }))
+        ]
+      };
+    }
+    return out;
   }
 
   // Keeps at most SCREENSHOT_HISTORY_LIMIT image parts in the history and
@@ -372,6 +426,8 @@ export function createOpenAiApiSession(ctx = {}) {
 
     messages.push({ role: 'user', content: text });
     safeEmit({ kind: 'status', state: 'thinking', label: 'Thinking' });
+
+    await mcpReady;
 
     controller = new AbortController();
     const signal = controller.signal;
@@ -498,6 +554,7 @@ export function createOpenAiApiSession(ctx = {}) {
 
     dispose() {
       closed = true;
+      mcpReady.then((bridge) => bridge.close()).catch((err) => logWarn('mcp close failed', err));
       if (controller) {
         try {
           controller.abort();

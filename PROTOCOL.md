@@ -1,4 +1,4 @@
-# AgentBrowser protocol v2.11
+# AgentBrowser protocol v2.12
 
 AgentBrowser is a Chrome MV3 extension with a side-panel chat UI, plus a local hub
 server. The chat is backed by a pluggable "harness" (Claude Agent SDK, Claude
@@ -66,6 +66,7 @@ agentchat/
       acp.mjs              (server-adapters)   ACP client: acp-gemini/codex/opencode/copilot/grok/claude/agy/devin (v2.4)
       api-anthropic.mjs    (server-adapters)   direct API adapter, needs an anthropic key
       api-openai.mjs       (server-adapters)   direct API adapter, needs an openai key
+      mcp-bridge.mjs       (server-adapters)   stdio MCP client injecting config mcpServers into the API loop (v2.12)
   tests/
     extension/*.test.mjs   node --test for extension files (DOM/chrome.* stubbed)
     server/*.test.mjs      node --test for hub + adapters (hub-e2e spawns the real hub)
@@ -1066,6 +1067,30 @@ Caveat: neutered console methods stop emitting `Runtime.consoleAPICalled`,
 so `console_log` goes quiet on that page. `inject_preload` is consent-gated
 (write tier); a custom `{script}` payload does the same job for any
 site-specific recipe.
+
+## In-process adapters: MCP bridge and prompt extra, v2.12
+
+`config.json` gains two fields for the in-process adapters (`anthropic-api`,
+`openai-api`, `claude-agent-sdk`):
+
+```json
+{
+  "mcpServers": {"server-name": {"command": "...", "args": ["..."], "env": {}}},
+  "systemPromptExtra": "extra operator instructions appended to the system prompt"
+}
+```
+
+`mcpServers` follows the harness convention — each entry is spawned as a
+stdio JSON-RPC MCP server by `adapters/mcp-bridge.mjs` when the session is
+created; its tools reach the model namespaced `mcp__<server>__<tool>` (the
+SDK adapter's own shape) and calls route through the bridge instead of
+`ctx.callBrowserTool`. A server that fails to spawn or answer is logged and
+skipped; the chat keeps the rest. MCP tool calls are external — they bypass
+the extension consent gate (the gate only sees browser tools). For
+`claude-agent-sdk` the same config is passed through to the SDK's own
+`mcpServers` option (our browser server wins a `browser` name collision).
+`systemPromptExtra` is appended to the shared SYSTEM_PROMPT for all three
+in-process adapters; CLI adapters keep their own prompts.
 
 ## mcp-proxy.mjs
 
