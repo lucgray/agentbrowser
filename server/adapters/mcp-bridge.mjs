@@ -17,8 +17,14 @@ const TAG = '[mcp-bridge]';
 const PROTOCOL_VERSION = '2025-03-26';
 const REQUEST_TIMEOUT_MS = 30000;
 
-function defaultLog(context, err) {
-  console.error(TAG, context + ':', (err && err.message) || err);
+// log(message): a single ready-to-print string — the caller composes
+// context and error text so info lines don't render a trailing ': undefined'.
+function defaultLog(message) {
+  console.error(TAG, message);
+}
+
+function errText(err) {
+  return (err && err.message) || String(err);
 }
 
 class StdioMcpClient {
@@ -49,7 +55,7 @@ class StdioMcpClient {
     this.child.stdout.on('data', (chunk) => this.onData(chunk));
     this.child.stdin.on('error', (err) => {
       // EPIPE when the child dies mid-write; the exit handler reports it.
-      this.log(`stdin write failed for "${this.name}"`, err);
+      this.log(`stdin write failed for "${this.name}": ${errText(err)}`);
     });
 
     await this.request('initialize', {
@@ -74,7 +80,7 @@ class StdioMcpClient {
       try {
         msg = JSON.parse(line);
       } catch (err) {
-        this.log(`non-JSON stdout line from "${this.name}", dropped`, err);
+        this.log(`non-JSON stdout line from "${this.name}", dropped: ${errText(err)}`);
         continue;
       }
       if (msg && typeof msg === 'object' && Object.prototype.hasOwnProperty.call(msg, 'id')
@@ -134,7 +140,7 @@ class StdioMcpClient {
       try {
         this.child.kill();
       } catch (err) {
-        this.log(`kill failed for "${this.name}"`, err);
+        this.log(`kill failed for "${this.name}": ${errText(err)}`);
       }
       this.child = null;
     }
@@ -159,7 +165,7 @@ export async function connectMcpServers(mcpServers, { log } = {}) {
     try {
       await client.connect();
     } catch (err) {
-      warn(`mcp server "${serverName}" skipped`, err);
+      warn(`mcp server "${serverName}" skipped: ${errText(err)}`);
       client.close();
       return;
     }

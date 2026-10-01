@@ -95,7 +95,7 @@ test('connectMcpServers: a bad server is skipped, the rest still connect', async
   const bridge = await connectMcpServers({
     bad: { command: '/nonexistent/mcp-server-binary' },
     ...SPEC
-  }, { log: (ctx, err) => logs.push(ctx + ':' + (err && err.message)) });
+  }, { log: (m) => logs.push(m) });
   assert.equal(bridge.tools.length, 1);
   assert.ok(logs.some((l) => l.includes('bad')));
   bridge.close();
