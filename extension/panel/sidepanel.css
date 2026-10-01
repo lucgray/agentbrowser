@@ -1684,15 +1684,25 @@ button:disabled {
   box-sizing: border-box;
 }
 
-/* Connector line from each row down to the next row's dot. */
-.work-body > * + *::before {
+/* Spine: each row carries the vertical line through its full height so tall
+   rows stay connected; a fixed stub would leave a gap under a multi-line row.
+   The chain starts under the first dot and ends at the last row's dot. */
+.work-body > *::before {
   content: "";
   position: absolute;
   left: 6px;
   top: -12px;
-  height: 22px;
+  bottom: 0;
   width: 1.5px;
   background: var(--ac-border);
+}
+
+.work-body > :first-child::before {
+  top: 14px;
+}
+
+.work-body > :last-child::before {
+  bottom: calc(100% - 14px);
 }
 
 /* The most recent row of a live turn is the active step. */
