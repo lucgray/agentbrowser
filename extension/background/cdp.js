@@ -5,6 +5,7 @@
 // as attached, since debugger attachments outlive the worker).
 
 import { buildOverlayScript } from '../page/overlay.js';
+import { elementCheckExpression, elementPointExpression } from './inspect-core.js';
 
 const PROTOCOL_VERSION = '1.3';
 
@@ -304,13 +305,28 @@ export async function readPage(tabId, maxChars = 60000) {
   return { url: tab.url, title: tab.title, text };
 }
 
-export async function screenshot(tabId) {
+export async function screenshot(tabId, args = {}) {
   // The capture will include the overlay. That is unavoidable: in a real loop
   // (screenshot, click, screenshot) the pill from the previous action is still
   // up anyway, so suppressing it here would buy only a clean first frame.
   flashOverlay(tabId, 'screenshot');
-  const res = await sendCommand(tabId, 'Page.captureScreenshot', { format: 'png' });
-  return { base64: res.data, mimeType: 'image/png' };
+  const format = ['png', 'jpeg', 'webp'].includes(String(args.format)) ? String(args.format) : 'png';
+  const params = { format };
+  if (args.quality != null && format !== 'png') {
+    params.quality = Math.max(0, Math.min(100, Math.trunc(Number(args.quality))));
+  }
+  const clip = args.clip && typeof args.clip === 'object' ? args.clip : null;
+  if (clip && ['x', 'y', 'width', 'height'].every((k) => Number.isFinite(Number(clip[k])))) {
+    params.clip = {
+      x: Number(clip.x),
+      y: Number(clip.y),
+      width: Number(clip.width),
+      height: Number(clip.height),
+      scale: Number.isFinite(Number(clip.scale)) ? Number(clip.scale) : 1,
+    };
+  }
+  const res = await sendCommand(tabId, 'Page.captureScreenshot', params);
+  return { base64: res.data, mimeType: `image/${format}` };
 }
 
 const MOUSE_BUTTONS = new Set(['left', 'right', 'middle', 'none']);
@@ -325,35 +341,66 @@ export async function click(tabId, x, y, opts = {}) {
   return { clicked: true, button, clickCount };
 }
 
-// Center of the first element matching `selector`, scrolled into view first so
-// the point lands inside the visual viewport. Shared by click_element and
-// type_text's optional selector focus. {dx,dy} offsets from the center.
-async function elementCenter(tabId, selector, dx = 0, dy = 0) {
-  const res = await sendCommand(tabId, 'Runtime.evaluate', {
-    expression: `(() => {
-      const el = document.querySelector(${JSON.stringify(String(selector))});
-      if (!el) return { found: false };
-      el.scrollIntoView({ block: 'center', inline: 'center' });
-      const r = el.getBoundingClientRect();
-      return { found: true, x: r.left + r.width / 2, y: r.top + r.height / 2,
-               w: r.width, h: r.height, tag: el.tagName.toLowerCase() };
-    })()`,
+// Center of the element matching `selector`, scrolled into view first so the
+// point lands inside the visual viewport. Shared by click_element, hover and
+// type_text's selector focus. Three gates run before the point is taken —
+// multi-match (unless `index` picks one), invisibility and occlusion —
+// because a wrong-target click used to be silent. `force` bypasses the last
+// two; `timeoutMs` polls the probe until the element appears.
+async function elementPoint(tabId, selector, opts = {}) {
+  const sel = String(selector);
+  const index = opts.index == null ? null : Math.max(0, Math.trunc(Number(opts.index)));
+  const timeoutMs = Math.min(Math.max(Number(opts.timeoutMs) || 0, 0), 60000);
+  const deadline = Date.now() + timeoutMs;
+  let report = null;
+  for (;;) {
+    const probe = await sendCommand(tabId, 'Runtime.evaluate', {
+      expression: elementCheckExpression({ selector: sel }),
+      returnByValue: true,
+    });
+    report = probe.result && probe.result.value;
+    if (!report || report.error || report.found || Date.now() >= deadline) break;
+    await new Promise((r) => setTimeout(r, 250));
+  }
+  if (report && report.error) throw new Error(report.error);
+  if (!report || !report.found) {
+    throw new Error(`no element matches selector: ${sel} — run page_snapshot for the clickable element map`);
+  }
+  if (index == null && report.count > 1) {
+    throw new Error(`selector matches ${report.count} elements — pass index (0-${report.count - 1}) to pick one, or run element_check to inspect the matches`);
+  }
+  const i = index == null ? 0 : index;
+  if (i >= report.count) {
+    throw new Error(`index ${i} out of range — selector matches ${report.count} element(s)`);
+  }
+  const pt = await sendCommand(tabId, 'Runtime.evaluate', {
+    expression: elementPointExpression({ selector: sel, index: i }),
     returnByValue: true,
   });
-  const v = res.result && res.result.value;
-  if (!v || !v.found) throw new Error(`no element matches selector: ${selector}`);
-  return { x: v.x + dx, y: v.y + dy, tag: v.tag };
+  const v = pt.result && pt.result.value;
+  if (!v || !v.found) throw new Error(`no element matches selector: ${sel}`);
+  if (!v.visible && !opts.force) {
+    throw new Error('element is not visible (display:none or zero-size) — pass force:true to click it anyway');
+  }
+  if (v.occluded && !opts.force) {
+    throw new Error(`element is covered by ${v.occluder || 'another element'} — pass force:true to click anyway`);
+  }
+  return {
+    x: v.x + (Number(opts.dx) || 0),
+    y: v.y + (Number(opts.dy) || 0),
+    w: v.w, h: v.h, tag: v.tag, path: v.path,
+  };
 }
 
 export async function clickElement(tabId, selector, dx = 0, dy = 0, opts = {}) {
-  const center = await elementCenter(tabId, selector, dx, dy);
+  const center = await elementPoint(tabId, selector, { ...opts, dx, dy });
   flashOverlay(tabId, 'click', { x: Math.round(center.x), y: Math.round(center.y) });
   const button = MOUSE_BUTTONS.has(opts.button) ? opts.button : 'left';
   const clickCount = Math.max(1, Math.min(Math.trunc(Number(opts.clickCount) || 1), 3));
   const base = { x: center.x, y: center.y, button, clickCount, buttons: button === 'none' ? 0 : 1 << ['left', 'right', 'middle'].indexOf(button) };
   await sendCommand(tabId, 'Input.dispatchMouseEvent', { type: 'mousePressed', ...base });
   await sendCommand(tabId, 'Input.dispatchMouseEvent', { type: 'mouseReleased', ...base });
-  return { clicked: true, selector, tag: center.tag, button, clickCount,
+  return { clicked: true, selector, tag: center.tag, path: center.path, button, clickCount,
            x: center.x, y: center.y, w: center.w, h: center.h };
 }
 
@@ -371,8 +418,8 @@ export async function hover(tabId, x, y) {
   return { hovered: true, x, y };
 }
 
-export async function hoverElement(tabId, selector) {
-  const center = await elementCenter(tabId, selector);
+export async function hoverElement(tabId, selector, opts = {}) {
+  const center = await elementPoint(tabId, selector, opts);
   const r = await hover(tabId, Math.round(center.x), Math.round(center.y));
   return { ...r, selector, tag: center.tag, w: center.w, h: center.h };
 }
@@ -510,17 +557,33 @@ export async function selectText(tabId, args) {
   return { selected: true, text: res.result ? res.result.value : '' };
 }
 
-export async function typeText(tabId, text, selector) {
+export async function typeText(tabId, text, selector, opts = {}) {
   const value = String(text ?? '');
   flashOverlay(tabId, 'type_text');
   let focus = null;
   if (selector) {
     // Focus the target first — a real click, so page click handlers see it.
-    focus = await clickElement(tabId, selector);
+    focus = await clickElement(tabId, selector, 0, 0, opts);
     flashOverlay(tabId, 'type_text');
   }
   await sendCommand(tabId, 'Input.insertText', { text: value });
-  return focus ? { typed: value.length, x: focus.x, y: focus.y, w: focus.w, h: focus.h } : { typed: value.length };
+  if (focus) {
+    return { typed: value.length, x: focus.x, y: focus.y, w: focus.w, h: focus.h };
+  }
+  const res = await sendCommand(tabId, 'Runtime.evaluate', {
+    expression: `(function () {
+      var el = document.activeElement;
+      if (!el || el === document.body || el === document.documentElement) return null;
+      return {
+        tag: el.localName,
+        name: el.getAttribute('name') || el.id || el.getAttribute('aria-label') || '',
+        type: el.getAttribute('type') || ''
+      };
+    })()`,
+    returnByValue: true,
+  });
+  const el = res.result && res.result.value;
+  return el ? { typed: value.length, focus: el } : { typed: value.length };
 }
 
 export async function evalJs(tabId, expression) {

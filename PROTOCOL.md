@@ -1,4 +1,4 @@
-# AgentBrowser protocol v2.9
+# AgentBrowser protocol v2.10
 
 AgentBrowser is a Chrome MV3 extension with a side-panel chat UI, plus a local hub
 server. The chat is backed by a pluggable "harness" (Claude Agent SDK, Claude
@@ -651,10 +651,10 @@ executor, in the SDK adapter's MCP server, and in mcp-proxy.mjs.
 | `tab_close` | `{tabId}` | `{closed:true}` |
 | `navigate` | `{url, settleMs?, tabId?}` | `{url, title, settled?}` after load event (20s cap, then return current state) — v2.7 `settleMs` additionally waits for document complete + that many ms of network silence (15s cap); `settled` only present when asked |
 | `read_page` | `{tabId?, maxChars?}` | `{url, title, text}` — `document.body.innerText`, default cap 60000 chars |
-| `screenshot` | `{tabId?}` | `{base64, mimeType:"image/png"}` |
+| `screenshot` | `{format?, quality?, clip?, tabId?}` | `{base64, mimeType}` — format png/jpeg/webp + quality (v2.10); clip crops `{x,y,width,height,scale?}` (v2.10) |
 | `click` | `{x, y, button?, clickCount?, tabId?}` | `{clicked:true, button, clickCount}` — CDP mousePressed+mouseReleased; button left/right/middle, clickCount 1-3 (v2.6) |
-| `click_element` | `{selector\|nodeId, dx?, dy?, button?, clickCount?, frame?, tabId?}` | `{clicked:true, selector, tag}` — v1.7; scrolls into view, clicks center (+offset); button/clickCount added v2.6; `nodeId` (a `data-ab-node` stamp from page_snapshot) and `frame` (OOPIF scope) added v2.7 |
-| `type_text` | `{text, selector?, frame?, tabId?}` | `{typed:<charcount>}` — CDP `Input.insertText`; optional `selector` click-focuses the target first (v1.7); `frame` focuses via a frame-aware click then types into the OOPIF (v2.7) |
+| `click_element` | `{selector\|nodeId, index?, force?, timeoutMs?, dx?, dy?, button?, clickCount?, frame?, tabId?}` | `{clicked:true, selector, tag, path}` — v1.7; scrolls into view, clicks center (+offset); button/clickCount added v2.6; `nodeId` (a `data-ab-node` stamp from page_snapshot) and `frame` (OOPIF scope) added v2.7; v2.10 gates: multi-match errors until `index`, invisible/occluded errors until `force`, `timeoutMs` polls until the element appears |
+| `type_text` | `{text, selector?, index?, force?, timeoutMs?, frame?, tabId?}` | `{typed:<charcount>, focus?}` — CDP `Input.insertText`; optional `selector` click-focuses the target first (v1.7) with the v2.10 element gates; `frame` focuses via a frame-aware click then types into the OOPIF (v2.7); no-selector results report the focused element as `focus:{tag,name,type}` (v2.10) |
 | `press_key` | `{key, tabId?}` | `{pressed:key}` — e.g. "Enter", "Tab", "Escape", "Backspace", "ArrowDown", "Meta+A", "Meta+C", "Meta+V" |
 | `eval_js` | `{expression, frame?, tabId?}` | `{value}` — `Runtime.evaluate` returnByValue+awaitPromise; errors -> ok:false; `frame` evaluates inside an OOPIF session (v2.7) |
 | `annotate` | `{quote, style, comment?, color?, tabId?}` | `{id, style, quote}` — v1.5; style is `underline`/`highlight`/`circle`; error when the quote is not on the page |
@@ -662,7 +662,8 @@ executor, in the SDK adapter's MCP server, and in mcp-proxy.mjs.
 | `annotations_list` | `{tabId?}` | `{annotations:[{id,style,quote,comment,author,replies}]}` — v1.5 |
 | `annotate_reply` | `{id, text, tabId?}` | `{id, replied:true}` — v1.5, appends an agent reply to the mark's comment thread |
 | `annotate_clear` | `{id?, tabId?}` | `{cleared:<n>}` — v1.5; no id clears all marks on the tab |
-| `dom_inspect` | `{selector, all?, styles?, max?, frame?, tabId?}` | `{selector, matched, elements:[{tag,id,classes,attributes,text,rect,styles}]}` — v1.6; `frame` scopes into an OOPIF (v2.7) |
+| `element_check` | `{selector, max?, frame?, tabId?}` | `{found, count, matches:[{index,tag,text,path,rect,visible,inViewport,occluded,occluder}]}` — v2.10; read-only match report before acting |
+| `dom_inspect` | `{selector, all?, styles?, max?, frame?, tabId?}` | `{selector, matched, elements:[{tag,id,classes,path,attributes,text,rect,styles}]}` — v1.6; `path` stable CSS path added v2.10; `frame` scopes into an OOPIF (v2.7) |
 | `console_log` | `{level?, limit?, clear?, tabId?}` | `{entries:[{ts,level,source,text,url}]}` — v1.6; capture starts on first call |
 | `network_log` | `{filter?, includeHeaders?, har?, limit?, clear?, tabId?}` | `{entries:[{id,url,method,status,type,mimeType,startTime,duration,size,pending,failed,headers?}], har?}` — v1.6 |
 | `a11y_tree` | `{maxDepth?, tabId?}` | `{source:'axtree', nodes:[{nodeId,role,name,depth,ignored}]}` — v1.6; falls back to `{source:'outline', nodes:[...]}` |
@@ -671,8 +672,8 @@ executor, in the SDK adapter's MCP server, and in mcp-proxy.mjs.
 | `patch_apply` | `{patches:[{selector,styles?,attributes?,insertAdjacentHTML?,remove?}], label?, tabId?}` | `{patchId, applied, results:[{selector,matched,error?}]}` — v1.6 |
 | `patch_revert` | `{patchId, tabId?}` | `{patchId, reverted, missing}` — v1.6 |
 | `fill` | `{selector, text, submit?, tabId?}` | `{filled:true, typed, submitted}` — v2.2; click_element + type_text (+ Enter) fused |
-| `wait_for` | `{selector?, text?, timeoutMs?, tabId?}` | `{found, waited}` — v2.2; polls in-page every 250ms, cap 60s; timeout returns `found:false`, not an error |
-| `read_elements` | `{selector, attr?, max?, maxChars?, frame?, tabId?}` | `{count, elements:[{text, value?}]}` — v2.2; compact selector-scoped reads instead of a full read_page; `frame` scopes into an OOPIF (v2.7) |
+| `wait_for` | `{selector?, text?, visible?, timeoutMs?, tabId?}` | `{found, waited, visible?, exists?}` — v2.2; polls in-page every 250ms, cap 60s; timeout returns `found:false`, not an error; selector mode reports `visible` and `visible:true` requires a rendered element (v2.10) |
+| `read_elements` | `{selector, attr?, max?, maxChars?, frame?, tabId?}` | `{count, elements:[{text, path, value?}]}` — v2.2; compact selector-scoped reads instead of a full read_page; `path` stable CSS path added v2.10; `frame` scopes into an OOPIF (v2.7) |
 | `hover` | `{x?, y?, selector?, tabId?}` | `{hovered:true}` — v2.6; bare mouseMoved for hover menus/tooltips |
 | `scroll` | `{x?, y?, xDistance?, yDistance?, speed?, repeatCount?, repeatDelayMs?, tabId?}` | `{scrolled:true}` — v2.6; Input.synthesizeScrollGesture, reaches nested containers + lazy loaders; negative yDistance scrolls down |
 | `drag` | `{from:{x,y}, to:{x,y}, mode?, steps?, tabId?}` | `{dragged:true, mode}` — v2.6; 'mouse' = press/move/release (sliders, canvas), 'html5' = dispatchDragEvent (HTML5 drag&drop); consent-gated |
@@ -687,7 +688,7 @@ executor, in the SDK adapter's MCP server, and in mcp-proxy.mjs.
 | `frame_dom_inspect` | `{frame, selector, all?, styles?, max?, tabId?}` | dom_inspect shape — v2.6 |
 | `frame_click_element` | `{frame, selector, dx?, dy?, button?, clickCount?, tabId?}` | `{clicked:true, x, y}` — v2.6; frame-local rect + host iframe offset; consent-gated |
 | `viewport_emulate` | `{width?, height?, mobile?, deviceScaleFactor?, clear?, tabId?}` | `{emulated:true, width, height, mobile}` or `{cleared:true}` — v2.7; Emulation.setDeviceMetricsOverride (+ touch on mobile), clear restores the window viewport |
-| `page_snapshot` | `{max?, maxChars?, frame?, tabId?}` | `{url, count, nodes:[{node,tag,role,name,text,x,y,w,h}]}` — v2.7; visible interactive-element map; `node` stamps `data-ab-node` for click_element |
+| `page_snapshot` | `{max?, maxChars?, full?, frame?, tabId?}` | `{url, count, nodes:[{node,tag,role,name,text,path,href,value,x,y,w,h}]}` — v2.7; visible interactive-element map; `node` stamps `data-ab-node` for click_element; `path`/`href`/`value` fields and `full` (whole-document scan) added v2.10 |
 | `batch` | `{steps:[{tool, args}], stopOnError?, tabId?}` | `{results:[{step, ok, result|error}], completed, total}` — v2.2; sequential, stops at first failure unless `stopOnError:false`, `tabId` on the call defaults into steps; nesting rejected |
 | `breakpoint_set` | `{url\|urlRegex, lineNumber, columnNumber?, condition?, autoResumeMs?, tabId?}` | `{breakpoint:{id,url,lineNumber,locations:[...]}}` — v2.6; consent-gated |
 | `breakpoint_list` | `{tabId?}` | `{breakpoints, paused}` — v2.6 |
@@ -1022,6 +1023,25 @@ target element's CSS size) so the render can pick an adaptive zoom depth.
 `pausedAt` gates `mark()` — tool calls while paused leave no marker.
 `track.pauses: [{from,to}]` lists pause spans (the video freezes through
 them; timestamps stay on wall-clock so no shift is needed).
+
+## Element gates and stable paths, v2.10
+
+Selector-based acting now verifies the target before the input is sent, via
+two page-side probes (`elementCheckExpression` read-only list,
+`elementPointExpression` scroll + post-scroll measure in
+inspect-core.js). The rules on `click_element` and `type_text`'s selector
+focus: zero matches after `timeoutMs` of polling errors with a pointer to
+`page_snapshot`; more than one match errors until `index` picks one
+(hover has the same gates); a matched-but-invisible or `elementFromPoint`-
+occluded element errors until `force:true`. `element_check` exposes the
+probe itself so a model can inspect matches without acting. Results now
+carry `path` (an nth-of-type CSS path that survives navigation, unlike the
+`data-ab-node` stamp) on click_element, element_check, dom_inspect,
+read_elements and page_snapshot nodes — which also gained `href`/`value`
+and a `full:true` whole-document scan. `wait_for {selector, visible:true}`
+requires a rendered element and reports `exists` on timeout;
+`screenshot` takes `format`/`quality`/`clip`; `type_text` without a
+selector reports `focus:{tag,name,type}`.
 
 ## mcp-proxy.mjs
 

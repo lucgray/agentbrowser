@@ -61,10 +61,13 @@ export const TOOLS = [
   },
   {
     name: "screenshot",
-    description: "Capture a screenshot of a tab. Returns {base64, mimeType:\"image/png\"}.",
+    description: "Capture a screenshot of a tab. format jpeg/webp with quality shrinks the payload (~30k tokens for full PNG); clip captures only a viewport rect. Returns {base64, mimeType}.",
     args: {
       type: "object",
       properties: {
+        format: { type: "string", description: "png | jpeg | webp (default png) (v2.10)" },
+        quality: { type: "number", description: "0-100, jpeg/webp only (v2.10)" },
+        clip: { type: "object", description: "{x, y, width, height, scale?} viewport crop (v2.10)" },
         tabId: { type: "number", description: "Target tab id; omit for the active tab" }
       },
       required: []
@@ -87,12 +90,15 @@ export const TOOLS = [
   },
   {
     name: "click_element",
-    description: "Click the first element matching a CSS selector (or a nodeId stamped by page_snapshot): scrolls it into view, resolves its center, then performs a trusted CDP mouse click. Optional dx/dy offset the point; button/clickCount work like click. frame scopes into a cross-origin iframe. Returns {clicked:true, selector, tag}.",
+    description: "Click an element matching a CSS selector (or a nodeId stamped by page_snapshot): scrolls it into view, resolves its center, then performs a trusted CDP mouse click. Guards against wrong targets (v2.10): a multi-match selector errors until `index` picks one, an invisible or covered element errors until `force:true` — run element_check first when unsure. timeoutMs waits for the element to appear. Optional dx/dy offset the point; button/clickCount work like click. frame scopes into a cross-origin iframe. Returns {clicked:true, selector, tag, path}.",
     args: {
       type: "object",
       properties: {
         selector: { type: "string", description: "CSS selector of the element to click (or pass nodeId)" },
         nodeId: { type: "string", description: "data-ab-node id from page_snapshot — clicks that element (v2.7)" },
+        index: { type: "number", description: "Which match to click when the selector matches several (v2.10)" },
+        force: { type: "boolean", description: "Click despite invisible/occluded (v2.10)" },
+        timeoutMs: { type: "number", description: "Wait up to this long for the element to appear (v2.10)" },
         frame: { type: "string", description: "Cross-origin iframe: sessionId or url substring from frames_list; scopes this call into that frame (v2.7)" },
         dx: { type: "number", description: "X offset from the element center (default 0)" },
         dy: { type: "number", description: "Y offset from the element center (default 0)" },
@@ -101,6 +107,23 @@ export const TOOLS = [
         tabId: { type: "number", description: "Target tab id; omit for the active tab" }
       },
       required: []
+    }
+  },
+  {
+    // element_check (v2.10): the read side of the click gates — report a
+    // selector's matches without acting, so the model can pick an index or
+    // tighten a selector before a click errors.
+    name: "element_check",
+    description: "Inspect a selector's matches before acting: returns {found, count, matches:[{index, tag, text, path, rect:{x,y,w,h}, visible, inViewport, occluded, occluder}]}. path is a stable CSS path usable as a selector later (survives navigation, unlike nodeId). Read-only — never scrolls or modifies the page.",
+    args: {
+      type: "object",
+      properties: {
+        selector: { type: "string", description: "CSS selector to check" },
+        max: { type: "number", description: "Max match rows returned (default 10, cap 50)" },
+        frame: { type: "string", description: "Cross-origin iframe: sessionId or url substring from frames_list; scopes this call into that frame" },
+        tabId: { type: "number", description: "Target tab id; omit for the active tab" }
+      },
+      required: ["selector"]
     }
   },
   {
@@ -166,12 +189,15 @@ export const TOOLS = [
   },
   {
     name: "type_text",
-    description: "Type text into the focused element via CDP Input.insertText (trusted input, works in rich editors). Pass selector to click-focus that element first. Returns {typed:<charcount>}.",
+    description: "Type text into the focused element via CDP Input.insertText (trusted input, works in rich editors). Pass selector to click-focus that element first — it runs the same match/visibility/occlusion gates as click_element (v2.10: index picks a match, force overrides, timeoutMs waits). Without a selector the result reports the focused element as {focus:{tag,name,type}}. Returns {typed:<charcount>}.",
     args: {
       type: "object",
       properties: {
         text: { type: "string", description: "Text to insert at the caret" },
         selector: { type: "string", description: "Optional CSS selector; the element is clicked first to focus it" },
+        index: { type: "number", description: "Which match to focus when the selector matches several (v2.10)" },
+        force: { type: "boolean", description: "Focus despite invisible/occluded (v2.10)" },
+        timeoutMs: { type: "number", description: "Wait up to this long for the selector to appear (v2.10)" },
         frame: { type: "string", description: "Cross-origin iframe: sessionId or url substring from frames_list; focuses via a frame-aware click, then types (selector required, v2.7)" },
         tabId: { type: "number", description: "Target tab id; omit for the active tab" }
       },
@@ -281,7 +307,7 @@ export const TOOLS = [
   },
   {
     name: "dom_inspect",
-    description: "Structured DOM read: return every element matching a CSS selector with tag, id, classes, all attributes, text, bounding rect and computed styles (default subset or the property names in `styles`). Returns {selector, matched, elements:[...]}.",
+    description: "Structured DOM read: return every element matching a CSS selector with tag, id, classes, path (stable CSS path usable as a selector later), all attributes, text, bounding rect and computed styles (default subset or the property names in `styles`). Returns {selector, matched, elements:[...]}.",
     args: {
       type: "object",
       properties: {
@@ -693,12 +719,13 @@ export const TOOLS = [
     // agent needs without probing dom_inspect. Each element is stamped
     // data-ab-node, so click_element {nodeId} addresses it directly.
     name: "page_snapshot",
-    description: "Snapshot the page's visible interactive elements (links, buttons, inputs, [role], [onclick], [tabindex]): returns {url, count, nodes:[{node, tag, role, name, text, x, y, w, h}]}. node is a data-ab-node stamp on the element — pass it as click_element's nodeId to click without a selector. frame scopes into a cross-origin iframe.",
+    description: "Snapshot the page's visible interactive elements (links, buttons, inputs, [role], [onclick], [tabindex]): returns {url, count, nodes:[{node, tag, role, name, text, path, href, value, x, y, w, h}]}. node is a data-ab-node stamp on the element — pass it as click_element's nodeId to click without a selector; path is a stable CSS selector that survives navigation. full:true scans the whole document, not just the viewport (v2.10). frame scopes into a cross-origin iframe.",
     args: {
       type: "object",
       properties: {
         max: { type: "number", description: "Max elements returned (default 300, cap 1000)" },
         maxChars: { type: "number", description: "Max chars per element's text (default 80, cap 500)" },
+        full: { type: "boolean", description: "Scan the whole document, not only the viewport (v2.10)" },
         frame: { type: "string", description: "Cross-origin iframe: sessionId or url substring from frames_list; snapshots inside that frame (v2.7)" },
         tabId: { type: "number", description: "Target tab id; omit for the active tab" }
       },
@@ -725,12 +752,13 @@ export const TOOLS = [
   },
   {
     name: "wait_for",
-    description: "Wait until a CSS selector exists or text appears on the page — instead of polling read_page/screenshot (token-heavy). Returns {found, waited}. Times out gracefully: check found rather than treating timeout as an error.",
+    description: "Wait until a CSS selector exists or text appears on the page — instead of polling read_page/screenshot (token-heavy). selector mode also reports `visible`; visible:true requires the element actually rendered (display/visibility/nonzero size), not just present (v2.10) — a found-but-invisible wait reports exists:true when it times out. Returns {found, waited, visible?}. Times out gracefully: check found rather than treating timeout as an error.",
     args: {
       type: "object",
       properties: {
         selector: { type: "string", description: "CSS selector to wait for" },
         text: { type: "string", description: "Text to wait for (page innerText match)" },
+        visible: { type: "boolean", description: "Require the element to be rendered, not just present (selector mode) (v2.10)" },
         timeoutMs: { type: "number", description: "Max wait in ms (default 10000, cap 60000)" },
         tabId: { type: "number", description: "Target tab id; omit for the active tab" }
       },
@@ -739,7 +767,7 @@ export const TOOLS = [
   },
   {
     name: "read_elements",
-    description: "Read only the elements matching a selector — a compact alternative to read_page when you already know what you need. Returns {count, elements:[{text, value?}]} with value from attr when attr is passed.",
+    description: "Read only the elements matching a selector — a compact alternative to read_page when you already know what you need. Returns {count, elements:[{text, path, value?}]} — path is a stable CSS selector for each match (v2.10); value comes from attr when attr is passed.",
     args: {
       type: "object",
       properties: {

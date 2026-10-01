@@ -11,6 +11,8 @@ import {
   patchApplyExpression,
   patchRevertExpression,
   pageSnapshotExpression,
+  elementCheckExpression,
+  elementPointExpression,
 } from '../../extension/background/inspect-core.js';
 
 test('truncate caps length', () => {
@@ -82,10 +84,34 @@ test('page-side expressions are valid JavaScript', () => {
     patchRevertExpression([{ path: 'html>body>p', outerHTML: '<p>x</p>' }]),
     pageSnapshotExpression({ max: 10, maxChars: 40 }),
     pageSnapshotExpression({}),
+    pageSnapshotExpression({ full: true }),
+    elementCheckExpression({ selector: '.a > .b' }),
+    elementCheckExpression({ selector: '">escape"', max: 5 }),
+    elementPointExpression({ selector: '#x', index: 3 }),
   ];
   for (const expr of exprs) {
     assert.doesNotThrow(() => new Function('return ' + expr), expr.slice(0, 80));
   }
+});
+
+test('element probes report matches, gates and stable paths', () => {
+  const check = elementCheckExpression({ selector: '.item' });
+  assert.ok(check.includes('querySelectorAll'));
+  assert.ok(check.includes('elementFromPoint'));
+  assert.ok(check.includes('abCssPath(el)'));
+  const point = elementPointExpression({ selector: '.item', index: 2 });
+  assert.ok(point.includes('scrollIntoView'));
+  assert.ok(point.includes('[2]'));
+});
+
+test('page_snapshot carries path/href/value and honors full', () => {
+  const viewport = pageSnapshotExpression({});
+  assert.ok(viewport.includes('path: abCssPath(el)'));
+  assert.ok(viewport.includes('href:'));
+  assert.ok(viewport.includes('value:'));
+  assert.ok(viewport.includes('r.bottom < 0'));
+  const full = pageSnapshotExpression({ full: true });
+  assert.ok(full.includes('!true &&')); // viewport filter disabled
 });
 
 test('summarizeCallFrames maps CDP frames to a compact stack', () => {
