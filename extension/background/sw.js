@@ -8,6 +8,7 @@ import * as inspect from './inspect.js';
 import { CSS_PATH_FN } from './inspect-core.js';
 import * as consent from './consent.js';
 import { createPanelRouter, windowIdFromPortName } from './panel-router.js';
+import { PRELOAD_PRESETS } from './stealth.js';
 
 const DEFAULT_HUB_URL = 'ws://127.0.0.1:9010';
 
@@ -201,6 +202,7 @@ const annChats = new Map(); // chatId -> { tabId, annId }
 // suspends, so a recording survives service-worker restarts.
 const recordings = new Map();
 const recordWaiters = new Map(); // 'started'|'result'|'error' -> {resolve, reject, timer}
+const preloadsByTab = new Map(); // tabId -> [{id, preset, chars, ts}]
 
 function mark(tabId, x, y, kind, label, extra) {
   const r = recordings.get(tabId);
@@ -1133,6 +1135,44 @@ const TOOLS = {
       markCenter(tabId, args.kind || 'note', args.label);
     }
     return { marked: true, markers: rec.markers.length };
+  },
+
+  // --- document-start preloads (v2.11) -------------------------------------
+
+  async inject_preload(args) {
+    const tabId = await resolveTabId(args.tabId);
+    const source = args.preset ? PRELOAD_PRESETS[String(args.preset)] : args.script;
+    if (typeof source !== 'string' || !source.trim()) {
+      throw new Error(args.preset
+        ? `unknown preset: ${args.preset} (known: ${Object.keys(PRELOAD_PRESETS).join(', ')})`
+        : 'inject_preload needs script or preset');
+    }
+    const id = await cdp.addPreload(tabId, source);
+    const rec = { id, preset: args.preset ? String(args.preset) : null, chars: source.length, ts: Date.now() };
+    const list = preloadsByTab.get(tabId) || [];
+    list.push(rec);
+    preloadsByTab.set(tabId, list);
+    return { id, injected: true, appliesTo: 'documents created after this call — navigate or reload to activate' };
+  },
+
+  async preloads_list(args) {
+    const tabId = await resolveTabId(args.tabId);
+    return { tabId, preloads: preloadsByTab.get(tabId) || [] };
+  },
+
+  async preload_remove(args) {
+    const tabId = await resolveTabId(args.tabId);
+    const list = preloadsByTab.get(tabId) || [];
+    const keep = args.all ? [] : list.filter((p) => p.id !== args.id);
+    const removed = list.length - keep.length;
+    if (!removed) {
+      throw new Error(args.id ? `no preload ${args.id} on this tab` : 'no preloads on this tab');
+    }
+    for (const p of list) {
+      if (!keep.includes(p)) await cdp.removePreload(tabId, p.id);
+    }
+    if (keep.length) preloadsByTab.set(tabId, keep); else preloadsByTab.delete(tabId);
+    return { removed };
   },
 
   // --- composite wrappers (v2.2) -----------------------------------------

@@ -722,3 +722,20 @@ export async function viewportEmulate(tabId, args) {
   });
   return { emulated: true, width, height, mobile };
 }
+
+
+// Runs before any page script on every new document in the tab — call it
+// before navigate/reload; it does not touch the already-loaded page.
+export async function addPreload(tabId, source) {
+  const res = await sendCommand(tabId, 'Page.addScriptToEvaluateOnNewDocument', {
+    source: String(source),
+  });
+  return res.identifier;
+}
+
+export async function removePreload(tabId, identifier) {
+  await sendCommand(tabId, 'Page.removeScriptToEvaluateOnNewDocument', {
+    identifier: String(identifier),
+  });
+  return { removed: true };
+}

@@ -249,6 +249,26 @@ agentbrowser record_stop '{}'         # -> <Downloads>/agentbrowser/record-*.web
 The `.track.json` beside the video is what a zoom/pan edit tool needs: each
 marker is a timestamped coordinate from your own tool calls.
 
+## Stealth preloads (`inject_preload`)
+
+`inject_preload` runs a script at document start — before any page JS — on
+every document created afterwards in the tab. Inject BEFORE `navigate` (or
+reload); the already-loaded page is untouched.
+
+```bash
+agentbrowser inject_preload '{"preset":"antidetect","label":"disable anti-bot probes"}'
+agentbrowser navigate '{"url":"https://zhipin.com"}'
+```
+
+`preset:"antidetect"` ships the bundled stealth script for sites that fight
+automation with anti-debug probes (disable-devtool-style: console timing
+tables, `performance.now` hooks, `toString` source checks — the recipe used
+against BOSS-class sites). Custom payloads work too:
+`inject_preload '{"script":"(function(){ /* document-start JS */ })()"}'`.
+Manage with `preloads_list` / `preload_remove '{"all":true}'`. Side effect
+of the antidetect preset: `console_log` goes quiet on that page — neutered
+console methods stop emitting events.
+
 ## Naming your actions (`label`)
 
 Every tool accepts an optional `label` — a short human-readable name for the
