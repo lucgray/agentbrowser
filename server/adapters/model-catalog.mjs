@@ -289,8 +289,6 @@ const PROBES = {
   codex: () => probeCodexConfig(),
   opencode: () => probeOpencode(),
   devin: () => probeDevinModels(),
-  // Same binary, same catalog — the lookup is keyed by adapter name.
-  'acp-devin': () => probeDevinModels(),
   grok: () => probeGrokConfig(),
   gemini: () =>
     toModelList(
@@ -310,22 +308,25 @@ const PROBES = {
 };
 
 export async function loadCatalog({ force = false } = {}) {
-  if (!force) {
-    const cache = readCache();
-    if (cache && Date.now() - cache.probedAt < CATALOG_TTL_MS) {
-      return cache.models;
-    }
-  }
   const names = Object.keys(PROBES);
-  const settled = await Promise.allSettled(names.map((n) => PROBES[n]()));
+  const cache = force ? null : readCache();
+  const fresh = cache && Date.now() - cache.probedAt < CATALOG_TTL_MS;
+  // A fresh cache still lacks keys added since it was written (a probe added
+  // in a later release never ran) — probe exactly the missing names, not the
+  // whole table.
+  const probeNames = fresh && cache.models
+    ? names.filter((n) => !Array.isArray(cache.models[n]))
+    : names;
   const models = {};
-  for (let i = 0; i < names.length; i++) {
-    const result = settled[i];
-    models[names[i]] = result.status === "fulfilled" ? result.value : [];
+  if (probeNames.length) {
+    const settled = await Promise.allSettled(probeNames.map((n) => PROBES[n]()));
+    for (let i = 0; i < probeNames.length; i++) {
+      const result = settled[i];
+      models[probeNames[i]] = result.status === "fulfilled" ? result.value : [];
+    }
   }
   // A stale cache beats an empty probe (flaky shell, machine asleep): keep
   // whatever the last successful run found for families that came back empty.
-  const cache = readCache();
   if (cache && cache.models) {
     for (const name of names) {
       if ((!models[name] || models[name].length === 0) && Array.isArray(cache.models[name])) {
@@ -333,6 +334,10 @@ export async function loadCatalog({ force = false } = {}) {
       }
     }
   }
+  // One probe per CLI feeds both transports: every acp-<cli> adapter runs the
+  // same binary, so its model list mirrors the base entry — no per-adapter
+  // probe registration needed.
+  for (const n of names) models[`acp-${n}`] = models[n] || [];
   writeCache(models);
   return models;
 }
