@@ -16,6 +16,13 @@ let hubUrl = null;
 let ws = null;
 let reconnectTimer = null;
 let helloSent = false;
+// The hub rejected this socket's hello because another extension already
+// holds our browser id (cloned/synced profile — v2.13). We retry on a
+// growing backoff instead of every 3s, so two duplicates don't ping-pong.
+let superseded = false;
+let supersededTries = 0;
+const SUPERSEDED_BASE_MS = 10000;
+const SUPERSEDED_MAX_MS = 120000;
 // chatIds with a turn in flight (seen a `chat` send, cleared on done/error).
 const openTurns = new Set();
 let lastHubTraffic = 0;
@@ -113,6 +120,8 @@ function open() {
   helloSent = false;
   socket.onopen = () => {
     if (ws !== socket) return;
+    // A fresh socket gets a fresh judgment: the duplicate may be gone now.
+    superseded = false;
     report(true);
   };
   socket.onmessage = (event) => {
@@ -123,6 +132,10 @@ function open() {
     } catch (err) {
       console.warn('[agentbrowser] dropping malformed hub message', err);
       return;
+    }
+    if (payload && payload.type === 'superseded') {
+      superseded = true;
+      supersededTries += 1;
     }
     if (payload && payload.type === 'chat_event') {
       lastHubTraffic = Date.now();
@@ -137,19 +150,19 @@ function open() {
     if (ws !== socket) return;
     ws = null;
     report(false);
-    scheduleReconnect();
+    scheduleReconnect(superseded ? Math.min(SUPERSEDED_BASE_MS * supersededTries, SUPERSEDED_MAX_MS) : RECONNECT_MS);
   };
   socket.onerror = () => {
     // onclose follows and handles the reconnect.
   };
 }
 
-function scheduleReconnect() {
+function scheduleReconnect(delayMs) {
   if (reconnectTimer) return;
   reconnectTimer = setTimeout(() => {
     reconnectTimer = null;
     if (!ws && hubUrl) open();
-  }, RECONNECT_MS);
+  }, delayMs == null ? RECONNECT_MS : delayMs);
 }
 
 function report(connected) {

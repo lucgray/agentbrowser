@@ -277,6 +277,7 @@ export function canRetry(connected, streaming, payload) {
 const I18N = {
   en: {
     banner: "Hub disconnected. Start the hub server, messages are disabled.",
+    bannerSuperseded: "Another browser is using this connection's identity — this panel's browser was superseded. Check for a duplicated or synced profile.",
     chats: "Chats",
     settings: "Settings",
     composerPlaceholder: "Message the agent — @ tags tabs, / commands",
@@ -320,6 +321,7 @@ const I18N = {
   },
   zh: {
     banner: "Hub 未连接。请先启动 hub 服务，消息发送已停用。",
+    bannerSuperseded: "另一个浏览器占用了本连接的身份——此面板所在浏览器被顶替。请检查是否有重复或同步的浏览器配置。",
     chats: "对话",
     settings: "设置",
     composerPlaceholder: "给 agent 发消息 — @ 引用标签页，/ 命令",
@@ -960,6 +962,7 @@ async function init() {
   let keyState = { anthropic: false, openai: false };
   let panelCfg = null; // {proactiveAnnotation:{enabled,adapter,prompt}} echoed via capabilities
   let browsers = []; // capabilities: [{id,name,default?}] — extensions sharing this hub
+  let superseded = false; // another extension took our browser id (v2.13)
 
   let currentTab = null; // {tabId,url,title} or null
   let currentTabOff = false; // user clicked X on the current-tab chip
@@ -1030,7 +1033,12 @@ async function init() {
     // kind "status" is the agent's own thinking/working state. Different
     // things at different levels.
     if (msg.type === "status") {
+      if (msg.connected) superseded = false;
       setConnected(!!msg.connected);
+    } else if (msg.type === "superseded") {
+      // Hub kept another extension holding our browser id and cut this one.
+      superseded = true;
+      setConnected(false);
     } else if (msg.type === "capabilities") {
       panelCfg = msg.panelConfig && typeof msg.panelConfig === "object" ? msg.panelConfig : null;
       browsers = Array.isArray(msg.browsers) ? msg.browsers : [];
@@ -1443,6 +1451,7 @@ async function init() {
     statusDot.classList.toggle("up", up);
     statusDot.classList.toggle("down", !up);
     statusDot.title = up ? "hub connected" : "hub disconnected";
+    banner.textContent = superseded && !up ? t("bannerSuperseded") : t("banner");
     banner.hidden = up;
     updateControls();
   }

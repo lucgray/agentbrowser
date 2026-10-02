@@ -550,6 +550,9 @@ function handleHubMessage(payload) {
     // without waiting for the round trip its own get_capabilities makes.
     lastCapabilities = payload;
     postToPanel(payload);
+  } else if (payload.type === 'superseded') {
+    // Another extension holds this browser's id — the hub kept it and cut us.
+    postToPanel({ type: 'superseded', reason: payload.reason });
   } else if (payload.type === 'chat_list' || payload.type === 'chat_resumed') {
     postToPanel(payload);
   }

@@ -1693,10 +1693,25 @@ function handleHello(ws, msg) {
     const browser = msg.browser && typeof msg.browser === "object" ? msg.browser : {};
     const id = typeof browser.id === "string" && browser.id !== "" ? browser.id : `ext-${randomUUID()}`;
     const name = typeof browser.name === "string" && browser.name !== "" ? browser.name : "browser";
-    // Same profile reconnecting (extension reload, hub restart): only the
-    // stale socket for THIS browser goes, other browsers are unaffected.
     const prev = extensions.get(id);
     if (prev && prev.ws !== ws) {
+      if (prev.ws.readyState === prev.ws.OPEN) {
+        // A second live socket with the same id — a duplicated profile dir,
+        // a synced profile, a double-loaded extension. Keep the incumbent and
+        // reject the newcomer: closing the live side would just start a
+        // reconnect ping-pong between two auto-reconnecting clients. The
+        // rejected side backs off and retries periodically (v2.13).
+        log(`extension "${name}" rejected: browser id ${id} already connected`);
+        safeSend(ws, { type: "superseded", reason: `browser id "${id}" is already connected on this hub` });
+        try {
+          ws.close();
+        } catch (err) {
+          log("closing duplicate extension socket failed:", err && err.message);
+        }
+        return;
+      }
+      // Same profile reconnecting (extension reload, hub restart): only the
+      // stale socket for THIS browser goes, other browsers are unaffected.
       log(`extension "${name}" reconnected, closing stale socket`);
       failPendingExtensionCalls(id, "extension reconnected");
       try {

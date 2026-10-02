@@ -272,3 +272,37 @@ test('disconnect fails only that browser\'s pending calls and primary moves on',
   assert.equal(r2.ok, false); // ext2b has no navigate handler -> extension-side error proves routing
   assert.match(r2.error, /no fake handler for navigate/);
 });
+
+// A second live socket claiming an already-connected browser id — a cloned or
+// synced profile — is rejected with `superseded`, not swapped in: closing the
+// incumbent would start a reconnect ping-pong between two auto-reconnecting
+// clients. The incumbent keeps its slot; the newcomer backs off client-side.
+test('a duplicate live browser id is superseded, incumbent keeps the slot', async (t) => {
+  const hub = await startHub();
+  t.after(() => hub.stop());
+  const ext1 = fakeExtension(hub.url, CHROME, { tabs_list: TABS });
+  t.after(() => ext1.close());
+  await ext1.open;
+  await waitFor(ext1.msgs, (m) => m.type === 'capabilities' && m.browsers.length === 1);
+
+  const dup = fakeExtension(hub.url, { id: 'b-chrome', name: 'Chrome clone' }, { tabs_list: TABS });
+  t.after(() => dup.close());
+  await dup.open;
+  const rejected = await waitFor(dup.msgs, (m) => m.type === 'superseded');
+  assert.match(rejected.reason, /b-chrome/);
+  await waitFor([0], () => dup.isClosed() && 'closed', 4000).catch(() => {});
+  assert.ok(dup.isClosed(), 'duplicate socket is closed by the hub');
+  assert.ok(!ext1.isClosed(), 'incumbent is not displaced by a duplicate hello');
+
+  // The incumbent still serves calls; the connection table never saw the clone.
+  const cli = fakeHarness(hub.url);
+  t.after(() => cli.close());
+  await cli.open;
+  const r = await cli.call('browsers_list');
+  assert.equal(r.result.browsers.length, 1);
+  assert.equal(r.result.browsers[0].id, 'b-chrome');
+  const r2 = await cli.call('tabs_list');
+  assert.equal(r2.ok, true);
+  assert.equal(ext1.calls.length, 1);
+  assert.equal(dup.calls.length, 0, 'no call ever routed to the rejected socket');
+});

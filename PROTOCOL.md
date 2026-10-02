@@ -1105,7 +1105,12 @@ The extension's `hello` carries a stable identity:
 `browser.name` is the user-agent brand, overridable via storage key
 `browserName`. The hub keeps `extensions: Map<browserId, socket>` instead of
 one slot — a second extension no longer displaces the first; only a same-id
-reconnect closes the stale socket.
+reconnect replaces the stale socket. A same-id hello while the incumbent
+socket is still open (a cloned or synced profile running twice) is rejected
+instead: the hub sends `{"type":"superseded","reason":...}` and closes the
+newcomer — swapping incumbents would start a reconnect ping-pong between
+two auto-reconnecting clients. A superseded extension retries on a growing
+backoff (10s → 120s) and surfaces the reason in its panel banner.
 
 Routing:
 
