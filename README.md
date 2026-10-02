@@ -485,10 +485,28 @@ tools = await client.get_tools()
 
 </details>
 
+## Multiple browsers on one hub
+
+Several Chrome-family browsers or profiles can run the extension against
+the same hub — each identifies itself by a stable per-profile id and its
+user-agent brand name (override via `chrome.storage.local.browserName`).
+The side panel header lists every connected browser.
+
+A panel chat's tool calls always go back to the browser it lives in. Calls
+from the CLI or mcp-proxy go to the *primary* browser — the one with the
+most recent chat activity, else the first connected — and any tool accepts
+a `"browser":"<id-or-name>"` arg to target a different one:
+
+```bash
+agentbrowser browsers_list '{}'                          # who is connected
+agentbrowser navigate '{"url":"https://x","browser":"Edge"}'
+```
+
 ## Browser tools
 
 | tool | args | result |
 |---|---|---|
+| `browsers_list` | `{}` | `{browsers:[{id,name,default,current}],using}` — hub-side, never reaches the extension |
 | `tabs_list` | `{}` | `{tabs:[{tabId,url,title,active}]}` |
 | `tab_new` | `{url?}` | `{tabId}` |
 | `tab_close` | `{tabId}` | `{closed:true}` |

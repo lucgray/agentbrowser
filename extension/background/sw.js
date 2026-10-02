@@ -12,6 +12,35 @@ import { PRELOAD_PRESETS } from './stealth.js';
 
 const DEFAULT_HUB_URL = 'ws://127.0.0.1:9010';
 
+// Stable per-profile id + a display name for the hub's browser table (v2.13:
+// several browsers can share one hub — this is how it tells them apart).
+// browserName in chrome.storage.local overrides the detected name.
+let browserIdentityPromise = null;
+
+function detectBrowserName() {
+  const brands = (navigator.userAgentData && navigator.userAgentData.brands) || [];
+  const brand = brands.find((b) => b && b.brand && !/chromium|not.?a.?brand/i.test(b.brand));
+  return (brand && brand.brand) || 'browser';
+}
+
+function browserIdentity() {
+  if (!browserIdentityPromise) {
+    browserIdentityPromise = chrome.storage.local
+      .get(['agentbrowserBrowserId', 'browserName'])
+      .then((data) => {
+        let id = data.agentbrowserBrowserId;
+        if (!id) {
+          id = crypto.randomUUID();
+          chrome.storage.local.set({ agentbrowserBrowserId: id }).catch((err) => {
+            console.warn('[agentbrowser] browser id persist failed', err);
+          });
+        }
+        return { id, name: data.browserName || detectBrowserName() };
+      });
+  }
+  return browserIdentityPromise;
+}
+
 // One panel Port per browser window, keyed by windowId (v2.1 — the single
 // panelPort this replaced let the last-opened window steal every chat event).
 const panelRouter = createPanelRouter();
@@ -469,10 +498,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.cmd === 'ws_status') {
     hubConnected = !!message.connected;
     if (hubConnected) {
-      sendToOffscreen({
-        target: 'offscreen',
-        cmd: 'send',
-        payload: { type: 'hello', role: 'extension', version: '1.0.0' },
+      browserIdentity().then((browser) => {
+        sendToOffscreen({
+          target: 'offscreen',
+          cmd: 'send',
+          payload: { type: 'hello', role: 'extension', version: '1.0.0', browser },
+        });
       });
     }
     postToPanel({ type: 'status', connected: hubConnected });
@@ -508,12 +539,20 @@ function handleHubMessage(payload) {
         });
       return;
     }
-    postToPanel({ type: 'chat_event', chatId: payload.chatId, event: payload.event });
+    postToPanel({
+      type: 'chat_event',
+      chatId: payload.chatId,
+      browser: payload.browser,
+      event: payload.event,
+    });
   } else if (payload.type === 'capabilities') {
     // Relayed verbatim. Cached so a panel that reconnects gets its picker back
     // without waiting for the round trip its own get_capabilities makes.
     lastCapabilities = payload;
     postToPanel(payload);
+  } else if (payload.type === 'superseded') {
+    // Another extension holds this browser's id — the hub kept it and cut us.
+    postToPanel({ type: 'superseded', reason: payload.reason });
   } else if (payload.type === 'chat_list' || payload.type === 'chat_resumed') {
     postToPanel(payload);
   }
