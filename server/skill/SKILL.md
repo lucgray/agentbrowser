@@ -1,6 +1,6 @@
 ---
 name: agentbrowser
-description: Drive the user's real Chrome browser — read pages, inspect DOM/console/network, click, type, annotate — through the AgentBrowser extension. Use when a task needs the browser the user is already logged into. No MCP required: call the `agentbrowser` CLI via Bash.
+description: "Drive the user's real Chrome browser — read pages, inspect DOM/console/network, click, type, annotate — through the AgentBrowser extension. Use when a task needs the browser the user is already logged into. No MCP required: call the `agentbrowser` CLI via Bash."
 ---
 
 # AgentBrowser
