@@ -136,3 +136,14 @@ wiring was verified on PR #56.
 ## Devin Secrets Needed
 
 None for the stub-hub or shim paths. Real adapters need their provider keys/CLIs.
+
+## Multi-browser / multi-instance testing (v2.13+)
+
+- Two profiles on one hub: launch two Chromes with `--user-data-dir=/tmp/chrome-a` / `-b`, separate `--remote-debugging-port`s (29333/29334), same `--load-extension` path. Both extensions connect to the same hub.
+- Distinct browser names: after first connect, `chrome.storage.local.set({browserName:'alpha'})` in each SW, then get the extension to re-hello (see below). The UA-brand fallback often yields the literal name `browser` for both.
+- **Developer mode gotcha:** after a relaunch, the unpacked extension can land disabled ("Turn on developer mode to use this extension") — the SW then never starts and the hub sees no connect. Deterministic fix: kill Chrome, edit `<profile>/Default/Preferences` → `extensions.ui.developer_mode=true` (+ `settings.<extid>.state=1`, `disable_reasons=0`), relaunch. Editing while Chrome runs gets clobbered on exit.
+- Waking a dead SW: GUI only (puzzle → AgentBrowser opens the side panel). `location.href`/`Target.createTarget` navigations to `chrome-extension://` or `chrome://` are blocked from page context; `chrome.sidePanel.open` via CDP rejects without a real user gesture.
+- Window↔Chrome mapping: `xdotool getwindowpid <win>` vs the listener pid (`ss -ltnp | grep :<debugport>`) — window titles are identical across instances.
+- Extension id is path-derived (worktree ≠ main checkout): read it from `Preferences → extensions.settings` (the entry whose `path` matches your extension dir).
+- ws sniffing: CDP `Network.enable` on the extension's **offscreen** target emits `Network.webSocketFrameReceived` — captures hub↔extension chat_event/tool_call envelopes verbatim.
+- Same-id contention: clone a profile (`cp -r --reflink=auto`, delete `Singleton*`/lock files) → second Chrome helloes with the same browserId → hub closes the stale socket. Two live clients with the same id then auto-reconnect-ping-pong indefinitely.
