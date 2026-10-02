@@ -4,6 +4,16 @@
 
 export const TOOLS = [
   {
+    name: "browsers_list",
+    description:
+      "List the browsers connected to this hub — several Chrome-family installs or profiles can share one. Returns {browsers:[{id,name,default,current}], using}. Browser tools act on the browser your chat lives in by default; pass \"browser\":\"<id-or-name>\" in any tool's args to act on a different connected browser.",
+    args: {
+      type: "object",
+      properties: {},
+      required: []
+    }
+  },
+  {
     name: "tabs_list",
     description: "List open browser tabs. Returns {tabs:[{tabId,url,title,active}]}.",
     args: {

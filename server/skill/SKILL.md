@@ -58,6 +58,26 @@ scripted flows skip the per-call process + handshake:
 printf 'tabs_list {}\nscreenshot {} --output /tmp/shot.png\nexit\n' | agentbrowser session
 ```
 
+## Multiple browsers on one hub
+
+Several Chrome-family browsers (or profiles) can share one hub. See who is
+connected and which browser your calls go to:
+
+```bash
+agentbrowser browsers_list '{}'   # -> {browsers:[{id,name,default,current}], using}
+```
+
+Calls without a `browser` arg go to the `using` browser — the one with the
+most recent panel chat, else the first connected. Any tool accepts
+`"browser":"<id-or-name>"` to act on a different connected browser:
+
+```bash
+agentbrowser navigate '{"url":"https://example.com","browser":"Edge","label":"在 Edge 打开示例站"}'
+```
+
+tabIds only mean something inside their own browser — when you combine
+`browser` + `tabId`, the tabId must belong to that browser.
+
 ## Common flows
 
 Read the current page the user is looking at:

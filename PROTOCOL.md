@@ -1,4 +1,4 @@
-# AgentBrowser protocol v2.12
+# AgentBrowser protocol v2.13
 
 AgentBrowser is a Chrome MV3 extension with a side-panel chat UI, plus a local hub
 server. The chat is backed by a pluggable "harness" (Claude Agent SDK, Claude
@@ -1091,6 +1091,47 @@ the extension consent gate (the gate only sees browser tools). For
 `mcpServers` option (our browser server wins a `browser` name collision).
 `systemPromptExtra` is appended to the shared SYSTEM_PROMPT for all three
 in-process adapters; CLI adapters keep their own prompts.
+
+## Multiple browsers on one hub, v2.13
+
+Several browsers (or Chrome profiles) can run the extension against one hub.
+The extension's `hello` carries a stable identity:
+
+```json
+{"type":"hello","role":"extension","version":"1.0.0","browser":{"id":"<per-profile uuid>","name":"Google Chrome"}}
+```
+
+`browser.id` persists in `chrome.storage.local` (`agentbrowserBrowserId`);
+`browser.name` is the user-agent brand, overridable via storage key
+`browserName`. The hub keeps `extensions: Map<browserId, socket>` instead of
+one slot — a second extension no longer displaces the first; only a same-id
+reconnect closes the stale socket.
+
+Routing:
+
+- A chat binds to the browser it was sent from (`chatBrowsers`), re-bound on
+  every `chat`/`command` message like `chatTabs`. Its `chat_event` stream
+  goes only to that socket, and tool calls from that chat go back to that
+  browser. `chat_event` gains a `browser:{id,name}` field echoing the target.
+- Harness `tool_call`s (agentbrowser CLI, mcp-proxy) go to the "primary"
+  browser — the one with the most recent chat/command activity, else the
+  first connected. When the primary disconnects it falls to the oldest
+  remaining connection.
+- Any tool call may carry a `"browser":"<id-or-name>"` arg to target a
+  different connected browser (exact id, or exact name case-insensitive;
+  ambiguous names error with the matching ids). The hub strips `browser`
+  before dispatch — extension tool schemas never see it. tabIds are only
+  meaningful inside their own browser.
+- `browsers_list` is answered by the hub itself (it never reaches the
+  extension): `{browsers:[{id,name,default,current}],using}` — `default`
+  marks the primary, `current` the browser this caller's calls go to.
+- `capabilities` gains `browsers:[{id,name,default}]`; every connected
+  extension gets a fresh capabilities message on connect/disconnect so the
+  panel's list stays live.
+
+Disconnect semantics: only the pending calls dispatched to the dead socket
+fail (`extId` on each pending entry), and only commands bound to that
+browser are aborted — work on other browsers continues.
 
 ## mcp-proxy.mjs
 

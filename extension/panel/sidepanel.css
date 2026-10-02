@@ -194,6 +194,18 @@ img {
   flex: none;
 }
 
+/* Browsers sharing this hub (v2.13): names of every connected extension,
+   ids on the tooltip. Hidden until the first capabilities message lands. */
+.browser-tag {
+  font: var(--ac-type-secondary);
+  color: var(--ac-text-muted);
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: none;
+}
+
 .dot.up {
   background: var(--ac-accent);
   box-shadow: 0 0 0 3px var(--ac-accent-tint);

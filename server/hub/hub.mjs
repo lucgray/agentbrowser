@@ -212,20 +212,34 @@ async function storeKey(provider, key) {
 // ---------------------------------------------------------------------------
 // State
 
-let extensionSocket = null;
+// browserId -> { id, ws, name, version, connectedAt }. Several browsers (or
+// Chrome profiles) can run the extension against one hub: each identifies
+// itself in hello.browser (v2.13). Chats bind to the browser they started
+// on; harness calls go to the "primary" browser — the one with the most
+// recent chat activity, or the first connected.
+const extensions = new Map();
+let primaryBrowserId = null;
 
-// id -> { kind: "hub", resolve, reject, timer }
-//     | { kind: "harness", ws, timer }
+// id -> { kind: "hub", resolve, reject, timer, extId }
+//     | { kind: "harness", ws, timer, extId }
+// extId records which browser the call was dispatched to, so a disconnect
+// only fails the calls that were in flight to it.
 const pending = new Map();
 
 // chatId -> { session, adapterName, model, lastUsed }
 const sessions = new Map();
 
+// chatId -> browserId the chat is bound to. Tool calls from a chat go back
+// to the browser the chat lives in; its chat_event stream goes there too.
+// Re-bound on every message from that chat, like chatTabs.
+const chatBrowsers = new Map();
+
 // chatId -> tabId the chat is bound to. The panel sends context.currentTab on
 // every chat message; tools called from that chat without an explicit tabId
 // target the bound tab instead of whatever tab is active when the call lands —
 // otherwise a conversation about tab A starts acting on tab B the moment the
-// user switches tabs.
+// user switches tabs. tabIds only mean something inside their own browser —
+// always resolve the browser first, then the tab.
 const chatTabs = new Map();
 
 // chatId -> { input, output } running totals for the chat (PROTOCOL v1.3 A).
@@ -394,13 +408,61 @@ function safeSend(ws, obj) {
   }
 }
 
-function extensionAvailable() {
-  return extensionSocket !== null && extensionSocket.readyState === extensionSocket.OPEN;
+function extensionEntry(browserId) {
+  const entry = browserId != null ? extensions.get(browserId) : null;
+  return entry && entry.ws.readyState === entry.ws.OPEN ? entry : null;
 }
 
-// Fail every call currently in flight to the extension.
-function failPendingExtensionCalls(errorMessage) {
+// The default target for calls that name no browser: the primary when it is
+// still connected, else the oldest remaining connection (Map order).
+function primaryExtension() {
+  const first = extensions.values().next().value || null;
+  return extensionEntry(primaryBrowserId) || extensionEntry(first && first.id);
+}
+
+function extensionAvailable() {
+  return primaryExtension() !== null;
+}
+
+// Which browser a tool call goes to: an explicit "browser" arg (id or exact
+// name, case-insensitive), then the chat's bound browser, then the primary.
+function resolveBrowserTarget(arg, boundBrowserId) {
+  if (typeof arg === "string" && arg !== "") {
+    const byId = extensionEntry(arg);
+    if (byId) return { entry: byId };
+    const lower = arg.toLowerCase();
+    const matches = [...extensions.values()].filter(
+      (e) => e.ws.readyState === e.ws.OPEN && String(e.name).toLowerCase() === lower
+    );
+    if (matches.length === 1) return { entry: matches[0] };
+    if (matches.length > 1) {
+      return {
+        error: `browser name "${arg}" is ambiguous: ${matches.map((e) => e.id).join(", ")}`
+      };
+    }
+    return { error: `no connected browser "${arg}"` };
+  }
+  const entry = extensionEntry(boundBrowserId) || primaryExtension();
+  if (!entry) return { error: "no extension connected" };
+  return { entry };
+}
+
+// Answered by the hub itself — only it knows the connection table. `using`
+// is the browser unqualified calls from this caller will go to.
+function browsersListResult(usingId) {
+  const browsers = [...extensions.values()].map((e) => ({
+    id: e.id,
+    name: e.name,
+    ...(e.id === primaryBrowserId ? { default: true } : {}),
+    ...(usingId && e.id === usingId ? { current: true } : {})
+  }));
+  return { browsers, using: usingId || null };
+}
+
+// Fail the calls that were in flight to one browser.
+function failPendingExtensionCalls(browserId, errorMessage) {
   for (const [id, entry] of pending) {
+    if (entry.extId !== browserId) continue;
     clearTimeout(entry.timer);
     pending.delete(id);
     if (entry.kind === "hub") {
@@ -414,34 +476,46 @@ function failPendingExtensionCalls(errorMessage) {
 // ---------------------------------------------------------------------------
 // Hub-originated tool calls (used by adapters via ctx.callBrowserTool)
 
-function callBrowserTool(tool, args = {}) {
+// opts.browserId is the chat's bound browser; an explicit "browser" arg
+// overrides it. "browser" is a routing key the hub consumes — it is stripped
+// before the call reaches the extension, whose schemas do not know it.
+function callBrowserTool(tool, args = {}, opts = {}) {
+  const boundId = opts.browserId || null;
+  if (tool === "browsers_list") {
+    const target = resolveBrowserTarget(args.browser, boundId);
+    return Promise.resolve(browsersListResult(target.entry ? target.entry.id : null));
+  }
   return new Promise((resolve, reject) => {
-    if (!extensionAvailable()) {
-      reject(new Error("no extension connected"));
+    const target = resolveBrowserTarget(args && args.browser, boundId);
+    if (target.error) {
+      reject(new Error(target.error));
       return;
     }
+    const rest = { ...args };
+    delete rest.browser;
     const id = randomUUID();
     const timer = setTimeout(() => {
       pending.delete(id);
       reject(new Error("timeout"));
     }, TOOL_TIMEOUT_MS);
-    pending.set(id, { kind: "hub", resolve, reject, timer });
-    log("tool_call", tool);
-    safeSend(extensionSocket, { type: "tool_call", id, tool, args, permissions: consentPolicy() });
+    pending.set(id, { kind: "hub", resolve, reject, timer, extId: target.entry.id });
+    log("tool_call", tool, "->", target.entry.name);
+    safeSend(target.entry.ws, { type: "tool_call", id, tool, args: rest, permissions: consentPolicy() });
   });
 }
 
 // Per-chat wrapper: tool calls that omit tabId target the tab the chat is
 // bound to (context.currentTab at the latest chat message) rather than
-// whatever tab happens to be active when the call lands. An explicit tabId in
-// the args always wins.
+// whatever tab happens to be active when the call lands, and they go to the
+// browser the chat lives in. Explicit tabId/browser args always win.
 function chatScopedBrowserTool(chatId) {
   return (tool, args = {}) => {
     const bound = chatTabs.get(chatId);
+    const browserId = chatBrowsers.get(chatId);
     if (bound != null && args && args.tabId == null) {
-      return callBrowserTool(tool, { ...args, tabId: bound });
+      return callBrowserTool(tool, { ...args, tabId: bound }, { browserId });
     }
-    return callBrowserTool(tool, args);
+    return callBrowserTool(tool, args, { browserId });
   };
 }
 
@@ -735,14 +809,24 @@ function augmentMeta(chatId, adapterName, model, event, elapsedMs) {
 // exactly one status, exactly one meta (augmented), done exactly once.
 // `state.model` is read late, so a caller can fill it in once the session
 // resolves its model.
-function createTurnEmitter(chatId, adapterName, state) {
+// browserId is the browser this turn's events stream back to — the one the
+// chat was sent from. There is no fallback: another browser's panel does not
+// know this chatId, so a dead bound socket just drops the stream.
+function createTurnEmitter(chatId, adapterName, state, browserId) {
   const startedAt = Date.now();
   let done = false;
   let sawStatus = false;
   let sawMeta = false;
 
   function send(event) {
-    safeSend(extensionSocket, { type: "chat_event", chatId, event });
+    const entry = extensions.get(browserId);
+    if (entry && entry.ws.readyState === entry.ws.OPEN) {
+      safeSend(entry.ws, {
+        type: "chat_event", chatId,
+        browser: { id: entry.id, name: entry.name },
+        event
+      });
+    }
   }
 
   const emit = (event) => {
@@ -1031,6 +1115,13 @@ async function buildCapabilities() {
     type: "capabilities",
     adapters: collapseFamilies(adapters),
     commands: COMMANDS,
+    // Every browser holding a live extension connection (v2.13). The panel
+    // shows the list; agents get it in detail through browsers_list.
+    browsers: [...extensions.values()].map((e) => ({
+      id: e.id,
+      name: e.name,
+      ...(e.id === primaryBrowserId ? { default: true } : {})
+    })),
     panelConfig: {
       proactiveAnnotation: config.proactiveAnnotation || {
         enabled: false,
@@ -1042,7 +1133,8 @@ async function buildCapabilities() {
 }
 
 async function sendCapabilities(ws) {
-  const target = ws || extensionSocket;
+  const primary = primaryExtension();
+  const target = ws || (primary && primary.ws);
   if (!target) return;
   try {
     safeSend(target, await buildCapabilities());
@@ -1133,6 +1225,7 @@ function disposeSession(chatId, reason, { abortRunning = true } = {}) {
   }
   removeUploads(chatId);
   chatTabs.delete(chatId);
+  chatBrowsers.delete(chatId);
   log("session disposed (" + reason + ")", chatId);
 }
 
@@ -1224,7 +1317,7 @@ const PROACTIVE_DEFAULT_PROMPT =
   "whole blocks. Always fill comment with WHY you marked it. Finish with a " +
   "one-paragraph summary of what you marked.";
 
-function maybeRunProactiveAnnotation(context) {
+function maybeRunProactiveAnnotation(context, browserId) {
   const cfg = config.proactiveAnnotation;
   if (!cfg || cfg.enabled !== true) return;
   const tab = context && context.currentTab;
@@ -1232,17 +1325,18 @@ function maybeRunProactiveAnnotation(context) {
   const key = `${tab.tabId}|${tab.url}`;
   if (proactiveAnnotated.has(key)) return;
   proactiveAnnotated.add(key);
-  runProactiveTurn(tab).catch((err) => {
+  runProactiveTurn(tab, browserId).catch((err) => {
     log("proactive annotation turn failed:", err && err.message ? err.message : String(err));
   });
 }
 
-async function runProactiveTurn(tab) {
+async function runProactiveTurn(tab, browserId) {
   const cfg = config.proactiveAnnotation || {};
   const adapterName = cfg.adapter || config.adapter;
   const chatId = `pro-${tab.tabId}-${Date.now()}`;
   const state = { model: null };
-  const turn = createTurnEmitter(chatId, adapterName, state);
+  const turn = createTurnEmitter(chatId, adapterName, state, browserId);
+  chatBrowsers.set(chatId, browserId);
   const emit = turn.emit;
   log("proactive annotation pass on tab", tab.tabId, "adapter=" + adapterName);
   activeChats.add(chatId);
@@ -1264,7 +1358,12 @@ async function runProactiveTurn(tab) {
   }
 }
 
-async function handleChat(msg) {
+// Keeps the panel's browser list fresh on every connect/disconnect.
+function broadcastCapabilities() {
+  for (const entry of extensions.values()) sendCapabilities(entry.ws);
+}
+
+async function handleChat(ws, msg) {
   const chatId = msg.chatId;
   const text = typeof msg.text === "string" ? msg.text : "";
   const adapterName = msg.adapter || config.adapter;
@@ -1275,7 +1374,7 @@ async function handleChat(msg) {
   // Read late by the emitter, so the meta reports the model the session really
   // resolved to rather than the one the panel asked for.
   const state = { model: requestedModel };
-  const turn = createTurnEmitter(chatId, adapterName, state);
+  const turn = createTurnEmitter(chatId, adapterName, state, ws.browserId);
   const emit = turn.emit;
 
   if (runningCommands.has(chatId)) {
@@ -1295,7 +1394,7 @@ async function handleChat(msg) {
 
   // A new tab context kicks off the co-read pass when enabled; it runs on its
   // own chatId so it never blocks this turn.
-  maybeRunProactiveAnnotation(msg.context);
+  maybeRunProactiveAnnotation(msg.context, ws.browserId);
 
   // Reserve the chat before the first await. Two frames can arrive in one read
   // and be dispatched synchronously; a guard that reads state written after an
@@ -1306,6 +1405,10 @@ async function handleChat(msg) {
   // names a tabId explicitly.
   const boundTabId = msg.context && msg.context.currentTab ? msg.context.currentTab.tabId : null;
   if (boundTabId != null) chatTabs.set(chatId, boundTabId);
+  chatBrowsers.set(chatId, ws.browserId);
+  // The browser the user is actively chatting in is the one harness calls
+  // should reach by default.
+  primaryBrowserId = ws.browserId;
   recordUser(chatId, text, adapterName, requestedModel);
   try {
     const check = checkAttachments(attachments);
@@ -1361,7 +1464,7 @@ async function handleChat(msg) {
 // ---------------------------------------------------------------------------
 // Slash commands (PROTOCOL.md v1.3 sections B, C, D2)
 
-async function handleCommand(msg) {
+async function handleCommand(ws, msg) {
   const chatId = msg.chatId;
   const name = String(msg.name == null ? "" : msg.name).trim().replace(/^\//, "");
   const args = typeof msg.args === "string" ? msg.args : "";
@@ -1370,8 +1473,10 @@ async function handleCommand(msg) {
 
   let statusTimer = null;
   const state = { model: requestedModel };
-  const turn = createTurnEmitter(chatId, adapterName, state);
+  const turn = createTurnEmitter(chatId, adapterName, state, ws.browserId);
   const emit = turn.emit;
+  chatBrowsers.set(chatId, ws.browserId);
+  primaryBrowserId = ws.browserId;
 
   if (runningCommands.has(chatId)) {
     emit({
@@ -1585,22 +1690,31 @@ setInterval(() => {
 
 function handleHello(ws, msg) {
   if (msg.role === "extension") {
-    if (extensionSocket && extensionSocket !== ws) {
-      log("extension displaced by new connection");
-      failPendingExtensionCalls("displaced");
+    const browser = msg.browser && typeof msg.browser === "object" ? msg.browser : {};
+    const id = typeof browser.id === "string" && browser.id !== "" ? browser.id : `ext-${randomUUID()}`;
+    const name = typeof browser.name === "string" && browser.name !== "" ? browser.name : "browser";
+    // Same profile reconnecting (extension reload, hub restart): only the
+    // stale socket for THIS browser goes, other browsers are unaffected.
+    const prev = extensions.get(id);
+    if (prev && prev.ws !== ws) {
+      log(`extension "${name}" reconnected, closing stale socket`);
+      failPendingExtensionCalls(id, "extension reconnected");
       try {
-        extensionSocket.close();
+        prev.ws.close();
       } catch (err) {
         // already closing
-        log("closing displaced extension socket failed:", err && err.message);
+        log("closing stale extension socket failed:", err && err.message);
       }
     }
-    extensionSocket = ws;
     ws.agentchatRole = "extension";
-    log("extension connected", msg.version ? "v" + msg.version : "");
+    ws.browserId = id;
+    extensions.set(id, { id, ws, name, version: msg.version || null, connectedAt: Date.now() });
+    if (primaryBrowserId == null) primaryBrowserId = id;
+    log(`extension connected: ${name} (${id})`, msg.version ? "v" + msg.version : "", `browsers=${extensions.size}`);
     // Load the keystore before the first capabilities message so keyConfigured
-    // reflects the real store rather than the fallback read.
-    loadKeystore().then(() => sendCapabilities(ws));
+    // reflects the real store rather than the fallback read. Every panel gets
+    // a fresh message: the browser list changed.
+    loadKeystore().then(broadcastCapabilities);
   } else if (msg.role === "harness") {
     ws.agentchatRole = "harness";
     ws.agentchatName = typeof msg.name === "string" ? msg.name : "harness";
@@ -1612,18 +1726,33 @@ function handleHello(ws, msg) {
 
 function handleHarnessToolCall(ws, msg) {
   const { id, tool } = msg;
-  log("tool_call", tool, "(harness: " + ws.agentchatName + ")");
-  if (!extensionAvailable()) {
-    safeSend(ws, { type: "tool_result", id, ok: false, error: "no extension connected" });
+  const args = msg.args && typeof msg.args === "object" ? msg.args : {};
+  if (tool === "browsers_list") {
+    const target = resolveBrowserTarget(args.browser, null);
+    safeSend(ws, {
+      type: "tool_result", id, ok: true,
+      result: browsersListResult(target.entry ? target.entry.id : null)
+    });
     return;
   }
+  const target = resolveBrowserTarget(args.browser, null);
+  log(
+    "tool_call", tool, "(harness: " + ws.agentchatName + ")",
+    target.entry ? "-> " + target.entry.name : "-> none"
+  );
+  if (target.error) {
+    safeSend(ws, { type: "tool_result", id, ok: false, error: target.error });
+    return;
+  }
+  const rest = { ...args };
+  delete rest.browser;
   const timer = setTimeout(() => {
     pending.delete(id);
     safeSend(ws, { type: "tool_result", id, ok: false, error: "timeout" });
   }, TOOL_TIMEOUT_MS);
-  pending.set(id, { kind: "harness", ws, timer });
-  safeSend(extensionSocket, {
-    type: "tool_call", id, tool, args: msg.args || {}, permissions: consentPolicy(),
+  pending.set(id, { kind: "harness", ws, timer, extId: target.entry.id });
+  safeSend(target.entry.ws, {
+    type: "tool_call", id, tool, args: rest, permissions: consentPolicy(),
   });
 }
 
@@ -1659,8 +1788,8 @@ function handleMessage(ws, msg) {
 
   if (ws.agentchatRole === "extension") {
     if (msg.type === "tool_result") handleToolResult(msg);
-    else if (msg.type === "chat") handleChat(msg);
-    else if (msg.type === "command") handleCommand(msg);
+    else if (msg.type === "chat") handleChat(ws, msg);
+    else if (msg.type === "command") handleCommand(ws, msg);
     else if (msg.type === "chat_abort") handleChatAbort(msg);
     else if (msg.type === "set_key") handleSetKey(ws, msg);
     else if (msg.type === "set_proactive_config") handleSetProactiveConfig(ws, msg);
@@ -1672,17 +1801,25 @@ function handleMessage(ws, msg) {
 
 function handleClose(ws) {
   if (ws.agentchatRole === "extension") {
-    if (extensionSocket === ws) {
-      extensionSocket = null;
-      failPendingExtensionCalls("extension disconnected");
+    const entry = ws.browserId != null ? extensions.get(ws.browserId) : null;
+    if (entry && entry.ws === ws) {
+      extensions.delete(ws.browserId);
+      failPendingExtensionCalls(ws.browserId, "extension disconnected");
       // Nothing is watching, and a loop with no browser and no reader is just
-      // burning tokens. Stop every command that is still running.
-      for (const chatId of [...runningCommands.keys()]) {
-        abortCommand(chatId, "extension disconnected");
+      // burning tokens. Stop commands bound to the browser that went away —
+      // commands running on other browsers keep going.
+      for (const [chatId, bid] of chatBrowsers) {
+        if (bid === ws.browserId && runningCommands.has(chatId)) {
+          abortCommand(chatId, "extension disconnected");
+        }
       }
-      log("extension disconnected");
+      if (primaryBrowserId === ws.browserId) {
+        primaryBrowserId = extensions.keys().next().value || null;
+      }
+      log(`extension disconnected: ${entry.name} (${ws.browserId}), browsers=${extensions.size}`);
+      broadcastCapabilities();
     }
-    // A displaced socket closing is already logged at displacement time.
+    // A stale socket closing after a same-id reconnect is already logged.
   } else if (ws.agentchatRole === "harness") {
     for (const [id, entry] of pending) {
       if (entry.kind === "harness" && entry.ws === ws) {

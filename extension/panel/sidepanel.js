@@ -772,6 +772,7 @@ export function buildSetKeyMessage(provider, key) {
 
 async function init() {
   const statusDot = document.getElementById("status-dot");
+  const browserTag = document.getElementById("browser-tag");
   const backendEl = document.getElementById("backend");
   const backendBtn = document.getElementById("backend-btn");
   const backendLabel = document.getElementById("backend-label");
@@ -958,6 +959,7 @@ async function init() {
   let selModel = null; // current model id, or null when the adapter has none
   let keyState = { anthropic: false, openai: false };
   let panelCfg = null; // {proactiveAnnotation:{enabled,adapter,prompt}} echoed via capabilities
+  let browsers = []; // capabilities: [{id,name,default?}] — extensions sharing this hub
 
   let currentTab = null; // {tabId,url,title} or null
   let currentTabOff = false; // user clicked X on the current-tab chip
@@ -1031,6 +1033,8 @@ async function init() {
       setConnected(!!msg.connected);
     } else if (msg.type === "capabilities") {
       panelCfg = msg.panelConfig && typeof msg.panelConfig === "object" ? msg.panelConfig : null;
+      browsers = Array.isArray(msg.browsers) ? msg.browsers : [];
+      renderBrowsers();
       applyCapabilities(
         Array.isArray(msg.adapters) ? msg.adapters : [],
         Array.isArray(msg.commands) ? msg.commands : []
@@ -1057,6 +1061,14 @@ async function init() {
 
   function requestChatList() {
     postToHub({ type: "chat_list" });
+  }
+
+  // Every browser sharing this hub, names only — ids live on the tooltip.
+  function renderBrowsers() {
+    if (!browserTag) return;
+    browserTag.hidden = browsers.length === 0;
+    browserTag.textContent = browsers.map((b) => b.name || b.id).join(", ");
+    browserTag.title = browsers.map((b) => `${b.name} (${b.id})`).join(", ");
   }
 
   // One dropdown for history + new chat, centered in the header. The current
