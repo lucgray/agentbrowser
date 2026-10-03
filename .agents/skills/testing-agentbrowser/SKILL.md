@@ -147,3 +147,12 @@ None for the stub-hub or shim paths. Real adapters need their provider keys/CLIs
 - Extension id is path-derived (worktree ≠ main checkout): read it from `Preferences → extensions.settings` (the entry whose `path` matches your extension dir).
 - ws sniffing: CDP `Network.enable` on the extension's **offscreen** target emits `Network.webSocketFrameReceived` — captures hub↔extension chat_event/tool_call envelopes verbatim.
 - Same-id contention: clone a profile (`cp -r --reflink=auto`, delete `Singleton*`/lock files) → second Chrome helloes with the same browserId → hub closes the stale socket. Two live clients with the same id then auto-reconnect-ping-pong indefinitely.
+
+## Page-translation pipeline testing (v2.14+)
+
+- The provider path needs no real key: set `server/hub/config.json` `translate.provider="openai"` + `translate.baseUrl` to a local stub (`callOpenAI` honors `opts.baseUrl`). The stub only needs `POST /v1/chat/completions` → `{"choices":[{"message":{"content":...}}]}` (plain JSON, not SSE); the hub joins segments with `\n%%\n`, so echo each `%%`-split piece back. Scan `messages[]` for the content containing `Text to translate:` — word-hover requests use a different messages shape than batch ones.
+- `page_translate` and friends need an **integer** `tabId` in CLI JSON (`"tabId":428669787`) — a quoted string hits `debugger.attach` with a type error (translate path doesn't coerce, unlike other tools).
+- Engine probing: `!!window.__abTranslate` must return true before trusting injection; `applyBatch(req,{tid:''})` marks a para 'skipped' + `done++` — empty provider results still advance the done counter.
+- Viewport batching means a **background tab never progresses** (IntersectionObserver stays quiet) — translate_status shows done<total, translating:0 until the tab is active.
+- Panel settings save writes the WHOLE `translate` object to `server/hub/config.json` — fields absent from the form (e.g. `baseUrl`) are dropped on save; check config.json if the provider path dies right after a settings save.
+- `chrome.tabs.create({url:chrome.runtime.getURL('panel/sidepanel.html')})` from the SW opens the panel as a normal tab when the real side panel can't be opened (it then resolves itself as "the active tab" for panel-triggered actions).
