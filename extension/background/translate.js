@@ -64,6 +64,10 @@ async function ensureEngine(tabId) {
     });
     boundTabs.add(tabId);
   }
+  // The core file's top-level consts persist for the document's lifetime, so a
+  // second evaluate throws "already declared" — probe before re-injecting.
+  const probe = await evalRaw(tabId, '!!window.__abTranslate');
+  if (probe === true) return;
   const src = await loadSources();
   await evalRaw(tabId, src + '\nwindow.__abTranslate && __abTranslate.status()');
 }

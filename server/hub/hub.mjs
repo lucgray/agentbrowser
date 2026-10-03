@@ -1831,9 +1831,12 @@ function handleMessage(ws, msg) {
     else if (msg.type === "get_capabilities") sendCapabilities(ws);
     else if (msg.type === "chat_list") handleChatList(ws);
     else if (msg.type === "chat_resume") handleChatResume(ws, msg);
-    else if (msg.type === "translate_request") handleTranslateRequest(ws, msg);
-    else if (msg.type === "set_translate_config") handleSetTranslateConfig(ws, msg);
-    else if (msg.type === "get_translate_config") handleGetTranslateConfig(ws);
+    else if (msg.type === "translate_request")
+      handleTranslateRequest(ws, msg).catch((err) => log("translate_request failed:", err && err.message));
+    else if (msg.type === "set_translate_config")
+      handleSetTranslateConfig(ws, msg).catch((err) => log("set_translate_config failed:", err && err.message));
+    else if (msg.type === "get_translate_config")
+      handleGetTranslateConfig(ws).catch((err) => log("get_translate_config failed:", err && err.message));
   }
 }
 
@@ -1874,7 +1877,7 @@ async function handleSetTranslateConfig(ws, msg) {
   }
   swapTranslator(config.translate);
   log("translate config updated: " + JSON.stringify(clean));
-  const provider = await translator.provider().catch(() => "free");
+  const provider = await Promise.resolve(translator.provider()).catch(() => "free");
   try {
     ws.send(JSON.stringify({ type: "translate_config", config: config.translate, provider }));
   } catch (err) {
@@ -1883,7 +1886,7 @@ async function handleSetTranslateConfig(ws, msg) {
 }
 
 async function handleGetTranslateConfig(ws) {
-  const provider = await translator.provider().catch(() => "free");
+  const provider = await Promise.resolve(translator.provider()).catch(() => "free");
   try {
     ws.send(JSON.stringify({
       type: "translate_config",
