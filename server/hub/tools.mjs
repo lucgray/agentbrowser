@@ -877,7 +877,7 @@ export const TOOLS = [
   },
   {
     name: "page_translate_stop",
-    description: "Stop the page-translation pipeline on a tab and remove the injected engine (v2.14). Rendered translations stay on the page; already-queued work is dropped.",
+    description: "Stop the page-translation pipeline on a tab (v2.14): the engine disconnects its observers and removes every rendered translation plus the data-ab-tid markers, restoring the original page. Already-queued work is dropped.",
     args: {
       type: "object",
       properties: {
