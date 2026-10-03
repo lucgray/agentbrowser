@@ -1023,7 +1023,7 @@ async function init() {
     const done = Number(msg.done) || 0;
     if (total > 0) {
       trStatus.hidden = false;
-      trStatus.textContent = done >= total ? t("trDone", done)(total) : t("trProgress", (d, tt) => `${d}/${tt}`)(done, total);
+      trStatus.textContent = done >= total ? t("trDone")(done) : t("trProgress")(done, total);
     }
   }
 

@@ -391,7 +391,8 @@ export function createTranslator({ config, fetchImpl, cacheDir, getKey: getKeyOv
           mem.set(m.hash, results[m.tid]);
           file.set(m.hash, results[m.tid]);
         }
-      } catch {
+      } catch (err) {
+        console.warn('[translate] batch result failed:', err && err.message);
         results[m.tid] = '';
         textByHash.set(m.hash, '');
       }
@@ -401,7 +402,8 @@ export function createTranslator({ config, fetchImpl, cacheDir, getKey: getKeyOv
         const text = await j.p;
         results[j.m.tid] = typeof text === 'string' ? text : '';
         textByHash.set(j.m.hash, results[j.m.tid]);
-      } catch {
+      } catch (err) {
+        console.warn('[translate] joined batch result failed:', err && err.message);
         results[j.m.tid] = '';
         textByHash.set(j.m.hash, '');
       }
