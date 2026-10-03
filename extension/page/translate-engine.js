@@ -39,10 +39,14 @@
   var hoveredPara = null;
   var styleEl = null;
 
+  var busWarned = false;
   function bus(obj) {
     try {
       if (typeof __abTranslateBus === 'function') __abTranslateBus(JSON.stringify(obj));
-    } catch (e) { /* page bridge gone */ }
+    } catch (e) {
+      // Page bridge gone — warn once, not per call.
+      if (!busWarned) { busWarned = true; console.warn('[agentbrowser] translate bus failed', e); }
+    }
   }
 
   // ---------------------------------------------------------------- styles
@@ -285,8 +289,11 @@
   }
 
   function onMouseOver(e) {
+    // Hovering our own button/tooltip must not clear the hovered paragraph —
+    // the float button sits outside the paragraph and would hide on approach.
+    var inUI = e.target && e.target.closest ? e.target.closest('[' + UI_ATTR + ']') : null;
     var el = e.target && e.target.closest ? e.target.closest('[' + TID_ATTR + ']') : null;
-    if (cfg.mode === 'ondemand') {
+    if (cfg.mode === 'ondemand' && !inUI) {
       hoveredPara = el;
       var b = ensureFloatBtn();
       if (el) {
