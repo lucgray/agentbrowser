@@ -1869,7 +1869,9 @@ async function handleSetTranslateConfig(ws, msg) {
   for (const k of ["provider", "model", "targetLang", "mode", "wordHover"]) {
     if (c[k] !== undefined) clean[k] = c[k];
   }
-  config.translate = clean;
+  // Merge, don't replace: config.translate may carry fields the panel form
+  // doesn't model (e.g. baseUrl) — a wholesale write silently dropped them.
+  config.translate = { ...(config.translate || {}), ...clean };
   try {
     writeFileSync(path.join(__dirname, "config.json"), JSON.stringify(config, null, 2));
   } catch (err) {

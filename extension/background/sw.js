@@ -676,7 +676,13 @@ chrome.runtime.onConnect.addListener((port) => {
 // --- tool executor ----------------------------------------------------------
 
 async function resolveTabId(tabId) {
-  if (tabId != null) return tabId;
+  if (tabId != null) {
+    // Callers (CLI, MCP) frequently send the id as a string; chrome.debugger
+    // and chrome.tabs require a real integer.
+    const n = Number(tabId);
+    if (!Number.isInteger(n)) throw new Error(`invalid tabId: ${tabId}`);
+    return n;
+  }
   // Prefer the window whose panel most recently talked — with several windows
   // open, 'currentWindow' inside a worker resolves to the focused one, which
   // is not necessarily the one that asked.
@@ -731,7 +737,7 @@ const TOOLS = {
   },
 
   async tab_close(args) {
-    await chrome.tabs.remove(args.tabId);
+    await chrome.tabs.remove(Number(args.tabId));
     return { closed: true };
   },
 
