@@ -78,6 +78,31 @@ agentbrowser navigate '{"url":"https://example.com","browser":"Edge","label":"�
 tabIds only mean something inside their own browser — when you combine
 `browser` + `tabId`, the tabId must belong to that browser.
 
+## Translating a page (`page_translate`)
+
+`page_translate` starts a background translation pipeline — you do NOT
+loop over paragraphs yourself. One call ignites the in-page engine; it
+walks paragraphs, batches them to the hub's translation service, and
+renders translations in place while you keep working or reply.
+
+```bash
+agentbrowser page_translate '{"targetLang":"zh","label":"翻译本页"}'
+agentbrowser translate_status '{}'                       # {active,total,done,...}
+agentbrowser translate_para '{"tid":12,"label":"重译第12段"}'
+agentbrowser page_translate_stop '{}'
+```
+
+- `mode`: `bilingual` (default), `card`, `dim`, `replace`, `ondemand`
+  (per-paragraph hover 译/原 swap), plus `wordHover:true` for hover-word
+  tooltips.
+- The provider comes from the hub's `translate` config (`auto` → stored
+  OpenAI key → Anthropic → keyless endpoint); pass `provider`/`model` args
+  to override per call.
+- Paragraph `tid`s are `data-ab-tid` attributes — `element_check` /
+  `dom_inspect` can find them; ids renumber on navigation.
+
+`page_translate` is consent-gated like other writes.
+
 ## Common flows
 
 Read the current page the user is looking at:

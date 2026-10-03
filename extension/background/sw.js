@@ -9,6 +9,7 @@ import { CSS_PATH_FN } from './inspect-core.js';
 import * as consent from './consent.js';
 import { createPanelRouter, windowIdFromPortName } from './panel-router.js';
 import { PRELOAD_PRESETS } from './stealth.js';
+import * as translate from './translate.js';
 
 const DEFAULT_HUB_URL = 'ws://127.0.0.1:9010';
 
@@ -400,6 +401,12 @@ chrome.storage.onChanged.addListener((changes, area) => {
 
 // --- hub <-> panel routing --------------------------------------------------
 
+// Wires the translate coordinator once sendToOffscreen/postToPanel exist.
+translate.wireHub({
+  sendToHub: (payload) => sendToOffscreen({ target: 'offscreen', cmd: 'send', payload }),
+  postToPanel: (message) => postToPanel(message),
+});
+
 function postToPanel(message) {
   for (const windowId of panelRouter.route(message)) {
     const port = panelRouter.ports.get(windowId);
@@ -555,6 +562,10 @@ function handleHubMessage(payload) {
     postToPanel({ type: 'superseded', reason: payload.reason });
   } else if (payload.type === 'chat_list' || payload.type === 'chat_resumed') {
     postToPanel(payload);
+  } else if (payload.type === 'translate_result') {
+    translate.onResult(payload);
+  } else if (payload.type === 'translate_config') {
+    postToPanel(payload);
   }
 }
 
@@ -625,9 +636,36 @@ chrome.runtime.onConnect.addListener((port) => {
       msg.type === 'set_key' ||
       msg.type === 'set_proactive_config' ||
       msg.type === 'get_capabilities' ||
-      msg.type === 'chat_list'
+      msg.type === 'chat_list' ||
+      msg.type === 'set_translate_config' ||
+      msg.type === 'get_translate_config'
     ) {
       sendToOffscreen({ target: 'offscreen', cmd: 'send', payload: msg });
+    } else if (msg.type === 'ui_translate') {
+      (async () => {
+        try {
+          const tabId = await resolveTabId(null);
+          if (msg.action === 'stop') {
+            await translate.stop(tabId);
+          } else if (msg.action === 'status') {
+            postToPanel({ type: 'translate_progress', tabId, ...(await translate.status(tabId)) });
+            return;
+          } else {
+            if (msg.cfg && typeof msg.cfg === 'object') {
+              chrome.storage.local
+                .set({ abTranslate: msg.cfg })
+                .catch((err) => console.warn('[agentbrowser] translate prefs save failed', err));
+            }
+            await translate.start(tabId, msg.cfg || {});
+          }
+        } catch (err) {
+          console.warn('[agentbrowser] ui_translate failed', err);
+          postToPanel({
+            type: 'translate_progress',
+            error: String((err && err.message) || err),
+          });
+        }
+      })();
     }
   });
   port.onDisconnect.addListener(() => {
@@ -1329,6 +1367,32 @@ const TOOLS = {
       completed: results.filter((r) => r.ok).length,
       total: steps.length,
     };
+  },
+
+  // --- page translation (v2.14) --------------------------------------------
+  // page_translate only ignites the engine: walking, batching, provider calls
+  // and rendering then run in the background pipeline, outside the tool loop.
+
+  async page_translate(args) {
+    const tabId = await resolveTabId(args.tabId);
+    const r = await translate.start(tabId, args);
+    return { tabId, running: true, ...(r || {}) };
+  },
+
+  async page_translate_stop(args) {
+    const tabId = await resolveTabId(args.tabId);
+    return { tabId, ...(await translate.stop(tabId)) };
+  },
+
+  async translate_para(args) {
+    const tabId = await resolveTabId(args.tabId);
+    if (args.tid == null) throw new Error('translate_para needs tid');
+    return { tabId, ...(await translate.translatePara(tabId, args.tid)) };
+  },
+
+  async translate_status(args) {
+    const tabId = await resolveTabId(args.tabId);
+    return { tabId, ...(await translate.status(tabId)) };
   },
 };
 

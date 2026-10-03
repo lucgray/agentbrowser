@@ -1799,3 +1799,31 @@ textarea.set-input {
   resize: vertical;
   line-height: 1.5;
 }
+
+/* Translate page button + progress (v2.14) */
+.tr-btn {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+.tr-btn.on {
+  color: var(--ac-accent);
+  background: var(--ac-accent-tint);
+  border-color: var(--ac-accent);
+}
+
+.tr-status {
+  font: var(--ac-type-secondary);
+  color: var(--ac-text-muted);
+  flex: none;
+  white-space: nowrap;
+}
+
+.set-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font: var(--ac-type-secondary);
+  color: var(--ac-text-secondary);
+}

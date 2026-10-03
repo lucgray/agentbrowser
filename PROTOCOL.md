@@ -1,4 +1,4 @@
-# AgentBrowser protocol v2.13
+# AgentBrowser protocol v2.14
 
 AgentBrowser is a Chrome MV3 extension with a side-panel chat UI, plus a local hub
 server. The chat is backed by a pluggable "harness" (Claude Agent SDK, Claude
@@ -1137,6 +1137,61 @@ Routing:
 Disconnect semantics: only the pending calls dispatched to the dead socket
 fail (`extId` on each pending entry), and only commands bound to that
 browser are aborted — work on other browsers continues.
+
+## Page translation, v2.14
+
+Translation runs as a background pipeline, not in the chat tool loop: the
+agent (or the panel's 译 button) starts it once; paragraph extraction,
+batching, provider calls and rendering then proceed on their own.
+
+Three layers, three entry points:
+
+- **Page engine** (`extension/page/translate-engine.js`, injected via
+  `Runtime.evaluate` together with the pure helpers in
+  `page/translate-core.js`): walks the DOM into paragraph units tagged
+  `data-ab-tid`, gates work to the viewport (IntersectionObserver, ±600px),
+  follows mutations (MutationObserver), and renders one of five modes —
+  `bilingual`, `card`, `dim`, `replace`, `ondemand` (hover → 译 swaps the
+  paragraph in place → 原 restores; the button also accepts hovering-word
+  tooltips via `span.abw` word wraps).
+- **Extension coordinator** (`background/translate.js`): installs the CDP
+  `Runtime.addBinding('__abTranslateBus')` push channel, forwards engine
+  batches to the hub, applies results back, reports progress to the panel,
+  and re-arms a running session after navigation.
+- **Hub service** (`server/hub/translate.mjs`): `%%`-separated batches
+  (≤4 items / 1200 chars), per-hash dedup + inflight joining, LRU +
+  `~/.agentchat/translate-cache.json` caches, provider dispatch
+  (`auto` → stored OpenAI key → Anthropic → keyless google gtx).
+
+Wire messages (extension ↔ hub):
+
+```json
+{"type":"translate_request","id":"tr-<tabId>-<req>","tabId":7,
+ "items":[{"tid":3,"text":"…"}],"targetLang":"zh","context":{"webTitle":"…"}}
+{"type":"translate_result","id":"tr-<tabId>-<req>",
+ "results":{"3":"…"},"provider":"openai","cached":2}
+{"type":"translate_request","id":"tw-…","word":true,"items":[{"tid":12,"text":"word"}]}
+{"type":"set_translate_config","config":{"provider":"auto","model":null,"targetLang":"zh","mode":"bilingual","wordHover":false}}
+{"type":"get_translate_config"}
+{"type":"translate_config","config":{…},"provider":"openai"}
+```
+
+`set_translate_config` persists `config.translate` into `config.json` and
+rebuilds the service (cache is flushed first). `translate_request` replies
+go to the socket that asked, so multi-browser routing (v2.13) is implicit.
+
+Tools (consent-gated as writes where noted):
+
+- `page_translate {targetLang?, mode?, wordHover?, provider?, model?}` —
+  write-gated; returns once the engine is running; progress arrives as
+  `translate_progress` messages to the panel.
+- `page_translate_stop {}` — stops the engine on the tab.
+- `translate_para {tid}` — write-gated; (re)translates one walked paragraph.
+- `translate_status {}` — `{active, mode, targetLang, total, done, translating}`.
+
+Panel: a 译 button in the header toggles the pipeline on the active tab;
+`translate_progress` updates its counter; the settings page carries the
+quick-config row (provider / language / mode / word-hover / model).
 
 ## mcp-proxy.mjs
 

@@ -318,6 +318,15 @@ const I18N = {
     workThought: (s) => "Thought for " + s + " seconds",
     listening: "Listening\u2026",
     resumedLive: "Resumed live conversation.",
+    translateBtn: "Translate page",
+    translateLabel: "Page translation",
+    translateProviderTitle: "Translation provider",
+    translateLangTitle: "Target language",
+    translateModeTitle: "Display mode",
+    translateWordHover: "Hover word lookup",
+    translateModelPh: "model (optional)",
+    trProgress: (done, total) => `translating ${done}/${total}`,
+    trDone: (total) => `translated ${total}`,
   },
   zh: {
     banner: "Hub 未连接。请先启动 hub 服务，消息发送已停用。",
@@ -362,6 +371,15 @@ const I18N = {
     workThought: (s) => "思考了 " + s + " 秒",
     listening: "聆听中\u2026",
     resumedLive: "已恢复进行中的对话。",
+    translateBtn: "翻译页面",
+    translateLabel: "页面翻译",
+    translateProviderTitle: "翻译服务",
+    translateLangTitle: "目标语言",
+    translateModeTitle: "显示模式",
+    translateWordHover: "悬浮划词",
+    translateModelPh: "模型（可选）",
+    trProgress: (done, total) => `翻译中 ${done}/${total}`,
+    trDone: (total) => `已翻译 ${total} 段`,
   }
 };
 
@@ -862,7 +880,17 @@ async function init() {
   const proactiveAdapter = document.getElementById("set-proactive-adapter");
   const proactiveModel = document.getElementById("set-proactive-model");
   const proactivePrompt = document.getElementById("set-proactive-prompt");
+  const translateBtn = document.getElementById("translate-btn");
+  const trStatus = document.getElementById("tr-status");
+  const trProvider = document.getElementById("set-tr-provider");
+  const trLang = document.getElementById("set-tr-lang");
+  const trMode = document.getElementById("set-tr-mode");
+  const trWordHover = document.getElementById("set-tr-wordhover");
+  const trModel = document.getElementById("set-tr-model");
+  const trState = document.getElementById("set-tr-state");
+  const trSave = document.getElementById("set-tr-save");
   let proactiveTimer = null;
+  let trActive = false;
 
   function refreshProactiveModelList(cfgModel) {
     const entry = adapters.find((a) => a.name === proactiveAdapter.value) || null;
@@ -930,6 +958,74 @@ async function init() {
     clearTimeout(proactiveTimer);
     proactiveTimer = setTimeout(sendProactiveConfig, 600);
   });
+
+  // Page translation (v2.14): the header 译 button toggles the pipeline on the
+  // active tab; the settings row is the read-frog-style quick config — display
+  // prefs land in chrome.storage (extension side), provider/model/lang persist
+  // to the hub's config.json so agent calls use them too.
+  function renderTranslateConfig(cfg, provider) {
+    const c = cfg && typeof cfg === "object" ? cfg : {};
+    trProvider.value = typeof c.provider === "string" ? c.provider : "auto";
+    trLang.value = typeof c.targetLang === "string" ? c.targetLang : "zh";
+    trMode.value = typeof c.mode === "string" ? c.mode : "bilingual";
+    trWordHover.checked = c.wordHover === true;
+    trModel.value = typeof c.model === "string" ? c.model : "";
+    trState.textContent = provider ? `${provider}` : "";
+  }
+
+  trSave.addEventListener("click", () => {
+    const cfg = {
+      provider: trProvider.value,
+      model: trModel.value.trim() || null,
+      targetLang: trLang.value,
+      mode: trMode.value,
+      wordHover: trWordHover.checked,
+    };
+    postToHub({ type: "set_translate_config", config: cfg });
+    chrome.storage.local
+      .set({ abTranslate: { mode: cfg.mode, targetLang: cfg.targetLang, wordHover: cfg.wordHover } })
+      .catch((err) => console.warn("[agentbrowser] translate prefs save failed", err));
+  });
+
+  // The 译 button starts with the stored page prefs; provider/model/lang come
+  // from the hub config, so the button works after a settings save without a
+  // reload.
+  translateBtn.addEventListener("click", () => {
+    if (trActive) {
+      postToHub({ type: "ui_translate", action: "stop" });
+      trActive = false;
+      translateBtn.classList.remove("on");
+      trStatus.hidden = true;
+      return;
+    }
+    postToHub({ type: "ui_translate", action: "start" });
+    trActive = true;
+    translateBtn.classList.add("on");
+  });
+
+  function renderTranslateProgress(msg) {
+    if (msg.error) {
+      trStatus.hidden = false;
+      trStatus.textContent = String(msg.error);
+      trActive = false;
+      translateBtn.classList.remove("on");
+      return;
+    }
+    if (msg.active === false && msg.type === "translate_progress") {
+      trActive = false;
+      translateBtn.classList.remove("on");
+      trStatus.hidden = true;
+      return;
+    }
+    trActive = true;
+    translateBtn.classList.add("on");
+    const total = Number(msg.total) || 0;
+    const done = Number(msg.done) || 0;
+    if (total > 0) {
+      trStatus.hidden = false;
+      trStatus.textContent = done >= total ? t("trDone", done)(total) : t("trProgress", (d, tt) => `${d}/${tt}`)(done, total);
+    }
+  }
 
   let port = null;
   let ownWindowId = null; // browser window hosting this panel (v2.1)
@@ -1011,6 +1107,7 @@ async function init() {
     });
     postToHub({ type: "get_capabilities" });
     postToHub({ type: "chat_list" });
+    postToHub({ type: "get_translate_config" });
   }
 
   // One send path for everything that is not a chat turn, so a dead Port never
@@ -1064,6 +1161,10 @@ async function init() {
         requestChatList();
         showComposerError("that conversation is gone from the hub");
       }
+    } else if (msg.type === "translate_config") {
+      renderTranslateConfig(msg.config, msg.provider);
+    } else if (msg.type === "translate_progress") {
+      renderTranslateProgress(msg);
     }
   }
 

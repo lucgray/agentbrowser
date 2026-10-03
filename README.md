@@ -485,6 +485,26 @@ tools = await client.get_tools()
 
 </details>
 
+## Page translation
+
+`page_translate` starts a background translation pipeline — the agent
+fires it once and keeps working; paragraphs are walked, batched and
+rendered without spending a single token of the chat loop. The panel's
+译 header button does the same for you, and the settings page has a
+quick-config row (provider / target language / display mode / word
+hover).
+
+- **Display modes** — `bilingual`, `card`, `dim`, `replace`, and
+  `ondemand`: hover a paragraph, click 译 to swap it to Chinese in
+  place, click 原 to restore the original.
+- **Hover word lookup** — enable `wordHover` to get a tooltip
+  translation for the word under the cursor.
+- **Providers** — `auto` uses your stored OpenAI key, then Anthropic,
+  then a keyless endpoint; `config.json`'s `translate` block (or the
+  settings row) pins `provider`/`model`/`targetLang`. The hub batches
+  four paragraphs per call, caches by content hash, and dedupes
+  in-flight requests.
+
 ## Multiple browsers on one hub
 
 Several Chrome-family browsers or profiles can run the extension against
@@ -527,6 +547,10 @@ agentbrowser navigate '{"url":"https://x","browser":"Edge"}'
 | `dialog_respond` | `{accept, promptText?, tabId?}` | `{handled, ...}` |
 | `patch_apply` | `{patches:[{selector,styles?,attributes?,insertAdjacentHTML?,remove?}], label?, tabId?}` | `{patchId, applied, results}` |
 | `patch_revert` | `{patchId, tabId?}` | `{patchId, reverted, missing}` |
+| `page_translate` | `{targetLang?, mode?, wordHover?, provider?, model?, tabId?}` | starts the translation pipeline; progress streams to the panel |
+| `page_translate_stop` | `{tabId?}` | `{stopped}` |
+| `translate_para` | `{tid, tabId?}` | re-translates one walked paragraph |
+| `translate_status` | `{tabId?}` | `{active, mode, targetLang, total, done, translating}` |
 
 `tabId` omitted means the active tab. The service worker attaches the
 debugger on demand, serializes commands per tab, and re-attaches if Chrome

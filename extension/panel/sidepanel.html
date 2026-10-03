@@ -12,7 +12,9 @@
     <span id="browser-tag" class="browser-tag" hidden></span>
     <span class="grow"></span>
     <select id="chat-switcher" title="Chats" aria-label="Chats" data-i18n-title="chats" data-i18n-aria="chats"></select>
-    <span class="grow"></span>
+    <button id="translate-btn" class="icon-btn tr-btn" type="button" title="Translate page" aria-label="Translate page"
+            data-i18n-title="translateBtn" data-i18n-aria="translateBtn">译</button>
+    <span id="tr-status" class="tr-status" hidden></span>
     <button id="settings-btn" class="icon-btn" type="button" title="Settings" aria-label="Settings" aria-expanded="false"
             data-i18n-title="settings" data-i18n-aria="settings">
       <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -68,6 +70,49 @@
       </div>
       <textarea id="set-proactive-prompt" class="set-input" rows="4" spellcheck="false"
                 data-i18n-placeholder="proactivePromptPlaceholder"></textarea>
+    </div>
+
+    <div class="set-group">
+      <div class="set-head">
+        <label class="set-label" data-i18n="translateLabel">页面翻译 / Page translation</label>
+        <span id="set-tr-state" class="set-state"></span>
+      </div>
+      <div class="set-row">
+        <select id="set-tr-provider" class="set-select" data-i18n-title="translateProviderTitle">
+          <option value="auto">auto</option>
+          <option value="openai">openai</option>
+          <option value="anthropic">anthropic</option>
+          <option value="free">free</option>
+        </select>
+        <select id="set-tr-lang" class="set-select" data-i18n-title="translateLangTitle">
+          <option value="zh">中文</option>
+          <option value="en">English</option>
+          <option value="ja">日本語</option>
+          <option value="ko">한국어</option>
+          <option value="fr">Français</option>
+          <option value="de">Deutsch</option>
+          <option value="es">Español</option>
+        </select>
+      </div>
+      <div class="set-row">
+        <select id="set-tr-mode" class="set-select" data-i18n-title="translateModeTitle">
+          <option value="bilingual">bilingual</option>
+          <option value="card">card</option>
+          <option value="dim">dim</option>
+          <option value="replace">replace</option>
+          <option value="ondemand">ondemand</option>
+        </select>
+        <label class="set-check">
+          <input id="set-tr-wordhover" type="checkbox" class="set-toggle">
+          <span data-i18n="translateWordHover">划词翻译</span>
+        </label>
+      </div>
+      <input id="set-tr-model" class="set-input" autocomplete="off" spellcheck="false"
+             data-i18n-placeholder="translateModelPh" placeholder="model (optional)">
+      <div class="set-row">
+        <button id="set-tr-save" type="button" data-i18n="saveBtn">Save</button>
+      </div>
+      <p class="set-note" data-i18n="translateNote">Translation runs as a background pipeline outside the chat loop. "auto" uses your stored OpenAI key, then Anthropic, then a free endpoint.</p>
     </div>
 
     <div class="set-group">
