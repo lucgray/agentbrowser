@@ -11,6 +11,7 @@ import os from "node:os";
 import path from "node:path";
 import { WebSocketServer } from "ws";
 import { TOOLS } from "./tools.mjs";
+import { createTranslator } from "./translate.mjs";
 import { loadCatalog } from "../adapters/model-catalog.mjs";
 import {
   COMMANDS,
@@ -45,6 +46,25 @@ try {
 function consentPolicy() {
   const p = config && config.permissions;
   return p && typeof p === "object" ? p : null;
+}
+
+// Page-translation service (PROTOCOL v2.14): batches from the page engine in
+// each extension are deduplicated, cached and fanned out to the configured
+// provider here — the chat loop never sees a token of it. getApiKey is a
+// hoisted function declaration, safe to reference before its definition.
+let translator = createTranslator({
+  config: config.translate || {},
+  getKey: getApiKey,
+});
+
+function swapTranslator(cfg) {
+  const prev = translator;
+  translator = createTranslator({ config: cfg || {}, getKey: getApiKey });
+  try {
+    prev.flushCache();
+  } catch (err) {
+    log("translate cache flush failed:", err && err.message);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1811,6 +1831,72 @@ function handleMessage(ws, msg) {
     else if (msg.type === "get_capabilities") sendCapabilities(ws);
     else if (msg.type === "chat_list") handleChatList(ws);
     else if (msg.type === "chat_resume") handleChatResume(ws, msg);
+    else if (msg.type === "translate_request")
+      handleTranslateRequest(ws, msg).catch((err) => log("translate_request failed:", err && err.message));
+    else if (msg.type === "set_translate_config")
+      handleSetTranslateConfig(ws, msg).catch((err) => log("set_translate_config failed:", err && err.message));
+    else if (msg.type === "get_translate_config")
+      handleGetTranslateConfig(ws).catch((err) => log("get_translate_config failed:", err && err.message));
+  }
+}
+
+// translate_request (extension -> hub): one paragraph batch or a single-word
+// lookup. Replies on the same extension socket so multi-browser routing stays
+// implicit — the answer lands on the browser that asked (v2.13).
+async function handleTranslateRequest(ws, msg) {
+  const id = typeof msg.id === "string" ? msg.id : null;
+  const reply = (extra) => {
+    try {
+      ws.send(JSON.stringify({ type: "translate_result", id, ...extra }));
+    } catch (err) {
+      log("translate_result send failed:", err && err.message);
+    }
+  };
+  try {
+    const r = await translator.handleRequest(msg);
+    reply({ results: r.results, provider: r.provider, cached: r.cached });
+  } catch (err) {
+    log("translate_request failed:", err && err.message);
+    reply({ error: String((err && err.message) || err) });
+  }
+}
+
+// Panel quick-config: {provider, model, targetLang} land in config.json's
+// `translate` block and rebuild the service (cache file is flushed first).
+async function handleSetTranslateConfig(ws, msg) {
+  const c = msg && typeof msg.config === "object" && msg.config ? msg.config : {};
+  const clean = {};
+  for (const k of ["provider", "model", "targetLang", "mode", "wordHover"]) {
+    if (c[k] !== undefined) clean[k] = c[k];
+  }
+  // Merge, don't replace: config.translate may carry fields the panel form
+  // doesn't model (e.g. baseUrl) — a wholesale write silently dropped them.
+  config.translate = { ...(config.translate || {}), ...clean };
+  try {
+    writeFileSync(path.join(__dirname, "config.json"), JSON.stringify(config, null, 2));
+  } catch (err) {
+    log("config.json persist failed:", err.message);
+  }
+  swapTranslator(config.translate);
+  log("translate config updated: " + JSON.stringify(clean));
+  const provider = await Promise.resolve(translator.provider()).catch(() => "free");
+  try {
+    ws.send(JSON.stringify({ type: "translate_config", config: config.translate, provider }));
+  } catch (err) {
+    log("translate_config send failed:", err && err.message);
+  }
+}
+
+async function handleGetTranslateConfig(ws) {
+  const provider = await Promise.resolve(translator.provider()).catch(() => "free");
+  try {
+    ws.send(JSON.stringify({
+      type: "translate_config",
+      config: config.translate || {},
+      provider,
+    }));
+  } catch (err) {
+    log("translate_config send failed:", err && err.message);
   }
 }
 

@@ -858,6 +858,56 @@ export const TOOLS = [
       },
       required: ["steps"]
     }
+  },
+  {
+    name: "page_translate",
+    description: "Translate the page into a target language via the background pipeline (v2.14): paragraphs are walked, batched, translated by the configured provider and rendered in place — the call returns once the engine is running; it does NOT block the conversation while paragraphs translate. Progress arrives as chat events. mode: 'bilingual' (translated block after each paragraph, default), 'card' (translated card), 'dim' (source dimmed + translation), 'replace' (swap source text), 'ondemand' (hover a paragraph, click 译 to swap in place; click 原 to restore). Use translate_status for progress, page_translate_stop to stop, translate_para to re-run one paragraph.",
+    args: {
+      type: "object",
+      properties: {
+        targetLang: { type: "string", description: "BCP-47 target language code (default from config, 'zh')" },
+        mode: { type: "string", description: "bilingual | card | dim | replace | ondemand (default from config/settings)" },
+        wordHover: { type: "boolean", description: "Hover a word to see its translation in a tooltip" },
+        provider: { type: "string", description: "openai | anthropic | free | auto (default auto: stored key else free)" },
+        model: { type: "string", description: "Provider model override (default: cheap fast model per provider)" },
+        tabId: { type: "number", description: "Target tab id; omit for the active tab" }
+      },
+      required: []
+    }
+  },
+  {
+    name: "page_translate_stop",
+    description: "Stop the page-translation pipeline on a tab (v2.14): the engine disconnects its observers and removes every rendered translation plus the data-ab-tid markers, restoring the original page. Already-queued work is dropped.",
+    args: {
+      type: "object",
+      properties: {
+        tabId: { type: "number", description: "Target tab id; omit for the active tab" }
+      },
+      required: []
+    }
+  },
+  {
+    name: "translate_para",
+    description: "Re-translate (or first-translate in ondemand mode) one paragraph by its tid — paragraph ids come from the engine's walk and are visible in translate_status / element data-ab-tid attributes (v2.14). Requires page_translate to be running on the tab.",
+    args: {
+      type: "object",
+      properties: {
+        tid: { type: "number", description: "Paragraph tid from the translation engine's walk" },
+        tabId: { type: "number", description: "Target tab id; omit for the active tab" }
+      },
+      required: ["tid"]
+    }
+  },
+  {
+    name: "translate_status",
+    description: "Translation pipeline state on a tab (v2.14): {active, mode, targetLang, total, done, translating} — whether the engine is running and how far through the page it is.",
+    args: {
+      type: "object",
+      properties: {
+        tabId: { type: "number", description: "Target tab id; omit for the active tab" }
+      },
+      required: []
+    }
   }
 ];
 
