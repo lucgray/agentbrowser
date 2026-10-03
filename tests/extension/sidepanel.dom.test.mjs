@@ -452,6 +452,47 @@ t("done collapses the block to the duration summary", () => {
   assert.match(block.children[0].children[1].textContent, /^Thought for \d+ seconds$/);
 });
 
+// --- scroll pinning ----------------------------------------------------------
+
+t("auto-scroll follows only while pinned at the bottom", () => {
+  messages.clientHeight = 20;
+  messages.scrollHeight = 1000;
+  // Pinned at the bottom: growth keeps the view at the end.
+  messages.scrollTop = 960;
+  messages.dispatch("scroll", {});
+  input.value = "pin check";
+  enter();
+  assert.equal(lastSent().type, "chat");
+  chatEvent({ kind: "thinking", text: "chunk one" });
+  assert.equal(messages.scrollTop, 1000, "pinned view follows growth");
+
+  // Scrolled up to read: streaming and expand/collapse leave the view alone.
+  messages.scrollTop = 400;
+  messages.dispatch("scroll", {});
+  const block = lastTurn().children.find((c) => c.classList.contains("work-block"));
+  chatEvent({ kind: "thinking", text: "chunk two" });
+  chatEvent({ kind: "tool_use", tool: "navigate" });
+  assert.equal(messages.scrollTop, 400, "unpinned view is not dragged by events");
+  block.children[0].dispatch("click", {});
+  assert.equal(messages.scrollTop, 400, "toggling a block stays put");
+  block.children[0].dispatch("click", {});
+  assert.equal(messages.scrollTop, 400);
+
+  // Back at the bottom: following resumes.
+  messages.scrollTop = 960;
+  messages.dispatch("scroll", {});
+  chatEvent({ kind: "thinking", text: "chunk three" });
+  assert.equal(messages.scrollTop, 1000, "re-pinning resumes following");
+
+  // Your own message always pulls you down regardless of pin state.
+  messages.scrollTop = 400;
+  messages.dispatch("scroll", {});
+  chatEvent({ kind: "done" });
+  input.value = "pull me down";
+  enter();
+  assert.equal(messages.scrollTop, 1000, "a sent message force-scrolls");
+});
+
 console.log(`${pass} passed, ${fails.length} failed`);
 for (const f of fails) console.log("FAIL " + f);
 process.exit(fails.length ? 1 : 0);
