@@ -332,6 +332,7 @@ const I18N = {
     translateLangTitle: "Target language",
     translateModeTitle: "Display mode",
     translateWordHover: "Hover word lookup",
+    translateSpace: "Triple-space page translate",
     translateModelPh: "model (optional)",
     trProgress: (done, total) => `translating ${done}/${total}`,
     trDone: (total) => `translated ${total}`,
@@ -393,6 +394,7 @@ const I18N = {
     translateLangTitle: "目标语言",
     translateModeTitle: "显示模式",
     translateWordHover: "悬浮划词",
+    translateSpace: "三击空格翻译",
     translateModelPh: "模型（可选）",
     trProgress: (done, total) => `翻译中 ${done}/${total}`,
     trDone: (total) => `已翻译 ${total} 段`,
@@ -875,6 +877,7 @@ async function init() {
   const toggleAutoSelection = document.getElementById("toggle-auto-selection");
   const toggleFloatingAsk = document.getElementById("toggle-floating-ask");
   const setFloatTheme = document.getElementById("set-float-theme");
+  const trSpace = document.getElementById("set-tr-space");
   refreshDynamicI18n = () => {
     BASE_PLACEHOLDER = t("composerPlaceholder");
     renderBackend();
@@ -882,7 +885,7 @@ async function init() {
       field.state.textContent = keyState[field.provider] ? t("keyConfigured") : t("keyNotSet");
     }
   };
-  chrome.storage.local.get(["panelLanguage", "autoSelectionEnabled", "floatingAskEnabled", "floatTheme"]).then((stored) => {
+  chrome.storage.local.get(["panelLanguage", "autoSelectionEnabled", "floatingAskEnabled", "floatTheme", "abSpaceTranslate"]).then((stored) => {
     uiLang = (stored && stored.panelLanguage) || "auto";
     applyI18n();
     setLanguage.value = uiLang;
@@ -891,6 +894,7 @@ async function init() {
     setFloatTheme.value = ["frost", "ink", "paper"].includes(stored.floatTheme)
       ? stored.floatTheme
       : "frost";
+    trSpace.checked = stored.abSpaceTranslate !== false;
   }).catch(() => applyI18n());
   setLanguage.addEventListener("change", () => {
     uiLang = setLanguage.value;
@@ -905,6 +909,11 @@ async function init() {
   });
   setFloatTheme.addEventListener("change", () => {
     chrome.storage.local.set({ floatTheme: setFloatTheme.value });
+  });
+  trSpace.addEventListener("change", () => {
+    chrome.storage.local
+      .set({ abSpaceTranslate: trSpace.checked })
+      .catch((err) => console.warn("[agentbrowser] space translate pref save failed", err));
   });
 
   // Proactive annotation (auto co-read on a fresh tab): toggle + provider +

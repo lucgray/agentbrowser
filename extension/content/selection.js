@@ -21,6 +21,7 @@ const FLOAT_ASK_KEY = "floatingAskEnabled"; // chrome.storage.local, set by sw
 const AUTO_SEL_KEY = "autoSelectionEnabled"; // chrome.storage.local, set by the panel settings
 const FLOAT_THEME_KEY = "floatTheme"; // chrome.storage.local, frost | ink | paper
 const FLOAT_THEMES = new Set(["frost", "ink", "paper"]);
+const SPACE_TR_KEY = "abSpaceTranslate"; // triple-space page-translate toggle
 
 let floatBtn = null;
 let trPop = null;
@@ -31,6 +32,9 @@ let lastRightClickElement = null;
 let floatingAskEnabled = true; // cached; kept in sync below
 let autoSelectionEnabled = true; // cached; panel 设置开关
 let floatTheme = "frost"; // cached; settings select
+let spaceTrEnabled = true; // cached; settings checkbox
+let spaceRun = 0;
+let spaceTimer = null;
 
 // The floating button can clash with other overlays, so it obeys a
 // persistent user setting flipped from the right-click menu. Read it once
@@ -38,11 +42,17 @@ let floatTheme = "frost"; // cached; settings select
 // button immediately.
 if (isContextValid()) {
   chrome.storage.local
-    .get({ [FLOAT_ASK_KEY]: true, [AUTO_SEL_KEY]: true, [FLOAT_THEME_KEY]: "frost" })
+    .get({
+      [FLOAT_ASK_KEY]: true,
+      [AUTO_SEL_KEY]: true,
+      [FLOAT_THEME_KEY]: "frost",
+      [SPACE_TR_KEY]: true,
+    })
     .then((r) => {
       floatingAskEnabled = r[FLOAT_ASK_KEY] !== false;
       autoSelectionEnabled = r[AUTO_SEL_KEY] !== false;
       floatTheme = FLOAT_THEMES.has(r[FLOAT_THEME_KEY]) ? r[FLOAT_THEME_KEY] : "frost";
+      spaceTrEnabled = r[SPACE_TR_KEY] !== false;
     })
     .catch((err) => {
       logWarn("floating-ask setting read failed", err);
@@ -57,6 +67,9 @@ if (isContextValid()) {
     }
     if (AUTO_SEL_KEY in changes) {
       autoSelectionEnabled = changes[AUTO_SEL_KEY].newValue !== false;
+    }
+    if (SPACE_TR_KEY in changes) {
+      spaceTrEnabled = changes[SPACE_TR_KEY].newValue !== false;
     }
     if (FLOAT_THEME_KEY in changes) {
       const v = changes[FLOAT_THEME_KEY].newValue;
@@ -720,6 +733,34 @@ function handleKeyDown(e) {
   if (e.key === "Escape") {
     hideButton();
     hideTrPop();
+    return;
+  }
+  // Triple-space toggles page translation (immersive-style). Skips editable
+  // targets — three spaces in a text field is input, not a command.
+  if (e.code !== "Space" || e.repeat || !spaceTrEnabled) return;
+  const t = e.target;
+  if (
+    t &&
+    (t.isContentEditable ||
+      /^(INPUT|TEXTAREA|SELECT)$/.test(String(t.tagName || "")))
+  ) {
+    spaceRun = 0;
+    return;
+  }
+  spaceRun += 1;
+  clearTimeout(spaceTimer);
+  spaceTimer = setTimeout(() => {
+    spaceRun = 0;
+  }, 650);
+  if (spaceRun >= 3) {
+    spaceRun = 0;
+    e.preventDefault();
+    chrome.runtime
+      .sendMessage({ target: "sw", cmd: "translate_toggle" })
+      .then((res) => {
+        if (!(res && res.success)) logWarn("translate_toggle rejected", res && res.error);
+      })
+      .catch((err) => logWarn("translate_toggle send failed", err));
   }
 }
 
