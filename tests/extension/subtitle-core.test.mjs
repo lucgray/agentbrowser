@@ -20,7 +20,10 @@ test('detectSite recognises youtube and bilibili urls', () => {
   assert.equal(detectSite('https://youtu.be/abc'), 'youtube');
   assert.equal(detectSite('https://www.bilibili.com/video/BV1xx411c7mD'), 'bilibili');
   assert.equal(detectSite('https://b23.tv/xyz'), 'bilibili');
+  assert.equal(detectSite('https://x.com/user/status/123'), 'x');
+  assert.equal(detectSite('https://mobile.twitter.com/user/status/123'), 'x');
   assert.equal(detectSite('https://example.com'), null);
+  assert.equal(detectSite('https://notx.com/video/1'), null);
 });
 
 test('decodeEntities maps named and numeric entities', () => {

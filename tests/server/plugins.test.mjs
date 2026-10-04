@@ -60,6 +60,7 @@ test('disabling the translate plugin hides all its tools from effectiveTools', (
     'page_translate', 'page_translate_stop', 'translate_para', 'translate_status',
     'translate_recent', 'translate_stats', 'translate_cache_clear',
     'subtitle_translate', 'subtitle_stop', 'subtitle_status', 'transcript_get',
+    'video_download',
   ]);
   assert.equal(off.length, CORE_COUNT - hidden.size);
   for (const name of hidden) {

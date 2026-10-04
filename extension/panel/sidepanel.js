@@ -2664,19 +2664,57 @@ async function init() {
     inputEl.focus();
   }
 
+  let attachmentAppliedTs = 0;
+
+  // pendingAttachment (video "@" screenshot) — same single-slot semantics as
+  // pendingSelection: latest write wins, timestamps guard re-application.
+  async function applyPendingAttachment(record) {
+    if (!record || typeof record !== "object") return;
+    const ts = Number(record.timestamp) || 0;
+    if (ts <= attachmentAppliedTs) return;
+    const a = record.attachment;
+    if (!a || !a.base64 || !a.name) return;
+    if (ownWindowId != null && record.tabId != null) {
+      try {
+        const tab = await chrome.tabs.get(record.tabId);
+        if (!tab || tab.windowId !== ownWindowId) return;
+      } catch (err) {
+        console.warn("[agentbrowser] pendingAttachment tab lookup failed", err);
+        return;
+      }
+    }
+    attachmentAppliedTs = ts;
+    attachments.push({
+      name: String(a.name),
+      mimeType: String(a.mimeType || "image/png"),
+      size: Number(a.size) || 0,
+      base64: String(a.base64),
+    });
+    renderAttachments();
+    updateControls();
+  }
+
   function watchSelections() {
     const store = chrome.storage && chrome.storage.session;
     if (!store || typeof store.get !== "function") return;
     store
-      .get("pendingSelection")
-      .then((data) => applyPendingSelection(data && data.pendingSelection))
+      .get(["pendingSelection", "pendingAttachment"])
+      .then((data) => {
+        applyPendingSelection(data && data.pendingSelection);
+        applyPendingAttachment(data && data.pendingAttachment);
+      })
       .catch((err) =>
         console.warn("[agentbrowser] pendingSelection read failed", err)
       );
     if (!chrome.storage.onChanged) return;
     chrome.storage.onChanged.addListener((changes, area) => {
-      if (area !== "session" || !changes.pendingSelection) return;
-      applyPendingSelection(changes.pendingSelection.newValue);
+      if (area !== "session") return;
+      if (changes.pendingSelection) {
+        applyPendingSelection(changes.pendingSelection.newValue);
+      }
+      if (changes.pendingAttachment) {
+        applyPendingAttachment(changes.pendingAttachment.newValue);
+      }
     });
   }
 

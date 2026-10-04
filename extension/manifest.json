@@ -26,11 +26,13 @@
       ],
       "js": [
         "content/selection.js",
-        "content/annotation.js"
+        "content/annotation.js",
+        "content/video-ask.js"
       ],
       "css": [
         "content/selection.css",
-        "content/annotation.css"
+        "content/annotation.css",
+        "content/video-ask.css"
       ],
       "run_at": "document_idle",
       "all_frames": true

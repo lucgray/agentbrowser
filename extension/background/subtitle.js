@@ -151,6 +151,22 @@ async function loadCues(p, lang) {
   throw new Error(`unsupported site: ${p.site}`);
 }
 
+// X keeps its captions in HTML5 textTracks — page-side only, so the read is
+// an eval, not a fetch. Needs the tabId loadCues doesn't otherwise use.
+async function loadCuesX(tabId, p, lang) {
+  const track = pickTrack(
+    (p.tracks || []).map((t) => ({ lang: t.lang, name: t.name, index: t.index })),
+    lang
+  ) || (p.tracks || [])[0];
+  if (!track) throw new Error('no text tracks on this video');
+  const r = await evalRaw(
+    tabId,
+    `__abSubtitle && __abSubtitle.readTextTrackCues(${Number(track.index) || 0})`
+  );
+  if (!r || r.error) throw new Error((r && r.error) || 'text track read failed');
+  return { cues: r.cues, track: r.track };
+}
+
 // ------------------------------------------------------------- tool entry
 
 // tool_call: subtitle_translate — bilingual overlay over the video.
@@ -160,7 +176,9 @@ export async function start(tabId, cfg) {
   if (s.startPromise) return s.startPromise;
   s.startPromise = (async () => {
     const p = await probe(tabId);
-    const { cues, track } = await loadCues(p, s.cfg.trackLang);
+    const { cues, track } = p.site === 'x'
+      ? await loadCuesX(tabId, p, s.cfg.trackLang)
+      : await loadCues(p, s.cfg.trackLang);
     const r = await evalRaw(
       tabId,
       `__abSubtitle.start(${JSON.stringify({ cues, targetLang: s.cfg.targetLang })})`
@@ -207,7 +225,9 @@ export async function status(tabId) {
 // window around the playhead. No overlay is started.
 export async function transcript(tabId, args) {
   const p = await probe(tabId);
-  const { cues, track } = await loadCues(p, args && args.lang);
+  const { cues, track } = p.site === 'x'
+    ? await loadCuesX(tabId, p, args && args.lang)
+    : await loadCues(p, args && args.lang);
   let out = cues;
   let truncated = false;
   if (args && args.aroundSec != null) {
@@ -290,6 +310,22 @@ export function onSummary(msg) {
     console.warn('[agentbrowser] summary apply failed', err);
   });
   return true;
+}
+
+// Transcript slice around a playhead second, for the video "@" ask flow:
+// sw pulls the running session's cue text so the agent sees what the video
+// is saying around where the user stopped — not the whole track.
+export function transcriptWindow(tabId, timeSec, aroundSec = 90) {
+  const s = sessions.get(tabId);
+  const cues = s && s.cues;
+  if (!Array.isArray(cues) || !cues.length || !s.running) return null;
+  const t = Number(timeSec) || 0;
+  const lo = t - 15;
+  const hi = t + Number(aroundSec);
+  const lines = cues
+    .filter((c) => c.end >= lo && c.start <= hi)
+    .map((c) => c.translated ? `${c.text} / ${c.translated}` : c.text);
+  return lines.length ? lines.join('\n') : null;
 }
 
 // translate_result fan-in — sw asks us first; returns true when the id was

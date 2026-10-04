@@ -8,6 +8,7 @@ export function detectSite(url) {
   const u = String(url || '');
   if (/youtube\.com\/watch/.test(u) || /youtu\.be\//.test(u)) return 'youtube';
   if (/bilibili\.com\/video\//.test(u) || /b23\.tv\//.test(u)) return 'bilibili';
+  if (/\/\/(?:[a-z0-9-]+\.)*(x|twitter)\.com\//.test(u)) return 'x';
   return null;
 }
 

@@ -1360,6 +1360,32 @@ new wire path is needed for transcript data.
   reply `error`) → `summary_result {id, summary}` → evaluated as
   `__abSubSidebar.onSummary({summary, error})`.
 
+**X (twitter.com) captions** ride the same pipeline: `detectSite` returns
+`'x'`; `probe()` reads `video.textTracks` in-page (kind subtitles/captions)
+and `__abSubtitle.readTextTrackCues(i)` flips the track to `hidden`, polls
+for its cue list, and returns it — X ships no fetchable caption document,
+so this is the only source. Everything downstream (overlay, sidebar,
+translation batches, transcript_get, transcriptWindow) is site-agnostic.
+
+**Video "@" reference** (`content/video-ask.js`): hovering any `<video>`
+≥120×80 CSS px shows an @ button at its top-left edge. Clicking sends
+`video_ask {url,title,currentTime,duration,paused,rect,viewport}` to the
+SW, which (1) opens the side panel inside the gesture, (2) stages a
+`pendingSelection` chip whose text is `[video] title + url + playhead` plus
+the running subtitle session's transcript window (`transcriptWindow`,
+±15s/90s), and (3) while paused, `tabs.captureVisibleTab` → OffscreenCanvas
+crop to the video rect → `pendingAttachment` in storage.session — the
+panel applies both slots (tabId-matched to the owning window).
+
+**`video_download {url?, format?, dir?}`** is hub-answered (same
+interception as translate_stats): the hub resolves the chat's bound-tab
+url (`chatTabUrls`) when `url` is omitted, locates yt-dlp
+(`yt-dlp` then `python3 -m yt_dlp`), and spawns it with
+`-o <dir>/%(title).80s.%(ext)s --print after_move:filepath` into `dir`
+(default `~/.agentchat/downloads`). Replies `{ok, file?, error?}`; a
+missing binary returns an install hint, a non-zero exit returns the
+stderr tail. Gated by the translate plugin's exposeTools.
+
 ## mcp-proxy.mjs
 
 Stdio MCP server (use `@modelcontextprotocol/sdk`, installed) exposing the ten

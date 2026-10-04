@@ -6,6 +6,7 @@ import {
   readdirSync
 } from "node:fs";
 import { randomUUID } from "node:crypto";
+import { spawn } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import os from "node:os";
 import path from "node:path";
@@ -268,6 +269,11 @@ const chatBrowsers = new Map();
 // always resolve the browser first, then the tab.
 const chatTabs = new Map();
 
+// chatId -> url of the bound tab — set with chatTabs on each message so
+// hub-answered tools like video_download can resolve "this video" without a
+// browser round trip.
+const chatTabUrls = new Map();
+
 // chatId -> { input, output } running totals for the chat (PROTOCOL v1.3 A).
 // Kept out of `sessions` on purpose: an adapter or model switch disposes the
 // session mid-chat and the totals must survive that. Only an idle sweep (the
@@ -509,7 +515,7 @@ function failPendingExtensionCalls(browserId, errorMessage) {
 // pattern as browsers_list: no extension round trip, so a future web client
 // can manage the service over the same wire (v2.15).
 const HUB_TRANSLATE_TOOLS = new Set([
-  "translate_stats", "translate_recent", "translate_cache_clear",
+  "translate_stats", "translate_recent", "translate_cache_clear", "video_download",
 ]);
 
 // Config handed to adapters at session creation: plugin prompt fragments are
@@ -526,7 +532,75 @@ function sessionConfig() {
 function hubTranslateTool(tool, args = {}) {
   if (tool === "translate_stats") return translator.stats();
   if (tool === "translate_recent") return { recent: translator.recentList(args.n) };
+  if (tool === "video_download") return runVideoDownload(args);
   return translator.clearCache();
+}
+
+// video_download (v2.18): shells out to yt-dlp on the hub host — the right
+// place for it (the extension can't write arbitrary files or spawn anyway).
+// Resolves yt-dlp on PATH, else `python3 -m yt_dlp`.
+const YTDLP_TIMEOUT_MS = 10 * 60 * 1000;
+let ytDlpCmd = null; // null = not probed yet; array argv prefix once found
+
+function findYtDlp() {
+  if (ytDlpCmd) return Promise.resolve(ytDlpCmd);
+  const tryCmd = (argv) => new Promise((resolve) => {
+    const p = spawn(argv[0], argv.slice(1).concat(["--version"]), { stdio: ["ignore", "pipe", "pipe"] });
+    let out = "";
+    p.stdout.on("data", (d) => { out += d; });
+    p.on("error", () => resolve(null));
+    p.on("close", (code) => resolve(code === 0 ? argv : null));
+  });
+  return (async () => {
+    ytDlpCmd = (await tryCmd(["yt-dlp"])) || (await tryCmd(["python3", "-m", "yt_dlp"]));
+    if (!ytDlpCmd) ytDlpCmd = null;
+    return ytDlpCmd;
+  })();
+}
+
+async function runVideoDownload(args) {
+  const url = String(args.url || "").trim();
+  if (!/^https?:\/\//.test(url)) throw new Error("video_download needs a video page url (or a bound tab)");
+  const cmd = await findYtDlp();
+  if (!cmd) {
+    throw new Error("yt-dlp not installed on the hub host — run: pipx install yt-dlp (or python3 -m pip install yt-dlp)");
+  }
+  const dir = path.resolve(
+    String(args.dir || "").trim() || path.join(os.homedir(), ".agentchat", "downloads")
+  );
+  mkdirSync(dir, { recursive: true });
+  const argv = cmd.concat([
+    "--no-playlist",
+    "--print", "after_move:filepath",
+    "-o", path.join(dir, "%(title).80s.%(ext)s"),
+    ...(args.format ? ["-f", String(args.format)] : []),
+    url,
+  ]);
+  return new Promise((resolve) => {
+    const proc = spawn(argv[0], argv.slice(1), { cwd: dir });
+    let tail = "";
+    let file = null;
+    const keep = (chunk) => {
+      const s = String(chunk);
+      tail = (tail + s).slice(-4000);
+    };
+    proc.stdout.on("data", (d) => {
+      keep(d);
+      const line = String(d).trim().split(/\r?\n/).pop();
+      if (line && line.startsWith("/")) file = line;
+    });
+    proc.stderr.on("data", keep);
+    const timer = setTimeout(() => { proc.kill("SIGKILL"); }, YTDLP_TIMEOUT_MS);
+    proc.on("error", (err) => {
+      clearTimeout(timer);
+      resolve({ ok: false, error: String(err.message || err) });
+    });
+    proc.on("close", (code) => {
+      clearTimeout(timer);
+      if (code === 0) resolve({ ok: true, file, dir });
+      else resolve({ ok: false, error: `yt-dlp exited ${code}: ${tail.slice(-800)}` });
+    });
+  });
 }
 
 function callBrowserTool(tool, args = {}, opts = {}) {
@@ -571,6 +645,10 @@ function chatScopedBrowserTool(chatId) {
   return (tool, args = {}) => {
     const bound = chatTabs.get(chatId);
     const browserId = chatBrowsers.get(chatId);
+    if (tool === "video_download" && args && args.url == null) {
+      const u = chatTabUrls.get(chatId);
+      if (u) return callBrowserTool(tool, { ...args, url: u }, { browserId });
+    }
     if (bound != null && args && args.tabId == null) {
       return callBrowserTool(tool, { ...args, tabId: bound }, { browserId });
     }
@@ -1468,8 +1546,10 @@ async function handleChat(ws, msg) {
   // Re-bind the chat's tab on every message: the composer chip shows the tab
   // the user is looking at, so tools follow what they see unless the call
   // names a tabId explicitly.
-  const boundTabId = msg.context && msg.context.currentTab ? msg.context.currentTab.tabId : null;
+  const boundTab = msg.context && msg.context.currentTab ? msg.context.currentTab : null;
+  const boundTabId = boundTab ? boundTab.tabId : null;
   if (boundTabId != null) chatTabs.set(chatId, boundTabId);
+  if (boundTab && boundTab.url) chatTabUrls.set(chatId, boundTab.url);
   chatBrowsers.set(chatId, ws.browserId);
   // The browser the user is actively chatting in is the one harness calls
   // should reach by default.

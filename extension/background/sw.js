@@ -108,6 +108,95 @@ chrome.runtime.onInstalled.addListener(() => {
   chrome.contextMenus.removeAll(() => registerContextMenu());
 });
 
+function fmtClock(sec) {
+  const s = Math.max(0, Math.floor(Number(sec) || 0));
+  const mm = Math.floor(s / 60) % 60;
+  const ss = s % 60;
+  const hh = Math.floor(s / 3600);
+  const pad = (n) => String(n).padStart(2, '0');
+  return hh ? `${hh}:${pad(mm)}:${pad(ss)}` : `${mm}:${pad(ss)}`;
+}
+
+// video "@" ask: stage the video's context as the composer's selection chip,
+// and — while the video is paused — a cropped screenshot as a pending image
+// attachment. Both land via chrome.storage.session; the panel picks them up.
+async function handleVideoAsk(tabId, video, windowId) {
+  const transcript = subtitle.transcriptWindow(tabId, video.currentTime);
+  const head =
+    `[video] ${video.title || 'untitled'}\n` +
+    `${video.url || ''}\n` +
+    `playhead ${fmtClock(video.currentTime)}` +
+    (video.duration ? ` / ${fmtClock(video.duration)}` : '') +
+    (video.paused ? ' (paused)' : ' (playing)');
+  const selection = {
+    text: transcript ? `${head}\n\ntranscript around playhead:\n${transcript}` : head,
+    contentType: 'text',
+    parentHeading: 'video reference',
+    pageUrl: String(video.url || ''),
+    pageTitle: String(video.title || ''),
+  };
+
+  let shot = null;
+  if (video.paused && video.rect && video.rect.width > 10) {
+    try {
+      const dataUrl = await chrome.tabs.captureVisibleTab(windowId, { format: 'png' });
+      shot = await cropShot(dataUrl, video.rect, video.viewport);
+    } catch (err) {
+      console.warn('[agentbrowser] video frame capture failed', err);
+    }
+  }
+
+  const writes = [deliverSelection(tabId, selection)];
+  if (shot) {
+    writes.push(
+      chrome.storage.session
+        .set({
+          pendingAttachment: {
+            tabId,
+            attachment: {
+              name: `video-frame-${fmtClock(video.currentTime).replace(/:/g, '-')}.png`,
+              mimeType: 'image/png',
+              size: shot.size,
+              base64: shot.base64,
+            },
+            timestamp: Date.now(),
+          },
+        })
+        .catch((err) => {
+          console.warn('[agentbrowser] pendingAttachment write failed', err);
+        })
+    );
+  }
+  const [selOk] = await Promise.all(writes);
+  return selOk;
+}
+
+// Crop a captureVisibleTab PNG to the video element's rect. The image is in
+// device pixels while rect/viewport are CSS px — scale derives from the
+// viewport ratio. OffscreenCanvas keeps this worker-side (no DOM).
+async function cropShot(dataUrl, rect, viewport) {
+  const blob = await (await fetch(dataUrl)).blob();
+  const bmp = await createImageBitmap(blob);
+  const scale = viewport && viewport.w > 0 ? bmp.width / viewport.w : 1;
+  const sx = Math.max(0, Math.floor(rect.left * scale));
+  const sy = Math.max(0, Math.floor(rect.top * scale));
+  const sw = Math.min(bmp.width - sx, Math.ceil(rect.width * scale));
+  const sh = Math.min(bmp.height - sy, Math.ceil(rect.height * scale));
+  if (sw <= 0 || sh <= 0) return null;
+  const canvas = new OffscreenCanvas(sw, sh);
+  const g = canvas.getContext('2d');
+  g.drawImage(bmp, sx, sy, sw, sh, 0, 0, sw, sh);
+  const out = await canvas.convertToBlob({ type: 'image/png' });
+  const base64 = await new Promise((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onload = () => resolve(String(fr.result).split(',')[1] || '');
+    fr.onerror = () => reject(fr.error || new Error('read failed'));
+    fr.readAsDataURL(out);
+  });
+  bmp.close();
+  return { base64, size: out.size };
+}
+
 // Writes only; opening the panel happens in the caller while the user gesture
 // is still live (sidePanel.open rejects outside a gesture).
 function deliverSelection(tabId, selection) {
@@ -464,6 +553,22 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     // click: selecting text is enough to append it to the chat context.
     // The slot is single — the latest selection wins.
     deliverSelection(tabId, message.selection).then(
+      (ok) => sendResponse({ success: ok }),
+      () => sendResponse({ success: false })
+    );
+    return true;
+  }
+  if (message.cmd === 'video_ask') {
+    const tabId = sender && sender.tab && sender.tab.id;
+    const video = message.video;
+    if (tabId == null || !video) {
+      sendResponse({ success: false, error: 'no tab' });
+      return true;
+    }
+    chrome.sidePanel.open({ tabId }).catch((err) => {
+      console.warn('[agentbrowser] sidePanel.open failed', err);
+    });
+    handleVideoAsk(tabId, video, sender.tab.windowId).then(
       (ok) => sendResponse({ success: ok }),
       () => sendResponse({ success: false })
     );
