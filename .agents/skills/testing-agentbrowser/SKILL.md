@@ -162,3 +162,12 @@ None for the stub-hub or shim paths. Real adapters need their provider keys/CLIs
 - **MV3 SW hard-restarts kill panel chat streams ~10–30s in** ("connection to background restarted; chat stream lost") — a fresh SW target replaces the dead one. Keep stub turns short or expect transcripts to collapse; rebuild history between turns rather than fighting it.
 - Panel DOM `getBoundingClientRect` coords do NOT match tool screenshot coords — click via the visible row position or calibrate with CDP `elementFromPoint` first.
 - Lane blocks need no `/parallel`: emit `lane:{index,title}` fields on stub adapter events — the hub relays them verbatim and the panel groups them.
+
+## Subtitle pipeline testing (v2.16+)
+
+- Working rig: a **real `youtube.com/watch?v=<id>` URL** with `ytInitialPlayerResponse` injected (caption track → a localhost srv3 file) — `detectSite` is regex'd on the URL, so `localhost:<port>` URLs always fail it even with a faked player. Same for bilibili: real `bilibili.com/video/BV<fake>` + `__INITIAL_STATE__.videoData` (real `api.bilibili.com` is risk-controlled for anonymous calls — only the error path is verifiable without SESSDATA).
+- Drive playback with an injected `<video>` (ffmpeg-generated mp4 or a data URI) — real `timeupdate` events exercise `cueAt` + render; no need to wait on a real player.
+- `sb-<tab>-<n>` ids are sniffable in the offscreen target's WS frames — they prove the cue→translate_request bridge; `status().translated` climbing proves `applyBatch` on the way back.
+- `subtitle_translate` is consent-gated: the CLI call **blocks** until the in-page card is clicked — script an Allow-click (or session pre-grant) before calling.
+- `transcript_get` must leave `.ab-sub-wrap` absent — assert it to prove the read never starts the overlay.
+>>>>>>> 766fc1c (testing-agentbrowser skill: subtitle pipeline testing recipe)
