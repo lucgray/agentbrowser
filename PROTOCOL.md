@@ -1390,6 +1390,32 @@ url (`chatTabUrls`) when `url` is omitted, locates yt-dlp
 missing binary returns an install hint, a non-zero exit returns the
 stderr tail. Gated by the translate plugin's exposeTools.
 
+## Floating toolbar + theme + overlay guard, v2.19
+
+The selection floater is now a three-action toolbar
+(`#agentbrowser-ask-btn`: 问 AI / 翻译 / 复制), and the media floater
+(`#agentbrowser-video-ask-btn`) is a compact @ chip that expands "引用" on
+hover. Both share `content/float-theme.css` and one storage key:
+
+- `floatTheme` in `chrome.storage.local` — `"frost"` | `"ink"` | `"paper"`,
+  default `"frost"`; editable in panel settings. Content scripts cache it
+  and live-update via `storage.onChanged`, applied as `data-abtheme`.
+
+- **`translate_ask`** (content → SW): `{target:'sw', cmd:'translate_ask',
+  text}` — a one-shot `translate_request` (`id: "ts-<tabId>-<n>"`, single
+  item `tid:"0"`, targetLang from hub config) whose `translate_result` is
+  routed back to the sender's `sendResponse` instead of a page binding.
+  20s timeout; popup renders the result under the bar.
+
+- **Overlay guard** (`content/float-guard.js`, `window.__abFloatGuard`):
+  before showing, `foreignAtRect` probes the target rect with
+  `document.elementsFromPoint` — a topmost element that is fixed/absolute,
+  z ≥ 9999, small, and not `agentbrowser-*` is a foreign floater
+  (read-frog, 沙拉查词, …). On conflict the bar tries the other side of
+  the selection, then skips. While visible, `watchForeign` (a filtered
+  MutationObserver + re-probe) hides our bar when a foreign overlay lands
+  on it. We never hide or touch foreign elements — we only yield.
+
 ## mcp-proxy.mjs
 
 Stdio MCP server (use `@modelcontextprotocol/sdk`, installed) exposing the ten

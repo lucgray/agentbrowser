@@ -293,7 +293,9 @@ const I18N = {
     langAuto: "Follow browser / Auto",
     autoSelectionLabel: "Auto-capture selected text",
     autoSelectionNote: "Selecting text on a page appends it to the chat context — no Ask click needed.",
-    floatingAskLabel: "Show the floating Ask button on selection",
+    floatingAskLabel: "Show the floating Ask toolbar on selection",
+    floatThemeLabel: "Floating toolbar style",
+    floatThemeNote: "Theme for the selection toolbar and media @ chip — frost, ink or paper.",
     proactiveLabel: "Proactive annotation (auto co-read on new tabs)",
     proactiveAdapterAuto: "Same as the chat adapter",
     proactiveModelDefault: "Adapter default",
@@ -347,7 +349,9 @@ const I18N = {
     langAuto: "跟随浏览器 / Auto",
     autoSelectionLabel: "自动捕获选中的文字",
     autoSelectionNote: "在网页上选中文字后自动加入对话上下文，无需点击 Ask。",
-    floatingAskLabel: "选中后显示悬浮 Ask 按钮",
+    floatingAskLabel: "选中后显示悬浮工具栏",
+    floatThemeLabel: "悬浮工具栏风格",
+    floatThemeNote: "划词工具栏与媒体 @ 键的悬浮风格：雾玻璃 / 墨玉 / 纸白。",
     proactiveLabel: "主动标注（打开新标签页时自动 co-read）",
     proactiveAdapterAuto: "跟随对话适配器",
     proactiveModelDefault: "适配器默认",
@@ -860,6 +864,7 @@ async function init() {
   const setLanguage = document.getElementById("set-language");
   const toggleAutoSelection = document.getElementById("toggle-auto-selection");
   const toggleFloatingAsk = document.getElementById("toggle-floating-ask");
+  const setFloatTheme = document.getElementById("set-float-theme");
   refreshDynamicI18n = () => {
     BASE_PLACEHOLDER = t("composerPlaceholder");
     renderBackend();
@@ -867,12 +872,15 @@ async function init() {
       field.state.textContent = keyState[field.provider] ? t("keyConfigured") : t("keyNotSet");
     }
   };
-  chrome.storage.local.get(["panelLanguage", "autoSelectionEnabled", "floatingAskEnabled"]).then((stored) => {
+  chrome.storage.local.get(["panelLanguage", "autoSelectionEnabled", "floatingAskEnabled", "floatTheme"]).then((stored) => {
     uiLang = (stored && stored.panelLanguage) || "auto";
     applyI18n();
     setLanguage.value = uiLang;
     toggleAutoSelection.checked = stored.autoSelectionEnabled !== false;
     toggleFloatingAsk.checked = stored.floatingAskEnabled !== false;
+    setFloatTheme.value = ["frost", "ink", "paper"].includes(stored.floatTheme)
+      ? stored.floatTheme
+      : "frost";
   }).catch(() => applyI18n());
   setLanguage.addEventListener("change", () => {
     uiLang = setLanguage.value;
@@ -884,6 +892,9 @@ async function init() {
   });
   toggleFloatingAsk.addEventListener("change", () => {
     chrome.storage.local.set({ floatingAskEnabled: toggleFloatingAsk.checked });
+  });
+  setFloatTheme.addEventListener("change", () => {
+    chrome.storage.local.set({ floatTheme: setFloatTheme.value });
   });
 
   // Proactive annotation (auto co-read on a fresh tab): toggle + provider +

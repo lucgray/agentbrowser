@@ -567,6 +567,35 @@ subtitle.wireHub({
   sendToHub: (payload) => sendToOffscreen({ target: 'offscreen', cmd: 'send', payload }),
 });
 
+// Selection toolbar's 翻译 item: a one-shot translate_request whose result
+// goes back to the content script's sendMessage response, not into the page
+// engine. Map reqId -> settle(sendResponse); ids are "ts-<tab>-<n>".
+const translateAsks = new Map();
+let translateAskSeq = 0;
+
+function handleTranslateAsk(tabId, text, sendResponse) {
+  const reqId = `ts-${tabId}-${++translateAskSeq}`;
+  const timer = setTimeout(() => {
+    if (translateAsks.delete(reqId)) {
+      sendResponse({ success: false, error: 'translate timeout' });
+    }
+  }, 20000);
+  translateAsks.set(reqId, (res) => {
+    clearTimeout(timer);
+    sendResponse(res);
+  });
+  sendToOffscreen({
+    target: 'offscreen',
+    cmd: 'send',
+    payload: {
+      type: 'translate_request',
+      id: reqId,
+      tabId,
+      items: [{ tid: '0', text: String(text).slice(0, 4000) }],
+    },
+  });
+}
+
 function postToPanel(message) {
   for (const windowId of panelRouter.route(message)) {
     const port = panelRouter.ports.get(windowId);
@@ -623,6 +652,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       (ok) => sendResponse({ success: ok }),
       () => sendResponse({ success: false })
     );
+    return true;
+  }
+  if (message.cmd === 'translate_ask') {
+    const tabId = sender && sender.tab && sender.tab.id;
+    if (tabId == null || !message.text) {
+      sendResponse({ success: false, error: 'no tab' });
+      return true;
+    }
+    handleTranslateAsk(tabId, message.text, sendResponse);
     return true;
   }
   if (message.cmd === 'video_ask') {
@@ -739,7 +777,21 @@ function handleHubMessage(payload) {
   } else if (payload.type === 'chat_list' || payload.type === 'chat_resumed') {
     postToPanel(payload);
   } else if (payload.type === 'translate_result') {
-    if (!subtitle.onResult(payload)) translate.onResult(payload);
+    const id = String(payload.id || '');
+    if (id.startsWith('ts-')) {
+      const settle = translateAsks.get(id);
+      translateAsks.delete(id);
+      if (settle) {
+        if (payload.error) {
+          settle({ success: false, error: String(payload.error) });
+        } else {
+          const results = payload.results || {};
+          settle({ success: true, text: results['0'] || Object.values(results)[0] || '' });
+        }
+      }
+    } else if (!subtitle.onResult(payload)) {
+      translate.onResult(payload);
+    }
   } else if (payload.type === 'summary_result') {
     subtitle.onSummary(payload);
   } else if (payload.type === 'translate_config') {

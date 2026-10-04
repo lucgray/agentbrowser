@@ -53,7 +53,7 @@ error-handling standard.
 | Trusted CDP input in your real profile — no automation profile, no re-login | ✓ | ✓ |
 | Current-tab context, `@` tab tagging, attachments, dictation | ✓ | ✓ |
 | `mcp-proxy.mjs` — any stdio-MCP harness drives the browser | ✓ | ✓ |
-| **Select text → floating "Ask" button at the caret** | — | ✓ |
+| **Select text → floating toolbar (Ask / translate / copy)** | — | ✓ |
 | **Right-click → "Ask AgentBrowser" context menu** | — | ✓ |
 | **Rich selection context** — semantic DOM path, nearest heading, ±800 chars, enclosing `<pre>`/code block + language, table headers + active row as markdown → `context.selection` (protocol v1.4) | — | ✓ |
 | **Page annotations** — `annotate`/`annotate_batch`/`annotations_list`/`annotate_reply`/`annotate_clear` tools; underline, highlight, circle on quoted text; per-mark comment cards that run as their own chat turns (protocol v1.5) | — | ✓ |
@@ -144,12 +144,16 @@ compact chips in the transcript.
 
 *This fork's signature feature.*
 
-- **Floating Ask** — highlight any text on a page and an **Ask** button
-  appears at the caret. Click it: the side panel opens with the selection
-  staged as a removable chip in the composer. It can clash with other
-  overlays: uncheck **Floating Ask button on selection** in the right-click
-  menu to turn it off (persisted in `chrome.storage.local`, applies
-  instantly, Esc also dismisses it per selection).
+- **Floating toolbar** — highlight any text on a page and a mini toolbar
+  appears at the caret: **问 AI** stages the selection as a chip in the
+  side panel, **翻译** translates it in place (same hub pipeline as page
+  translation — result shows in a small popup), **复制** copies it. Style
+  is a setting (**雾玻璃 / 墨玉 / 纸白**). The toolbar yields to other
+  extensions' floating UI — if something like read-frog already owns the
+  spot, ours stays down instead of stacking. Toggle it off via
+  **Floating Ask button on selection** in settings (persisted in
+  `chrome.storage.local`; Esc also dismisses per selection). The same
+  theme covers the media "@" chip on videos/images.
 - **Context menu** — right-click a selection and pick **Ask AgentBrowser**.
 - **Rich context, automatically** — the next message carries
   `context.selection` (protocol v1.4): the selected text plus the semantic
