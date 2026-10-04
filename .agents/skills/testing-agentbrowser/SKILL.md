@@ -170,4 +170,11 @@ None for the stub-hub or shim paths. Real adapters need their provider keys/CLIs
 - `sb-<tab>-<n>` ids are sniffable in the offscreen target's WS frames — they prove the cue→translate_request bridge; `status().translated` climbing proves `applyBatch` on the way back.
 - `subtitle_translate` is consent-gated: the CLI call **blocks** until the in-page card is clicked — script an Allow-click (or session pre-grant) before calling.
 - `transcript_get` must leave `.ab-sub-wrap` absent — assert it to prove the read never starts the overlay.
->>>>>>> 766fc1c (testing-agentbrowser skill: subtitle pipeline testing recipe)
+
+## Admin console + plugin layer testing (v2.17+)
+
+- `AGENTCHAT_PLUGINS_DIR=<dir>` redirects user-plugin scanning — point it at a fixture dir for clean-room tests; never touch the real `~/.agentchat/plugins/`.
+- `/admin/api/*` mirrors the wire actions (same `setPluginEnabled`/`applyTranslateConfig` internals) — a POST + `GET /admin/api/state` read proves the toggle; `config.json` on disk proves persistence.
+- To inspect a real session's system prompt + tool table: send an extension-role WS `hello` + `{type:'chat'}` against an api-* adapter pointed at a local SSE stub — the stub sees the verbatim request body (plugins' `## Plugin:` fragments, filtered tool list).
+- `chrome-extension://` navigations are blocked from http pages — to open the real panel for composer tests, use the extension's own `navigate` tool or a `chrome.tabs.create` from the SW.
+- Paste test: dispatch `ClipboardEvent('paste')` with a real `File` on `#input` — `defaultPrevented:true` + chip in `#attachments` proves the wiring; a text-only event must stay unprevented.
