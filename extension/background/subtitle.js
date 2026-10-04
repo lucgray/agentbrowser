@@ -5,7 +5,7 @@
 // channel under "sb-" prefixed request ids.
 
 import * as cdp from './cdp.js';
-import { parseSrv3, parseBilibili, sampleTranscript } from '../page/subtitle-core.js';
+import { parseSrv3, parseBilibili, excerptTranscript } from '../page/subtitle-core.js';
 
 const BINDING = '__abSubtitleBus';
 const CORE_URL = 'page/subtitle-core.js';
@@ -287,7 +287,7 @@ export function onBindingCalled(tabId, payload) {
       type: 'summary_request',
       id: reqId,
       tabId,
-      transcript: sampleTranscript(s && s.cues),
+      transcript: excerptTranscript(s && s.cues),
       targetLang: (s && s.cfg && s.cfg.targetLang) || 'zh',
     });
   } else if (msg.kind === 'error') {

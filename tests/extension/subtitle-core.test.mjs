@@ -12,7 +12,7 @@ import {
   sendOrder,
   fmtTs,
   buildSrt,
-  sampleTranscript,
+  excerptTranscript,
 } from '../../extension/page/subtitle-core.js';
 
 test('detectSite recognises youtube and bilibili urls', () => {
@@ -108,16 +108,16 @@ test('buildSrt emits numbered cue blocks with SRT timestamps', () => {
   assert.match(blocks[1], /^2\n01:02:05,250 --> 01:02:07,000\nsecond line$/);
 });
 
-test('sampleTranscript joins short tracks, windows long ones', () => {
+test('excerptTranscript joins short tracks, slices long ones', () => {
   const short = [{ start: 0, end: 1, text: 'a' }, { start: 1, end: 2, text: 'b' }];
-  assert.equal(sampleTranscript(short), 'a\nb');
-  assert.equal(sampleTranscript([]), '');
-  assert.equal(sampleTranscript(null), '');
+  assert.equal(excerptTranscript(short), 'a\nb');
+  assert.equal(excerptTranscript([]), '');
+  assert.equal(excerptTranscript(null), '');
 
   const long = [];
   for (let i = 0; i < 80; i++) long.push({ start: i, end: i + 1, text: 'x'.repeat(500) });
-  const sampled = sampleTranscript(long, 20000);
+  const sampled = excerptTranscript(long, 20000);
   assert.ok(sampled.length <= 20000);
   assert.ok(sampled.length < long.length * 500); // windows sampled, not joined whole
-  assert.ok(sampled.includes('\n\n')); // window separator
+  assert.ok(sampled.includes('\n\u2026\n')); // slice separator
 });

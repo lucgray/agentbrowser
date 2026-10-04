@@ -1354,7 +1354,7 @@ new wire path is needed for transcript data.
   subtitle-core.
 - **Summary wire**: the AI 摘要 tab sends `{kind:'summary'}` over the
   subtitle binding → SW relays `summary_request {id:"sum-<tab>", tabId,
-  transcript, targetLang}` (transcript = `sampleTranscript` of the loaded
+  transcript, targetLang}` (transcript = `excerptTranscript` of the loaded
   cues, capped ~20k chars) → hub `translator.summarize()` calls the
   configured chat provider (openai/anthropic only; deepl/microsoft/free
   reply `error`) → `summary_result {id, summary}` → evaluated as

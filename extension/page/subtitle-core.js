@@ -125,24 +125,28 @@ export function buildSrt(cues) {
 }
 
 // Transcript text for the summary request, bounded to `budget` chars. When
-// the track is longer, even windows of contiguous lines are sampled so the
-// model still sees beginning, middle and end rather than a hard truncation.
-export function sampleTranscript(cues, budget = 20000) {
+// the track is longer, eight evenly-spaced slices of the timeline (aligned
+// to cue boundaries) keep beginning, middle and end instead of a hard
+// truncation of the head.
+export function excerptTranscript(cues, budget = 20000) {
   const lines = (cues || []).map((c) => String(c && c.text || '').trim()).filter(Boolean);
   const joined = lines.join('\n');
   if (joined.length <= budget) return joined;
-  const WINDOWS = 8;
-  const winSize = Math.ceil(lines.length / WINDOWS);
-  const perWin = Math.floor((budget - (WINDOWS - 1) * 2) / WINDOWS);
-  const runs = [];
-  for (let i = 0; i < lines.length; i += winSize) {
-    let run = '';
-    for (const line of lines.slice(i, i + winSize)) {
-      const next = run ? `${run}\n${line}` : line;
-      if (next.length > perWin) break;
-      run = next;
+  const SLICES = 8;
+  const per = Math.max(1, Math.floor((budget - (SLICES - 1) * 3) / SLICES));
+  const out = [];
+  for (let i = 0; i < SLICES; i++) {
+    const anchor = Math.floor((joined.length * i) / SLICES);
+    let from = 0;
+    if (anchor > 0) {
+      const nl = joined.indexOf('\n', anchor);
+      if (nl === -1) break;
+      from = nl + 1;
     }
-    if (run) runs.push(run);
+    if (from >= joined.length) break;
+    let to = joined.lastIndexOf('\n', from + per);
+    if (to <= from) to = Math.min(from + per, joined.length);
+    out.push(joined.slice(from, to));
   }
-  return runs.join('\n\n');
+  return out.join('\n\u2026\n');
 }
