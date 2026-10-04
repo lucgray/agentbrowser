@@ -391,6 +391,8 @@ function toggleMenu(anchorRect) {
         })
       );
     }
+  }
+  if (hoverKind === "video") {
     const dl = menuItem(DOWN_PATHS, "下载视频", (it, t) => {
       if (dlPending) return;
       dlPending = true;
