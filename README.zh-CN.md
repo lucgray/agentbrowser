@@ -453,6 +453,20 @@ tools = await client.get_tools()
   着问答）；`translate_stats`/`translate_cache_clear` 由 hub 直接应答，
   为后续 web 端管理面预留同一套接口。
 
+### 视频字幕
+
+`subtitle_translate` 把同一条管线带到 YouTube 和 bilibili 播放页：后台抓
+取视频字幕轨、走翻译服务、在播放器上渲染跟随进度的双语字幕层。
+`transcript_get` 直接把字幕文本交给 agent——答“这视频在讲什么”（或
+`aroundSec` → “刚刚那句说了什么”）不需要动页面 DOM。
+
+> 思路致谢：播放器内双语渲染参考了
+> [mengxi-ream/read-frog](https://github.com/mengxi-ream/read-frog) 的字幕
+> 方案；bilibili 字幕轨发现路径（`pagelist` → `x/player/v2` →
+> `subtitle_url`）与社区字幕扩展的做法一致。两者均为本仓库重新实现——
+> 抓取放在 service worker（躲开页面 CORS），翻译走我们自己的攒批/缓存/
+> 限流管线。
+
 ## 浏览器工具
 
 | 工具 | 参数 | 返回 |
@@ -484,6 +498,10 @@ tools = await client.get_tools()
 | `translate_recent` | `{n?}` | `{recent:[{text, translation, targetLang, provider, ts}]}`（hub 应答） |
 | `translate_stats` | `{}` | 服务/缓存/限流状态（hub 应答） |
 | `translate_cache_clear` | `{}` | 清空两级翻译缓存（hub 应答） |
+| `subtitle_translate` | `{targetLang?, trackLang?, tabId?}` | YouTube/bilibili 双语字幕层 |
+| `subtitle_stop` | `{tabId?}` | 移除字幕层 |
+| `subtitle_status` | `{tabId?}` | `{running, cues, translated, queue, inflight}` |
+| `transcript_get` | `{lang?, aroundSec?, tabId?}` | `{site, videoId, track, cues:[{start,end,text}]}` |
 
 省略 `tabId` 即当前活动标签页。service worker 按需 attach
 debugger，每个标签页串行执行命令，被 Chrome 断开后自动重连。

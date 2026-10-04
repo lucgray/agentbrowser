@@ -21,7 +21,7 @@ export const WRITE_TOOLS = [
   'breakpoint_set', 'debug_eval', 'debug_resume', 'drag', 'select_text',
     'set_file_input', 'download_configure', 'record_start',
   'frame_eval', 'frame_click_element',
-  'page_translate', 'translate_para',
+  'page_translate', 'translate_para', 'subtitle_translate',
   'annotate', 'annotate_batch', 'annotate_reply', 'annotate_clear',
   // `batch` is intentionally absent: it gates every inner step under that
   // step's own tool name instead, so nothing double-asks.
@@ -150,6 +150,8 @@ function summarize(tool, a) {
       return `translate this page → ${String(a.targetLang || 'default')}`;
     case 'translate_para':
       return `translate paragraph ${String(a.tid || '?')}`;
+    case 'subtitle_translate':
+      return `translate video subtitles → ${String(a.targetLang || 'default')}`;
     default:
       return tool;
   }

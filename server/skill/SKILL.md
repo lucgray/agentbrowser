@@ -96,12 +96,32 @@ agentbrowser page_translate_stop '{}'
   (per-paragraph hover 译/原 swap), plus `wordHover:true` for hover-word
   tooltips.
 - The provider comes from the hub's `translate` config (`auto` → stored
-  OpenAI key → Anthropic → keyless endpoint); pass `provider`/`model` args
-  to override per call.
+  OpenAI key → Anthropic → DeepL → keyless Microsoft endpoint); pass
+  `provider`/`model` args to override per call.
 - Paragraph `tid`s are `data-ab-tid` attributes — `element_check` /
   `dom_inspect` can find them; ids renumber on navigation.
 
 `page_translate` is consent-gated like other writes.
+
+## Video subtitles (`subtitle_translate`, `transcript_get`)
+
+On YouTube and bilibili watch pages, `subtitle_translate` fetches the
+video's caption track, translates it through the same pipeline, and shows
+a bilingual overlay synced to playback. `transcript_get` returns the
+transcript itself — use it to answer "what is this video saying" or
+"what did it just say" (`aroundSec` narrows to a window around the
+playhead) instead of reading captions off the screen.
+
+```bash
+agentbrowser transcript_get '{"label":"看视频字幕"}'           # {site,track,cues:[{start,end,text}]}
+agentbrowser transcript_get '{"aroundSec":60}'                  # ±60s around the playhead
+agentbrowser subtitle_translate '{"targetLang":"zh","label":"双语字幕"}'
+agentbrowser subtitle_status '{}'                              # {running,cues,translated,...}
+agentbrowser subtitle_stop '{}'
+```
+
+`trackLang` picks a source track when the video has several;
+`subtitle_translate` is consent-gated, `transcript_get` is a read.
 
 ## Common flows
 

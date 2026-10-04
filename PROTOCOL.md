@@ -1240,6 +1240,47 @@ panel can show key state for keystore providers that have no adapter of
 their own. The keystore accepts a `deepl` entry; the settings page has a
 DeepL key row, and the provider select lists `deepl`/`microsoft`.
 
+## Video subtitles, v2.16
+
+Bilingual subtitles for YouTube and bilibili watch pages, plus a
+transcript read for the agent. Split of labour:
+
+- **Page engine** (`page/subtitle-engine.js`, injected on demand): `probe()`
+  reads player globals — `ytInitialPlayerResponse.captions…captionTracks`
+  on YouTube (baseUrl + `fmt=srv3`), `__INITIAL_STATE__.videoData` (bvid,
+  cid) on bilibili — and returns fetch inputs only. `start()` renders a
+  pointer-events-none overlay inside the player container (original line
+  dimmed + translated line), advanced by the video's `timeupdate` event
+  via `cueAt` binary search.
+- **Service worker** (`background/subtitle.js`): owns every network
+  fetch — host permissions beat page-context CORS. YouTube: fetch the
+  chosen `captionTracks` baseUrl and parse srv3. Bilibili: `pagelist`
+  for cid when `__INITIAL_STATE__` lacks it → `x/player/v2` for the
+  subtitle track list → the track's `subtitle_url` JSON. Parsed cues are
+  passed into the engine in one evaluate.
+- **Translation**: the engine queues cues in playback order (the cue at
+  the playhead first, then forward, then the skipped prefix) through a
+  dedicated `__abSubtitleBus` binding; the coordinator relays each batch
+  as a `translate_request` with an `sb-<tab>-<req>` id — same hub
+  service, same caches, same rate limiter as paragraphs. `sb-` results
+  are routed to `__abSubtitle.applyBatch` before translate's own table.
+
+Tools:
+
+- `subtitle_translate {targetLang?, trackLang?, tabId?}` — consent-gated
+  write; returns `{site, track, cues, started}`.
+- `subtitle_stop {tabId?}` / `subtitle_status {tabId?}` → `{running,
+  cues, translated, queue, inflight, activeCue}`.
+- `transcript_get {lang?, aroundSec?, tabId?}` — read; `{site, videoId,
+  track:{lang,name}, total, truncated, cues:[{start,end,text}]}`
+  (capped at 400 cues). `aroundSec` filters to a window around the
+  playhead so the agent can answer "what is it saying now".
+
+A running session re-arms after navigation (fresh probe + fetch). Design
+inspiration credited in the README: bilingual-in-player rendering follows
+the read-frog approach; the bilibili track discovery mirrors what
+community subtitle extensions do — both reimplemented here.
+
 ## mcp-proxy.mjs
 
 Stdio MCP server (use `@modelcontextprotocol/sdk`, installed) exposing the ten
