@@ -108,7 +108,12 @@ function pickTrack(tracks, lang) {
 }
 
 async function fetchJson(url) {
-  const res = await fetch(url);
+  // api.bilibili.com needs the user's login cookies — the web subtitle API
+  // returns an empty track list to anonymous callers. host_permissions
+  // (*://*/*) already allow credentials cross-origin from the worker.
+  const res = await fetch(url, {
+    credentials: url.includes('api.bilibili.com') ? 'include' : 'omit',
+  });
   if (!res.ok) throw new Error(`subtitle fetch ${res.status} for ${url.slice(0, 120)}`);
   return res.json();
 }
@@ -134,11 +139,18 @@ async function loadCues(p, lang) {
       cid = list && list.data && list.data[0] && list.data[0].cid;
     }
     if (!cid) throw new Error('bilibili cid not found');
-    const player = await fetchJson(
-      `https://api.bilibili.com/x/player/v2?bvid=${encodeURIComponent(p.bvid)}&cid=${encodeURIComponent(cid)}`
-    );
-    const raw =
-      (player && player.data && player.data.subtitle && player.data.subtitle.subtitles) || [];
+    let raw = [];
+    // The signed wbi route is what the web player actually calls; the legacy
+    // v2 route still answers anonymous requests. Try both — a logged-in
+    // session (credentials above) unlocks AI-generated tracks.
+    for (const ep of ['x/player/wbi/v2', 'x/player/v2']) {
+      const player = await fetchJson(
+        `https://api.bilibili.com/${ep}?bvid=${encodeURIComponent(p.bvid)}&cid=${encodeURIComponent(cid)}`
+      );
+      raw =
+        (player && player.data && player.data.subtitle && player.data.subtitle.subtitles) || [];
+      if (raw.length) break;
+    }
     const track = pickTrack(
       raw.map((t) => ({
         lang: String(t.lan || ''),
@@ -148,7 +160,8 @@ async function loadCues(p, lang) {
       })),
       lang
     );
-    if (!track || !track.url) throw new Error('no subtitle tracks on this video');
+    if (!track || !track.url)
+      throw new Error('no subtitle tracks — the video may have none, or bilibili needs a login');
     const json = await fetchJson(track.url.startsWith('//') ? `https:${track.url}` : track.url);
     const cues = parseBilibili(json);
     if (!cues.length) throw new Error('subtitle track was empty');

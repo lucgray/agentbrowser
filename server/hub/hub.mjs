@@ -3,7 +3,7 @@
 
 import {
   readFileSync, existsSync, mkdirSync, writeFileSync, rmSync, chmodSync,
-  readdirSync
+  readdirSync, createReadStream, statSync
 } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
@@ -2069,6 +2069,11 @@ async function handleTranslateRequest(ws, msg) {
 // media_download (extension -> hub): the media menu's 下载视频. Runs yt-dlp
 // on the hub host and replies on the same socket; the sw forwards the result
 // to the requesting tab's video-ask script.
+// Completed files are registered here and served over GET /dl/<id> so the
+// extension can drop them into the browser's own download manager.
+const DL_TTL_MS = 30 * 60 * 1000;
+const dlFiles = new Map(); // media_download id -> { file, exp }
+
 async function handleMediaDownload(ws, msg) {
   const id = typeof msg.id === "string" ? msg.id : null;
   const reply = (extra) => {
@@ -2080,7 +2085,15 @@ async function handleMediaDownload(ws, msg) {
   };
   try {
     const r = await runVideoDownload({ url: msg.url });
-    reply(r.ok ? { ok: true, file: r.file } : { ok: false, error: r.error });
+    if (r.ok && r.file && id) {
+      // Register the finished file for the /dl/<id> HTTP route so the
+      // extension can hand it to chrome.downloads — the file then lands in
+      // the browser's own Downloads and shows up in download history.
+      dlFiles.set(id, { file: r.file, exp: Date.now() + DL_TTL_MS });
+      reply({ ok: true, file: r.file, dl: `/dl/${encodeURIComponent(id)}` });
+    } else {
+      reply(r.ok ? { ok: true, file: r.file } : { ok: false, error: r.error });
+    }
   } catch (err) {
     log("media_download failed:", err && err.message);
     reply({ ok: false, error: String((err && err.message) || err) });
@@ -2265,6 +2278,23 @@ const adminHandler = createAdminHandler({
 });
 
 const httpServer = http.createServer((req, res) => {
+  if (req.method === "GET" && req.url && req.url.startsWith("/dl/")) {
+    const id = decodeURIComponent(req.url.slice(4).split("?")[0]);
+    const rec = dlFiles.get(id);
+    if (!rec || rec.exp < Date.now() || !existsSync(rec.file)) {
+      res.writeHead(404, { "content-type": "text/plain" });
+      res.end("download expired");
+      return;
+    }
+    const name = path.basename(rec.file);
+    res.writeHead(200, {
+      "content-type": "application/octet-stream",
+      "content-length": statSync(rec.file).size,
+      "content-disposition": `attachment; filename*=UTF-8''${encodeURIComponent(name)}`,
+    });
+    createReadStream(rec.file).pipe(res);
+    return;
+  }
   if (req.url && req.url.startsWith("/admin")) {
     adminHandler(req, res).catch((err) => {
       log("admin handler error:", err && err.message);
