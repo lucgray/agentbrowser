@@ -178,3 +178,13 @@ None for the stub-hub or shim paths. Real adapters need their provider keys/CLIs
 - To inspect a real session's system prompt + tool table: send an extension-role WS `hello` + `{type:'chat'}` against an api-* adapter pointed at a local SSE stub — the stub sees the verbatim request body (plugins' `## Plugin:` fragments, filtered tool list).
 - `chrome-extension://` navigations are blocked from http pages — to open the real panel for composer tests, use the extension's own `navigate` tool or a `chrome.tabs.create` from the SW.
 - Paste test: dispatch `ClipboardEvent('paste')` with a real `File` on `#input` — `defaultPrevented:true` + chip in `#attachments` proves the wiring; a text-only event must stay unprevented.
+
+## Learn popup / media-menu / keyboard triggers
+
+- `#agentbrowser-learn` opens via the media `@` menu item 学习弹窗 (needs the video-hovered control-bar icon `.ab-media-cb`, which sets `hoverEl`). Tabs: 字幕/汇总/弹幕热议 (danmaku tab is `display:none` off bilibili).
+- Seek/highlight gotcha: after the menu hides, `hoverEl` is cleared and cue clicks + playhead ticks fall back to `document.querySelector('video')` — the FIRST video in DOM order. On multi-video pages it can seek/highlight the wrong element; remove extra `<video>`s in rigs and report the behavior as a latent bug.
+- Fake video servers MUST implement HTTP Range requests (206 + Content-Range) — without them `video.currentTime = x` silently resets to 0 (seek rejected), making click-to-seek look broken when it isn't.
+- `chrome.storage` is undefined in page-context `Runtime.evaluate` (content scripts live in an isolated world) — flip settings like `abSpaceTranslate` via an eval on the **SW target** instead; the content script picks it up through `chrome.storage.onChanged`.
+- MV3 SW target ids go stale on every restart ("no target <id>") — re-list `/json/list` for the `sw.js` target right before each SW eval rather than caching the id.
+- Triple-space translate can be tested without the OS: dispatch 3× `new KeyboardEvent('keydown',{code:'Space',bubbles:true,cancelable:true})` on `document.body` — the 650ms run window is generous. Assert via `__abTranslate.status().active` + `[data-ab-tid]` count; a focused `<input>` must not trigger it.
+- `chrome.downloads` from a `data:` URL: `data:text/plain` forces a `.txt` extension; `data:application/octet-stream` preserves `.srt`/`.xml`. Check `~/Downloads` directly.

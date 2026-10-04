@@ -20,11 +20,20 @@ const FLOAT_THEMES = new Set(["frost", "ink", "paper"]);
 // of the hovered <video> for the selector — the first ancestor that contains
 // it wins, so nested player containers work.
 const CONTROL_BARS = [
-  { match: /(^|\.)youtube\.com$/, bar: ".ytp-right-controls" },
-  { match: /(^|\.)youtube-nocookie\.com$/, bar: ".ytp-right-controls" },
+  {
+    match: /(^|\.)youtube\.com$/,
+    bar: ".ytp-right-controls",
+    anchor: ".ytp-fullscreen-button",
+  },
+  {
+    match: /(^|\.)youtube-nocookie\.com$/,
+    bar: ".ytp-right-controls",
+    anchor: ".ytp-fullscreen-button",
+  },
   {
     match: /(^|\.)bilibili\.com$/,
     bar: ".bpx-player-control-bottom-right, .bilibili-player-video-control",
+    anchor: ".bpx-player-ctrl-full",
   },
 ];
 
@@ -46,14 +55,18 @@ if (isContextValid()) {
     .get({ [FLOAT_THEME_KEY]: "frost" })
     .then((r) => {
       floatTheme = FLOAT_THEMES.has(r[FLOAT_THEME_KEY]) ? r[FLOAT_THEME_KEY] : "frost";
-      for (const el of [btn, menu, toast]) if (el) el.dataset.abtheme = floatTheme;
+      for (const el of [btn, menu, toast, learn && learn.el]) {
+        if (el) el.dataset.abtheme = floatTheme;
+      }
     })
     .catch((err) => logWarn("floatTheme read failed", err));
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== "local" || !(FLOAT_THEME_KEY in changes)) return;
     const v = changes[FLOAT_THEME_KEY].newValue;
     floatTheme = FLOAT_THEMES.has(v) ? v : "frost";
-    for (const el of [btn, menu, toast]) if (el) el.dataset.abtheme = floatTheme;
+    for (const el of [btn, menu, toast, learn && learn.el]) {
+      if (el) el.dataset.abtheme = floatTheme;
+    }
   });
 }
 
@@ -92,6 +105,17 @@ const AT_PATHS = [
   "M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-3.92 7.94",
 ];
 const DOWN_PATHS = ["M12 3v13", "M5 11l7 7 7-7", "M4 21h16"];
+const SUB_PATHS = [
+  "M4 5h16v14H4z",
+  "M7 10h10",
+  "M7 14h6",
+];
+const DM_PATHS = ["M4 6h16", "M4 12h10", "M4 18h13"];
+const BOOK_PATHS = [
+  "M4 4h6v16H4z",
+  "M14 4h6v16h-6z",
+  "M6.5 8h2M6.5 11h2",
+];
 
 // ---------------------------------------------------------------------------
 // Floating chip (fallback for players without a recognized control bar, and
@@ -207,7 +231,7 @@ function findControlBar(video) {
       if (!site.match.test(location.hostname)) continue;
       try {
         const bar = el.querySelector ? el.querySelector(site.bar) : null;
-        if (bar && bar.isConnected) return bar;
+        if (bar && bar.isConnected) return { bar, site };
       } catch (err) {
         logWarn("control bar probe failed", err);
       }
@@ -218,8 +242,10 @@ function findControlBar(video) {
 }
 
 function mountControlIcon(video) {
-  const bar = findControlBar(video);
-  if (!bar || cbBtns.has(bar)) return !!bar;
+  const found = findControlBar(video);
+  if (!found) return false;
+  const { bar, site } = found;
+  if (cbBtns.has(bar)) return true;
   if (bar.querySelector(".ab-media-cb")) {
     cbBtns.add(bar);
     return true;
@@ -253,11 +279,17 @@ function mountControlIcon(video) {
   b.style.display = "inline-flex";
   b.style.alignItems = "center";
   b.style.justifyContent = "center";
+  b.style.alignSelf = "center";
   b.style.width = h + "px";
   b.style.height = h + "px";
   b.style.color = "inherit";
   b.style.opacity = "0.92";
-  bar.insertBefore(b, bar.firstChild);
+  const svg = b.firstElementChild;
+  if (svg) svg.style.display = "block";
+  // Sit just left of the fullscreen button (site.anchor); unknown layouts
+  // fall back to the left edge of the right-controls group.
+  const anchorEl = site.anchor ? bar.querySelector(site.anchor) : null;
+  bar.insertBefore(b, anchorEl || bar.firstChild);
   cbBtns.add(bar);
   return true;
 }
@@ -314,6 +346,52 @@ function toggleMenu(anchorRect) {
       onAsk();
     })
   );
+  // Subtitle-backed items (learn popup, 获取字幕/弹幕) only exist on the
+  // video pages our subtitle pipeline supports — same sites detectSite in
+  // page/subtitle-core.js probes. A random article's embedded video gets
+  // neither.
+  const vidSite =
+    (/youtube\.com\/watch|youtu\.be\//.test(location.href) && "youtube") ||
+    (/bilibili\.com\/video\/|b23\.tv\//.test(location.href) && "bilibili") ||
+    (/\/\/(?:[a-z0-9-]+\.)*(x|twitter)\.com\//.test(location.href) && "x") ||
+    null;
+  if (hoverKind === "video" && vidSite) {
+    m.appendChild(
+      menuItem(BOOK_PATHS, "学习弹窗", () => {
+        closeMenu();
+        openLearn();
+      })
+    );
+    const sub = menuItem(SUB_PATHS, "获取字幕", (it, t) => {
+      if (it.dataset.busy) return;
+      it.dataset.busy = "1";
+      it.classList.add("ab-busy");
+      t.textContent = "获取中…";
+      onFetchSubs("subs", (ok, detail) => {
+        it.classList.remove("ab-busy");
+        t.textContent = ok ? "已保存" : "获取失败";
+        showToast(anchorRect, ok ? `已保存: ${detail}` : detail, !ok);
+        setTimeout(closeMenu, 1600);
+      });
+    });
+    m.appendChild(sub);
+    if (vidSite === "bilibili") {
+      m.appendChild(
+        menuItem(DM_PATHS, "获取弹幕", (it, t) => {
+          if (it.dataset.busy) return;
+          it.dataset.busy = "1";
+          it.classList.add("ab-busy");
+          t.textContent = "获取中…";
+          onFetchSubs("danmaku", (ok, detail) => {
+            it.classList.remove("ab-busy");
+            t.textContent = ok ? "已保存" : "获取失败";
+            showToast(anchorRect, ok ? `已保存: ${detail}` : detail, !ok);
+            setTimeout(closeMenu, 1600);
+          });
+        })
+      );
+    }
+  }
   if (hoverKind === "video") {
     const dl = menuItem(DOWN_PATHS, "下载视频", (it, t) => {
       if (dlPending) return;
@@ -533,12 +611,264 @@ function onDownload(done) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Learn popup （学习弹窗）: fixed side dialog, three tabs — 字幕 (cue list,
+// click to seek, follows the playhead), 汇总 and 弹幕热议 (agent generations
+// streamed back via learn_event on the learn-<tabId> chat).
+const LEARN_ID = "agentbrowser-learn";
+let learn = null; // { el, panes, tabBtns }
+let learnCues = null;
+let learnCuesFor = null; // location.href the cue list belongs to (SPA navs)
+let learnNowRow = null;
+let learnGen = null; // { kind, outEl, text }
+
+function learnAsk(kind) {
+  return chrome.runtime
+    .sendMessage({
+      target: "sw",
+      cmd: "learn_ask",
+      kind,
+      title: String(document.title || ""),
+    })
+    .catch((err) => {
+      logWarn("learn_ask send failed", err);
+      return { success: false, error: String((err && err.message) || err) };
+    });
+}
+
+function ensureLearn() {
+  if (learn) return learn;
+  const el = document.createElement("div");
+  el.id = LEARN_ID;
+  el.dataset.abtheme = floatTheme;
+
+  const head = document.createElement("div");
+  head.className = "ab-learn-head";
+  const tabsEl = document.createElement("div");
+  tabsEl.className = "ab-learn-tabs";
+  const close = document.createElement("button");
+  close.type = "button";
+  close.className = "ab-learn-close";
+  close.textContent = "✕";
+  close.addEventListener("click", closeLearn);
+  head.appendChild(tabsEl);
+  head.appendChild(close);
+  el.appendChild(head);
+
+  const body = document.createElement("div");
+  body.className = "ab-learn-body";
+  el.appendChild(body);
+
+  const panes = {};
+  const tabBtns = {};
+  const tabDefs = [
+    ["cues", "字幕"],
+    ["summary", "汇总"],
+    ["danmaku", "弹幕热议"],
+  ];
+  for (const [key, label] of tabDefs) {
+    const t = document.createElement("button");
+    t.type = "button";
+    t.className = "ab-learn-tab";
+    t.textContent = label;
+    t.addEventListener("click", () => learnTab(key));
+    tabsEl.appendChild(t);
+    tabBtns[key] = t;
+    const pane = document.createElement("div");
+    pane.className = "ab-learn-pane";
+    body.appendChild(pane);
+    panes[key] = pane;
+  }
+  (document.body || document.documentElement).appendChild(el);
+  learn = { el, panes, tabBtns };
+  buildLearnPanes();
+  return learn;
+}
+
+function learnTab(key) {
+  if (!learn) return;
+  for (const k of Object.keys(learn.panes)) {
+    learn.panes[k].classList.toggle("ab-active", k === key);
+    learn.tabBtns[k].classList.toggle("ab-active", k === key);
+  }
+}
+
+function buildLearnPanes() {
+  // 汇总 / 弹幕热议 share one shape: output area + a generate button.
+  for (const [key, btnLabel] of [
+    ["summary", "生成汇总"],
+    ["danmaku", "生成热议分析"],
+  ]) {
+    const pane = learn.panes[key];
+    const out = document.createElement("div");
+    out.className = "ab-learn-out";
+    const gen = document.createElement("button");
+    gen.type = "button";
+    gen.className = "ab-learn-gen";
+    gen.textContent = btnLabel;
+    gen.addEventListener("click", () => runLearnGen(key, out, gen));
+    pane.appendChild(out);
+    pane.appendChild(gen);
+  }
+}
+
+function runLearnGen(kind, outEl, genBtn) {
+  if (learnGen) return;
+  learnGen = { kind, outEl, text: "" };
+  outEl.textContent = "生成中…";
+  genBtn.classList.add("ab-busy");
+  learnAsk(kind).then((res) => {
+    genBtn.classList.remove("ab-busy");
+    if (!res || !res.success) {
+      outEl.textContent = `生成失败：${(res && res.error) || "未知错误"}`;
+      if (learnGen && learnGen.outEl === outEl) learnGen = null;
+    }
+  });
+}
+
+function loadLearnCues() {
+  const pane = learn.panes.cues;
+  pane.textContent = "";
+  const note = document.createElement("div");
+  note.className = "ab-learn-note";
+  note.textContent = "读取字幕…";
+  pane.appendChild(note);
+  learnAsk("cues").then((res) => {
+    pane.textContent = "";
+    if (!res || !res.success || !res.cues || !res.cues.length) {
+      const n = document.createElement("div");
+      n.className = "ab-learn-note";
+      n.textContent = `没有可用字幕${res && res.error ? `：${res.error}` : ""}`;
+      pane.appendChild(n);
+      return;
+    }
+    learnCues = res.cues;
+    learnCuesFor = location.href;
+    const frag = document.createDocumentFragment();
+    for (const c of res.cues) {
+      const row = document.createElement("div");
+      row.className = "ab-learn-cue";
+      const t = document.createElement("span");
+      t.className = "t";
+      t.textContent = fmtSec(c.start);
+      row.appendChild(t);
+      row.appendChild(document.createTextNode(String(c.text || "")));
+      row._t = Number(c.start) || 0;
+      row.addEventListener("click", () => {
+        const v = learnTargetVideo();
+        if (v) v.currentTime = c.start;
+      });
+      frag.appendChild(row);
+    }
+    pane.appendChild(frag);
+  });
+}
+
+// The video the learn popup was opened for — captured at open time because
+// hoverEl is cleared when the menu auto-hides, and first-in-DOM <video> is
+// wrong on multi-video pages.
+let learnVideo = null;
+function learnTargetVideo() {
+  if (learnVideo && learnVideo.isConnected) return learnVideo;
+  return document.querySelector("video");
+}
+
+// Follow the playhead inside the 字幕 tab.
+let learnTick = null;
+function startLearnTick() {
+  if (learnTick) return;
+  learnTick = setInterval(() => {
+    if (!learn || !learn.el.classList.contains("ab-show")) return;
+    if (!learnCues || !learn.panes.cues.classList.contains("ab-active")) return;
+    const v = learnTargetVideo();
+    if (!v) return;
+    const t = Number(v.currentTime) || 0;
+    const rows = learn.panes.cues.children;
+    let hit = null;
+    for (const row of rows) {
+      if (row._t == null) continue;
+      if (row._t <= t) hit = row;
+      else break;
+    }
+    if (hit === learnNowRow) return;
+    if (learnNowRow) learnNowRow.classList.remove("ab-now");
+    learnNowRow = hit;
+    if (hit) {
+      hit.classList.add("ab-now");
+      hit.scrollIntoView({ block: "nearest" });
+    }
+  }, 500);
+}
+
+function openLearn() {
+  learnVideo =
+    hoverEl && hoverEl.tagName === "VIDEO" ? hoverEl : learnVideo;
+  const l = ensureLearn();
+  // 弹幕 tab only makes sense on bilibili.
+  const hasDm = /(^|\.)bilibili\.com$/.test(location.hostname);
+  l.tabBtns.danmaku.style.display = hasDm ? "" : "none";
+  l.el.dataset.abtheme = floatTheme;
+  l.el.classList.add("ab-show");
+  learnTab("cues");
+  if (!learnCues || learnCuesFor !== location.href) {
+    learnCues = null;
+    learnCuesFor = location.href;
+    loadLearnCues();
+  }
+  startLearnTick();
+}
+
+function closeLearn() {
+  if (learn) learn.el.classList.remove("ab-show");
+  learnNowRow = null;
+}
+
+// 获取字幕/弹幕: sw fetches the track (or danmaku XML) and saves the file
+// via chrome.downloads — the request itself resolves in the response, so a
+// settled promise is the whole lifecycle.
+function onFetchSubs(kind, done) {
+  if (!isContextValid()) return done(false, "extension context invalid");
+  try {
+    chrome.runtime
+      .sendMessage({ target: "sw", cmd: "subtitle_fetch", kind })
+      .then((res) => {
+        if (res && res.success) done(true, String(res.name || "saved"));
+        else done(false, String((res && res.error) || "fetch failed"));
+      })
+      .catch((err) => {
+        logWarn("subtitle_fetch send failed", err);
+        done(false, String((err && err.message) || err));
+      });
+  } catch (err) {
+    logWarn("subtitle_fetch send failed", err);
+    done(false, String((err && err.message) || err));
+  }
+}
+
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!msg || msg.target !== "video-ask") return;
   if (msg.cmd === "download_result") {
     const cb = dlDone;
     dlDone = null;
     if (cb) cb(!!msg.ok, String(msg.file || msg.error || ""));
+    sendResponse({ ok: true });
+    return true;
+  }
+  if (msg.cmd === "learn_event") {
+    const ev = msg.event || {};
+    const g = learnGen;
+    if (g && g.outEl) {
+      if (ev.kind === "token" && ev.text) {
+        g.text += String(ev.text);
+        g.outEl.textContent = g.text;
+        g.outEl.scrollTop = g.outEl.scrollHeight;
+      } else if (ev.kind === "error") {
+        g.outEl.textContent = `${g.text}\n\n生成出错：${ev.message || "error"}`;
+        learnGen = null;
+      } else if (ev.kind === "done") {
+        learnGen = null;
+      }
+    }
     sendResponse({ ok: true });
     return true;
   }
