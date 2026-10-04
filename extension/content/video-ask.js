@@ -20,8 +20,6 @@ let hoverKind = null;
 let hideTimer = null;
 let lastContext = null;
 let floatTheme = "frost";
-let foreignStop = null;
-
 if (isContextValid()) {
   chrome.storage.local
     .get({ [FLOAT_THEME_KEY]: "frost" })
@@ -99,10 +97,6 @@ function clearHideTimer() {
 
 function hideButton() {
   clearHideTimer();
-  if (foreignStop) {
-    foreignStop();
-    foreignStop = null;
-  }
   if (btn) {
     btn.classList.remove("ab-show");
     btn.style.display = "none";
@@ -153,84 +147,22 @@ function pickMediaAt(e) {
   return null;
 }
 
-// The button parks at the media's top-left inner edge; if a foreign floater
-// owns that corner we try the top-right, then a second row — then we park
-// beside the foreign overlay itself and only hide when nowhere fits.
-// Fullscreen still works: the button lives in <body>, and a fullscreen video
-// fills the viewport so fixed positioning at its rect remains correct.
-const BTN_W = 40;
-const BTN_H = 34;
-function candidateSpots(r) {
-  return [
-    { x: r.left + 8, y: r.top + 8 },
-    { x: r.right - BTN_W - 8, y: r.top + 8 },
-    { x: r.left + 8, y: r.top + BTN_H + 14 },
-  ];
-}
-
-function freeSpot(el) {
-  const r = el.getBoundingClientRect();
-  const g = window.__abFloatGuard;
-  for (const s of candidateSpots(r)) {
-    if (!g || !g.foreignOverlayAt(s.x + BTN_W / 2, s.y + BTN_H / 2)) {
-      return { x: Math.max(4, s.x), y: Math.max(4, s.y) };
-    }
-  }
-  // Every corner is taken — park beside the foreign overlay at the first
-  // corner's blocker.
-  if (g) {
-    const s = candidateSpots(r)[0];
-    const fx = g.foreignOverlayAt(s.x + BTN_W / 2, s.y + BTN_H / 2);
-    if (fx) {
-      let fr;
-      try {
-        fr = fx.getBoundingClientRect();
-      } catch (err) {
-        logWarn("foreign rect failed", err);
-        return null;
-      }
-      const cands = [
-        { x: fr.left, y: fr.bottom + 6 },
-        { x: fr.right + 6, y: fr.top },
-        { x: fr.left, y: fr.top - BTN_H - 6 },
-      ];
-      for (const c of cands) {
-        const x = Math.max(4, Math.min(c.x, window.innerWidth - BTN_W - 4));
-        const y = Math.max(4, Math.min(c.y, window.innerHeight - BTN_H - 4));
-        if (!g.foreignOverlayAt(x + BTN_W / 2, y + BTN_H / 2)) return { x, y };
-      }
-    }
-  }
-  return null;
-}
-
+// The button parks at the media's top-left inner edge. Fullscreen still works:
+// the button lives in <body>, and a fullscreen video fills the viewport so
+// fixed positioning at its rect remains correct. This chip does not yield to
+// foreign overlays — the float guard is for the selection toolbar only.
 function placeButton(el, kind) {
   const r = el.getBoundingClientRect();
   const minW = kind === "video" ? 120 : 80;
   const minH = 80;
   if (r.width < minW || r.height < minH) return false; // ignore thumbnails/icons
-  const spot = freeSpot(el);
-  if (!spot) return false;
   const b = ensureButton();
   b.dataset.abtheme = floatTheme;
   b.style.position = "fixed";
-  b.style.left = spot.x + "px";
-  b.style.top = spot.y + "px";
+  b.style.left = Math.max(4, r.left + 8) + "px";
+  b.style.top = Math.max(4, r.top + 8) + "px";
   b.style.display = "flex";
   requestAnimationFrame(() => b.classList.add("ab-show"));
-  const g = window.__abFloatGuard;
-  if (g && !foreignStop) {
-    foreignStop = g.watchForeign(
-      { left: spot.x, top: spot.y, width: BTN_W, height: BTN_H },
-      () => {
-        const again = hoverEl && freeSpot(hoverEl);
-        if (again) {
-          b.style.left = again.x + "px";
-          b.style.top = again.y + "px";
-        } else hideButton();
-      }
-    );
-  }
   return true;
 }
 
