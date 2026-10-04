@@ -1232,7 +1232,7 @@ async function init() {
       el.textContent = text;
     }
     messagesEl.appendChild(el);
-    scrollToBottom();
+    scrollToBottom(true);
   }
 
   // ----- capabilities, model picker, stored preferences -----
@@ -1581,7 +1581,20 @@ async function init() {
 
   // ----- Rendering helpers -----
 
-  function scrollToBottom() {
+  // Auto-scroll is opt-in, not unconditional: it follows growth only while the
+  // user is pinned near the bottom. Scrolling up to read or expand an older
+  // block unpins, so renders and toggles stop dragging the view back down.
+  const PIN_PX = 40;
+  let pinnedToBottom = true;
+
+  messagesEl.addEventListener("scroll", () => {
+    pinnedToBottom =
+      messagesEl.scrollTop + messagesEl.clientHeight >=
+      messagesEl.scrollHeight - PIN_PX;
+  });
+
+  function scrollToBottom(force) {
+    if (force !== true && !pinnedToBottom) return;
     messagesEl.scrollTop = messagesEl.scrollHeight;
   }
 
@@ -1640,7 +1653,8 @@ async function init() {
     }
 
     messagesEl.appendChild(el);
-    scrollToBottom();
+    // The user's own message always pulls the view down to it.
+    scrollToBottom(true);
   }
 
   function clearRetryButton() {
@@ -1711,7 +1725,7 @@ async function init() {
     }
     streaming = true;
     updateControls();
-    scrollToBottom();
+    scrollToBottom(true);
     return true;
   }
 
@@ -1799,7 +1813,9 @@ async function init() {
     block.body.hidden = !open;
     block.head.setAttribute("aria-expanded", open ? "true" : "false");
     block.el.classList.toggle("open", !!open);
-    scrollToBottom();
+    // Expanding adds below the head — the view already shows it; only a
+    // collapse pulls trailing space back to the bottom.
+    if (!open) scrollToBottom();
   }
 
   function renderWorkSteps() {
@@ -2129,7 +2145,7 @@ async function init() {
       detail.hidden = !open;
       chip.classList.toggle("open", open);
       head.setAttribute("aria-expanded", open ? "true" : "false");
-      scrollToBottom();
+      if (!open) scrollToBottom();
     });
 
     chip.append(head, detail);
@@ -2266,7 +2282,7 @@ async function init() {
     view.body.hidden = !open;
     view.head.setAttribute("aria-expanded", open ? "true" : "false");
     view.el.classList.toggle("open", !!open);
-    scrollToBottom();
+    if (!open) scrollToBottom();
   }
 
   // Title and one-line status. The title can arrive with a later event, so it
