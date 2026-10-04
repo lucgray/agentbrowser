@@ -45,7 +45,7 @@ test('GET /admin serves the management page; unknown paths 404', async () => {
   try {
     const page = await req(srv, 'GET', '/admin');
     assert.equal(page.status, 200);
-    assert.ok(page.text.includes('AgentBrowser admin'));
+    assert.ok(page.text.includes('AgentBrowser — Console'));
     const miss = await req(srv, 'GET', '/admin/api/nope');
     assert.equal(miss.status, 404);
   } finally {
