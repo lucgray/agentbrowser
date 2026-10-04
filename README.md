@@ -163,6 +163,14 @@ compact chips in the transcript.
   **Floating Ask button on selection** in settings (persisted in
   `chrome.storage.local`; Esc also dismisses per selection). The same
   theme covers the media "@" chip on videos/images.
+- **Media menu** — hovering a video or image raises our icon: embedded in
+  the player's own control bar on YouTube/bilibili (the same spot
+  read-frog uses), or a floating `@` chip at the media's top-left
+  elsewhere (X, self-hosted players). The menu offers **引用到
+  AgentBrowser** (title + playhead ±90s transcript window — or image
+  src/dimensions — staged into the panel, plus a frame crop for paused
+  videos / the source image) and **下载视频** (yt-dlp on the hub host,
+  saved to `~/.agentchat/downloads`, result toasted next to the icon).
 - **Context menu** — right-click a selection and pick **Ask AgentBrowser**.
 - **Rich context, automatically** — the next message carries
   `context.selection` (protocol v1.4): the selected text plus the semantic

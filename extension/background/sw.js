@@ -593,6 +593,10 @@ subtitle.wireHub({
 const translateAsks = new Map();
 let translateAskSeq = 0;
 
+// Media menu 下载视频: reqId -> tabId so the hub's media_download_result
+// can be pushed back to the tab that asked (minutes-long; no response held).
+const mediaDlTabs = new Map();
+
 function handleTranslateAsk(tabId, text, sendResponse) {
   const reqId = `ts-${tabId}-${++translateAskSeq}`;
   const timer = setTimeout(() => {
@@ -693,6 +697,25 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       (ok) => sendResponse({ success: ok }),
       () => sendResponse({ success: false })
     );
+    return true;
+  }
+  if (message.cmd === 'video_download') {
+    // Media menu's 下载视频: fire-and-forget to the hub (yt-dlp), the result
+    // returns later as a 'media_download_result' hub message — downloads can
+    // take minutes, so we do not hold sendResponse.
+    const tabId = sender && sender.tab && sender.tab.id;
+    if (tabId == null || !message.url || !/^https?:\/\//.test(message.url)) {
+      sendResponse({ success: false, error: 'no tab/url' });
+      return true;
+    }
+    const id = String(message.id || `dl-${tabId}-${Date.now()}`);
+    mediaDlTabs.set(id, tabId);
+    sendToOffscreen({
+      target: 'offscreen',
+      cmd: 'send',
+      payload: { type: 'media_download', id, url: String(message.url) },
+    });
+    sendResponse({ success: true, started: true });
     return true;
   }
   if (message.cmd === 'annotation_comment') {
@@ -807,6 +830,20 @@ function handleHubMessage(payload) {
       }
     } else if (!subtitle.onResult(payload)) {
       translate.onResult(payload);
+    }
+  } else if (payload.type === 'media_download_result') {
+    const tabId = mediaDlTabs.get(String(payload.id || ''));
+    mediaDlTabs.delete(String(payload.id || ''));
+    if (tabId != null) {
+      chrome.tabs
+        .sendMessage(tabId, {
+          target: 'video-ask',
+          cmd: 'download_result',
+          ok: !!payload.ok,
+          file: payload.file,
+          error: payload.error,
+        })
+        .catch((err) => console.warn('[agentbrowser] download_result delivery failed', err));
     }
   } else if (payload.type === 'summary_result') {
     subtitle.onSummary(payload);

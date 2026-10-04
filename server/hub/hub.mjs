@@ -1976,6 +1976,8 @@ function handleMessage(ws, msg) {
       handleTranslateRequest(ws, msg).catch((err) => log("translate_request failed:", err && err.message));
     else if (msg.type === "summary_request")
       handleSummaryRequest(ws, msg).catch((err) => log("summary_request failed:", err && err.message));
+    else if (msg.type === "media_download")
+      handleMediaDownload(ws, msg).catch((err) => log("media_download failed:", err && err.message));
     else if (msg.type === "set_translate_config")
       handleSetTranslateConfig(ws, msg).catch((err) => log("set_translate_config failed:", err && err.message));
     else if (msg.type === "get_translate_config")
@@ -2061,6 +2063,27 @@ async function handleTranslateRequest(ws, msg) {
   } catch (err) {
     log("translate_request failed:", err && err.message);
     reply({ error: String((err && err.message) || err) });
+  }
+}
+
+// media_download (extension -> hub): the media menu's 下载视频. Runs yt-dlp
+// on the hub host and replies on the same socket; the sw forwards the result
+// to the requesting tab's video-ask script.
+async function handleMediaDownload(ws, msg) {
+  const id = typeof msg.id === "string" ? msg.id : null;
+  const reply = (extra) => {
+    try {
+      ws.send(JSON.stringify({ type: "media_download_result", id, ...extra }));
+    } catch (err) {
+      log("media_download_result send failed:", err && err.message);
+    }
+  };
+  try {
+    const r = await runVideoDownload({ url: msg.url });
+    reply(r.ok ? { ok: true, file: r.file } : { ok: false, error: r.error });
+  } catch (err) {
+    log("media_download failed:", err && err.message);
+    reply({ ok: false, error: String((err && err.message) || err) });
   }
 }
 
