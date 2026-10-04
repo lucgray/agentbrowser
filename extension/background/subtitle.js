@@ -5,7 +5,7 @@
 // channel under "sb-" prefixed request ids.
 
 import * as cdp from './cdp.js';
-import { parseSrv3, parseBilibili, excerptTranscript } from '../page/subtitle-core.js';
+import { parseSrv3, parseBilibili, excerptTranscript, buildSrt } from '../page/subtitle-core.js';
 
 const BINDING = '__abSubtitleBus';
 const CORE_URL = 'page/subtitle-core.js';
@@ -256,6 +256,34 @@ export async function transcript(tabId, args) {
       text: c.text,
     })),
   };
+}
+
+// Media-menu 获取字幕/弹幕: return {filename, text} for the sw to hand to
+// chrome.downloads — no overlay, no translation, probe+fetch only.
+export async function fetchDownload(tabId, kind) {
+  const p = await probe(tabId);
+  if (kind === 'danmaku') {
+    if (p.site !== 'bilibili') throw new Error('danmaku is bilibili-only');
+    if (!p.bvid) throw new Error('bilibili video id not found');
+    let cid = p.cid;
+    if (!cid) {
+      const list = await fetchJson(
+        `https://api.bilibili.com/x/player/pagelist?bvid=${encodeURIComponent(p.bvid)}`
+      );
+      cid = list && list.data && list.data[0] && list.data[0].cid;
+    }
+    if (!cid) throw new Error('bilibili cid not found');
+    const res = await fetch(
+      `https://api.bilibili.com/x/v1/dm/list.so?oid=${encodeURIComponent(cid)}`
+    );
+    if (!res.ok) throw new Error(`danmaku fetch ${res.status}`);
+    return { filename: `${p.bvid}-danmaku.xml`, text: await res.text() };
+  }
+  const { cues, track } = p.site === 'x' ? await loadCuesX(tabId, p) : await loadCues(p);
+  const srt = buildSrt(cues);
+  if (!srt.trim()) throw new Error('subtitle track was empty');
+  const vid = String(p.videoId || p.bvid || 'video').replace(/[^\w.-]+/g, '_');
+  return { filename: `${p.site}-${vid}-${track.lang || 'sub'}.srt`, text: srt };
 }
 
 // ------------------------------------------------------------- bus wiring

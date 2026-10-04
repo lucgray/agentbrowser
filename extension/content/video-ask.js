@@ -101,6 +101,12 @@ const AT_PATHS = [
   "M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-3.92 7.94",
 ];
 const DOWN_PATHS = ["M12 3v13", "M5 11l7 7 7-7", "M4 21h16"];
+const SUB_PATHS = [
+  "M4 5h16v14H4z",
+  "M7 10h10",
+  "M7 14h6",
+];
+const DM_PATHS = ["M4 6h16", "M4 12h10", "M4 18h13"];
 
 // ---------------------------------------------------------------------------
 // Floating chip (fallback for players without a recognized control bar, and
@@ -332,6 +338,35 @@ function toggleMenu(anchorRect) {
     })
   );
   if (hoverKind === "video") {
+    const sub = menuItem(SUB_PATHS, "获取字幕", (it, t) => {
+      if (it.dataset.busy) return;
+      it.dataset.busy = "1";
+      it.classList.add("ab-busy");
+      t.textContent = "获取中…";
+      onFetchSubs("subs", (ok, detail) => {
+        it.classList.remove("ab-busy");
+        t.textContent = ok ? "已保存" : "获取失败";
+        showToast(anchorRect, ok ? `已保存: ${detail}` : detail, !ok);
+        setTimeout(closeMenu, 1600);
+      });
+    });
+    m.appendChild(sub);
+    if (/(^|\.)bilibili\.com$/.test(location.hostname)) {
+      m.appendChild(
+        menuItem(DM_PATHS, "获取弹幕", (it, t) => {
+          if (it.dataset.busy) return;
+          it.dataset.busy = "1";
+          it.classList.add("ab-busy");
+          t.textContent = "获取中…";
+          onFetchSubs("danmaku", (ok, detail) => {
+            it.classList.remove("ab-busy");
+            t.textContent = ok ? "已保存" : "获取失败";
+            showToast(anchorRect, ok ? `已保存: ${detail}` : detail, !ok);
+            setTimeout(closeMenu, 1600);
+          });
+        })
+      );
+    }
     const dl = menuItem(DOWN_PATHS, "下载视频", (it, t) => {
       if (dlPending) return;
       dlPending = true;
@@ -546,6 +581,28 @@ function onDownload(done) {
   } catch (err) {
     logWarn("video_download send failed", err);
     dlDone = null;
+    done(false, String((err && err.message) || err));
+  }
+}
+
+// 获取字幕/弹幕: sw fetches the track (or danmaku XML) and saves the file
+// via chrome.downloads — the request itself resolves in the response, so a
+// settled promise is the whole lifecycle.
+function onFetchSubs(kind, done) {
+  if (!isContextValid()) return done(false, "extension context invalid");
+  try {
+    chrome.runtime
+      .sendMessage({ target: "sw", cmd: "subtitle_fetch", kind })
+      .then((res) => {
+        if (res && res.success) done(true, String(res.name || "saved"));
+        else done(false, String((res && res.error) || "fetch failed"));
+      })
+      .catch((err) => {
+        logWarn("subtitle_fetch send failed", err);
+        done(false, String((err && err.message) || err));
+      });
+  } catch (err) {
+    logWarn("subtitle_fetch send failed", err);
     done(false, String((err && err.message) || err));
   }
 }

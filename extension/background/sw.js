@@ -738,6 +738,33 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     sendResponse({ success: true, started: true });
     return true;
   }
+  if (message.cmd === 'subtitle_fetch') {
+    // Media menu's 获取字幕/弹幕: probe + fetch + build the file body, then
+    // hand it to chrome.downloads — quick enough to hold sendResponse.
+    const tabId = sender && sender.tab && sender.tab.id;
+    if (tabId == null) {
+      sendResponse({ success: false, error: 'no tab' });
+      return true;
+    }
+    subtitle
+      .fetchDownload(tabId, String(message.kind || 'subs'))
+      .then(async (r) => {
+        const url = 'data:text/plain;charset=utf-8,' + encodeURIComponent(r.text);
+        await chrome.downloads.download({
+          url,
+          filename: r.filename,
+          saveAs: false,
+        });
+        sendResponse({ success: true, name: r.filename });
+      })
+      .catch((err) =>
+        sendResponse({
+          success: false,
+          error: String((err && err.message) || err),
+        })
+      );
+    return true;
+  }
   if (message.cmd === 'annotation_comment') {
     const tabId = sender && sender.tab && sender.tab.id;
     if (tabId == null || !message.annId || !message.text) {
