@@ -64,6 +64,33 @@ export function normalizeText(text, maxChars = 6000) {
   return t.length > maxChars ? t.slice(0, maxChars) : t;
 }
 
+// Inline elements whose contents must never be translated: code, math and
+// keyboard/sample spans are swapped for {{n}} placeholders before the text
+// leaves the page (the model sees neither the content nor can it rewrite it),
+// and restored from a per-paragraph clone map when the result comes back.
+export const PROTECT_TAGS = new Set(['CODE', 'KBD', 'SAMP', 'VAR', 'MATH']);
+export const PROTECT_MAX = 99;
+// Tolerant match: providers sometimes emit {{ 1 }} or `{{1}}` variants.
+const PROTECT_RE = /\{\{\s*(\d{1,3})\s*\}\}/g;
+
+// Split translated text into ordered runs: {text: string} pieces interleaved
+// with {idx: n} placeholder references (1-based into the paragraph's protect
+// list). DOM-free so node --test covers it; the engine maps {idx} back to the
+// cloned original node at render time.
+export function splitProtected(text) {
+  const out = [];
+  const s = String(text || '');
+  let last = 0;
+  PROTECT_RE.lastIndex = 0;
+  for (let m = PROTECT_RE.exec(s); m; m = PROTECT_RE.exec(s)) {
+    if (m.index > last) out.push({ text: s.slice(last, m.index) });
+    out.push({ idx: Number(m[1]) });
+    last = m.index + m[0].length;
+  }
+  if (last < s.length) out.push({ text: s.slice(last) });
+  return out;
+}
+
 // "no translation needed" sentinel a provider may return for already-target-
 // language text; translated to an empty string so the caller renders nothing.
 export const NO_TRANSLATION_SENTINEL = '{{NO_TRANSLATION_NEEDED}}';

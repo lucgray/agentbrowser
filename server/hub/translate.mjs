@@ -9,8 +9,10 @@
 // of segments is retried once, then the batch degrades to per-item requests.
 //
 // Providers: "openai" and "anthropic" reuse the user's stored BYO key with a
-// small default model; "free" hits the Google translate scrape endpoint with
-// no key at all. "auto" prefers openai, then anthropic, then free.
+// small default model; "deepl" uses the DeepL API (free or pro key); "microsoft"
+// and "free" hit keyless endpoints (Edge's translator auth flow / the Google
+// gtx scrape endpoint). "auto" prefers openai, then anthropic, deepl,
+// microsoft, then free.
 
 import { createHash } from 'node:crypto';
 import os from 'node:os';
@@ -33,6 +35,14 @@ const DEFAULT_MODELS = { openai: 'gpt-5.6-mini', anthropic: 'claude-haiku-4-5' }
 const OPENAI_BASE_URL = 'https://api.openai.com/v1';
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
 const GOOGLE_FREE_URL = 'https://translate.googleapis.com/translate_a/single';
+const DEEPL_FREE_URL = 'https://api-free.deepl.com/v2/translate';
+const DEEPL_PRO_URL = 'https://api.deepl.com/v2/translate';
+const MS_AUTH_URL = 'https://edge.microsoft.com/translate/auth';
+const MS_TRANSLATE_URL = 'https://api-edge.cognitive.microsofttranslator.com/translate';
+const MS_TOKEN_TTL_MS = 9 * 60 * 1000;
+
+// Providers whose call returns a per-item array (no %% splitting involved).
+const ARRAY_PROVIDERS = new Set(['free', 'deepl', 'microsoft']);
 
 const SYSTEM_PROMPT = `You are a translation engine. Translate the user's text into the requested target language.
 
@@ -41,6 +51,7 @@ Rules:
 - Preserve the original meaning, tone, and formatting (line breaks, markdown, code spans).
 - Keep proper nouns, code, formulas, URLs and HTML tags untranslated.
 - If the input contains a standalone line containing only ${BATCH_SEPARATOR}, it separates independent segments: translate each segment on its own and put a standalone ${BATCH_SEPARATOR} line between them, in the same order, with exactly one output segment per input segment.
+- Placeholders like {{1}}, {{2}} mark protected inline content (code, math): keep every placeholder verbatim, in place, and untranslated.
 - If a segment needs no translation (already in the target language, a name, code, a URL), output ${NO_TRANSLATION} for that segment instead of a translation.
 - If the whole input needs no translation, output exactly ${NO_TRANSLATION}.`;
 
@@ -222,6 +233,64 @@ async function callFree(texts, opts, fetchFn) {
   return null; // wrong segment count — caller retries individually
 }
 
+// DeepL API — key required (free keys end in ':fx'). Batches natively: one
+// `text` array entry per segment, translations come back in the same order.
+function deeplTargetLang(lang) {
+  const l = String(lang || '').toLowerCase();
+  if (l === 'zh' || l.startsWith('zh-')) return l.includes('tw') || l.includes('hk') ? 'ZH-HANT' : 'ZH-HANS';
+  if (l === 'en') return 'EN-US';
+  if (l === 'pt') return 'PT-BR';
+  return l.toUpperCase();
+}
+
+async function callDeepL(texts, opts, fetchFn, keyOf) {
+  const key = keyOf('deepl');
+  if (!key) throw new Error('no deepl key configured (set one in Settings or use provider "free"/"auto")');
+  const url = (opts.baseUrl || (/:fx$/.test(key) ? DEEPL_FREE_URL : DEEPL_PRO_URL)).replace(/\/+$/, '');
+  const res = await fetchFn(`${url}/translate`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `DeepL-Auth-Key ${key}` },
+    body: JSON.stringify({ text: texts, target_lang: deeplTargetLang(opts.targetLang) }),
+    signal: opts.signal,
+  });
+  if (!res.ok) throw new Error(`deepl ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  const data = await res.json();
+  const out = (data && Array.isArray(data.translations) ? data.translations : [])
+    .map((t) => t && t.text);
+  if (out.length === texts.length && out.every((t) => typeof t === 'string')) return out;
+  return null;
+}
+
+// Microsoft translator through the Edge auth flow — no key needed: fetch a
+// short-lived Bearer token, then POST one {Text} per segment.
+function createMicrosoftCaller() {
+  let token = { value: null, exp: 0 };
+  return async function callMicrosoft(texts, opts, fetchFn) {
+    if (!token.value || Date.now() >= token.exp) {
+      const auth = await fetchFn(MS_AUTH_URL, { signal: opts.signal });
+      if (!auth.ok) throw new Error(`microsoft auth ${auth.status}`);
+      token = { value: String(await auth.text()), exp: Date.now() + MS_TOKEN_TTL_MS };
+    }
+    const url = new URL(MS_TRANSLATE_URL);
+    url.searchParams.set('api-version', '3.0');
+    url.searchParams.set('to', opts.targetLang);
+    const res = await fetchFn(url.toString(), {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${token.value}` },
+      body: JSON.stringify(texts.map((t) => ({ Text: t }))),
+      signal: opts.signal,
+    });
+    if (res.status === 401) token = { value: null, exp: 0 }; // stale token — next call re-auths
+    if (!res.ok) throw new Error(`microsoft ${res.status}`);
+    const data = await res.json();
+    const out = (Array.isArray(data) ? data : []).map(
+      (d) => d && Array.isArray(d.translations) && d.translations[0] && d.translations[0].text
+    );
+    if (out.length === texts.length && out.every((t) => typeof t === 'string')) return out;
+    return null;
+  };
+}
+
 function buildUserPrompt(text, targetLang, context) {
   const ctx = context && typeof context === 'object' ? context : {};
   const parts = [`Target language: ${targetLang}`];
@@ -239,6 +308,8 @@ export function createTranslator({ config, fetchImpl, cacheDir, getKey: getKeyOv
   const calls = {
     openai: (texts, opts, f) => callOpenAI(texts, opts, f, keyOf),
     anthropic: (texts, opts, f) => callAnthropic(texts, opts, f, keyOf),
+    deepl: (texts, opts, f) => callDeepL(texts, opts, f, keyOf),
+    microsoft: createMicrosoftCaller(),
     free: callFree,
   };
   const providerOf = (want) => {
@@ -246,7 +317,8 @@ export function createTranslator({ config, fetchImpl, cacheDir, getKey: getKeyOv
     if (w === 'auto') {
       if (keyOf('openai')) return 'openai';
       if (keyOf('anthropic')) return 'anthropic';
-      return 'free';
+      if (keyOf('deepl')) return 'deepl';
+      return 'microsoft';
     }
     return w;
   };
@@ -264,8 +336,44 @@ export function createTranslator({ config, fetchImpl, cacheDir, getKey: getKeyOv
     cacheDir || path.join(os.homedir(), '.agentchat', 'translate-cache.json')
   );
   const inflight = new Map(); // hash -> Promise<text>
+  const recent = []; // ring of {text, translation, targetLang, provider, ts}
   let active = 0;
   const waiters = [];
+
+  // Token-bucket pacing on top of the concurrency cap: provider calls first
+  // wait for a token, then for a slot. A 429 from the provider pauses all new
+  // calls for an exponentially growing cooldown.
+  const RATE_RPS = Math.max(0, Number(cfg.ratePerSec == null ? 8 : cfg.ratePerSec));
+  const RATE_BURST = Math.max(1, Number(cfg.rateBurst == null ? 8 : cfg.rateBurst));
+  let tokens = RATE_BURST;
+  let lastRefill = Date.now();
+  let cooldownUntil = 0;
+  let consec429 = 0;
+
+  async function acquireToken() {
+    if (RATE_RPS <= 0 && cooldownUntil <= Date.now()) return;
+    for (;;) {
+      const now = Date.now();
+      tokens = Math.min(RATE_BURST, tokens + ((now - lastRefill) / 1000) * RATE_RPS);
+      lastRefill = now;
+      const cooldown = cooldownUntil - now;
+      if (cooldown <= 0 && (RATE_RPS <= 0 || tokens >= 1)) {
+        if (RATE_RPS > 0) tokens -= 1;
+        return;
+      }
+      const wait = cooldown > 0 ? cooldown : ((1 - tokens) / RATE_RPS) * 1000;
+      await new Promise((r) => setTimeout(r, Math.max(5, Math.min(wait, 60000))));
+    }
+  }
+
+  function noteProviderError(err) {
+    const msg = String((err && err.message) || err || '');
+    if (/\b429\b|rate.?limit|too many requests/i.test(msg)) {
+      consec429 += 1;
+      cooldownUntil = Date.now() + Math.min(60000, 1000 * 2 ** consec429);
+      console.warn(`[translate] provider rate-limited; pausing requests ${Math.round((cooldownUntil - Date.now()) / 1000)}s`);
+    }
+  }
 
   async function withSlot(fn) {
     while (active >= CONCURRENCY) await new Promise((r) => waiters.push(r));
@@ -284,9 +392,15 @@ export function createTranslator({ config, fetchImpl, cacheDir, getKey: getKeyOv
     const ac = new AbortController();
     const timer = setTimeout(() => ac.abort(), PROVIDER_TIMEOUT_MS);
     try {
-      return await withSlot(() =>
+      await acquireToken();
+      const out = await withSlot(() =>
         call(texts, { ...opts, model: cfg.model, baseUrl: cfg.baseUrl, signal: ac.signal }, fetchFn)
       );
+      consec429 = 0;
+      return out;
+    } catch (err) {
+      noteProviderError(err);
+      throw err;
     } finally {
       clearTimeout(timer);
     }
@@ -297,12 +411,12 @@ export function createTranslator({ config, fetchImpl, cacheDir, getKey: getKeyOv
   async function translateBatch(items, opts, provider) {
     const texts = items.map((i) => i.text);
     let reply = await callProvider(texts, opts);
-    let parts = provider === 'free'
-      ? reply /* callFree returns an array */
+    let parts = ARRAY_PROVIDERS.has(provider)
+      ? reply /* these calls return a per-item array */
       : splitBatchResponse(reply, items.length);
     if (!parts) {
       reply = await callProvider(texts, opts);
-      parts = provider === 'free' ? reply : splitBatchResponse(reply, items.length);
+      parts = ARRAY_PROVIDERS.has(provider) ? reply : splitBatchResponse(reply, items.length);
     }
     if (parts && parts.length === items.length) return parts;
     // Degrade: one request per item, all concurrent.
@@ -412,6 +526,22 @@ export function createTranslator({ config, fetchImpl, cacheDir, getKey: getKeyOv
       results[d.tid] = textByHash.get(d.hash) || '';
     }
 
+    // Ring of recent pairs — the translate_recent tool reads this so the
+    // agent can ground follow-ups in what the user just read.
+    for (const it of items) {
+      const text = results[it.tid];
+      if (typeof text === 'string' && text) {
+        recent.push({
+          text: String(it.text).slice(0, 400),
+          translation: text.slice(0, 400),
+          targetLang,
+          provider,
+          ts: Date.now(),
+        });
+      }
+    }
+    while (recent.length > 200) recent.shift();
+
     return { results, provider, cached: cachedCount };
   }
 
@@ -420,6 +550,28 @@ export function createTranslator({ config, fetchImpl, cacheDir, getKey: getKeyOv
     provider: () => providerOf(cfg.provider),
     config: cfg,
     flushCache: () => file.flush(),
+    recentList: (n) => recent.slice(-Math.min(200, Math.max(1, Number(n) || 20))),
+    stats: () => ({
+      provider: providerOf(cfg.provider),
+      model: cfg.model || null,
+      targetLang: cfg.targetLang,
+      memCache: mem.map.size,
+      fileCache: file.load().size,
+      inflight: inflight.size,
+      active,
+      recent: recent.length,
+      rateLimit: {
+        perSec: RATE_RPS,
+        burst: RATE_BURST,
+        cooldownUntil: cooldownUntil > Date.now() ? cooldownUntil : null,
+      },
+    }),
+    clearCache: () => {
+      mem.map.clear();
+      file.load().clear();
+      file.flush();
+      return { cleared: true };
+    },
   };
 }
 

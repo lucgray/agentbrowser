@@ -15,7 +15,7 @@ import {
 import os from 'node:os';
 import path from 'node:path';
 
-export const PROVIDERS = ['anthropic', 'openai'];
+export const PROVIDERS = ['anthropic', 'openai', 'deepl'];
 
 const DIR = path.join(os.homedir(), '.agentchat');
 const FILE = path.join(DIR, 'keys.json');

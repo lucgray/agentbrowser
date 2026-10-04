@@ -1193,6 +1193,53 @@ Panel: a 译 button in the header toggles the pipeline on the active tab;
 `translate_progress` updates its counter; the settings page carries the
 quick-config row (provider / language / mode / word-hover / model).
 
+## Translation hardening, v2.15
+
+Five additions on top of the v2.14 pipeline:
+
+- **Protected placeholders.** Inline `code`/`kbd`/`samp`/`var`/`math` inside a
+  paragraph is replaced by `{{1}}`, `{{2}}`… markers before the text leaves
+  the page (`extractMasked` in the engine); originals ride on the paragraph
+  record and are cloned back into the rendered translation
+  (`splitProtected` + `renderTranslated`). Providers see markers, never the
+  code/math, so they cannot drop or rewrite it. The system prompt teaches the
+  marker convention.
+- **Dedicated providers.** `deepl` (key from the keystore — `:fx` keys go to
+  `api-free.deepl.com`, others to `api.deepl.com`) and `microsoft` (keyless:
+  Bearer token from `edge.microsoft.com/translate/auth`, cached ~9 min, then
+  `api-edge.cognitive.microsofttranslator.com`). Both batch natively with a
+  per-item array. `auto` order is now openai → anthropic → deepl → microsoft
+  (google gtx `free` stays last as an explicit choice).
+- **Rate limiting.** A token bucket wraps every provider call:
+  `config.translate.ratePerSec` (default 8; 0 disables pacing) +
+  `rateBurst` (default 8). A `429`/rate-limit error pauses all new calls for
+  an exponential cooldown (2^consecutive seconds, capped at 60s); a success
+  resets it. This sits on top of the existing concurrency-3 cap.
+- **Recent ring.** The service keeps the last 200 `{text, translation,
+  targetLang, provider, ts}` pairs; the `translate_recent {n?}` tool reads
+  them so the agent can ground answers in what the user just read.
+- **Management surface.** `translate_stats`, `translate_recent`,
+  `translate_cache_clear` are answered by the hub itself on either
+  tool_call path (chat `callBrowserTool` and harness `handleHarnessToolCall`)
+  — same interception pattern as `browsers_list`, so a future web client
+  manages the service over the same socket without a browser. Direct wire
+  messages of the same names return `translate_admin_result {op, result}`
+  to extension sockets.
+
+Wire additions:
+
+```json
+{"type":"translate_stats"}
+{"type":"translate_recent","n":50}
+{"type":"translate_cache_clear"}
+{"type":"translate_admin_result","op":"stats","result":{"provider":"microsoft","memCache":512,"rateLimit":{"perSec":8,"burst":8,"cooldownUntil":null}}}
+```
+
+`capabilities` gains a `keys` map (`{anthropic,openai,deepl}` → bool) so the
+panel can show key state for keystore providers that have no adapter of
+their own. The keystore accepts a `deepl` entry; the settings page has a
+DeepL key row, and the provider select lists `deepl`/`microsoft`.
+
 ## mcp-proxy.mjs
 
 Stdio MCP server (use `@modelcontextprotocol/sdk`, installed) exposing the ten

@@ -82,6 +82,8 @@
           <option value="auto">auto</option>
           <option value="openai">openai</option>
           <option value="anthropic">anthropic</option>
+          <option value="deepl">deepl</option>
+          <option value="microsoft">microsoft</option>
           <option value="free">free</option>
         </select>
         <select id="set-tr-lang" class="set-select" data-i18n-title="translateLangTitle">
@@ -112,7 +114,7 @@
       <div class="set-row">
         <button id="set-tr-save" type="button" data-i18n="saveBtn">Save</button>
       </div>
-      <p class="set-note" data-i18n="translateNote">Translation runs as a background pipeline outside the chat loop. "auto" uses your stored OpenAI key, then Anthropic, then a free endpoint.</p>
+      <p class="set-note" data-i18n="translateNote">Translation runs as a background pipeline outside the chat loop. "auto" prefers stored keys (OpenAI → Anthropic → DeepL), then free endpoints.</p>
     </div>
 
     <div class="set-group">
@@ -138,6 +140,19 @@
       <div class="set-row">
         <button id="key-openai-save" type="button" aria-label="Save the OpenAI API key" data-i18n="saveBtn">Save</button>
         <button id="key-openai-clear" type="button" aria-label="Clear the stored OpenAI API key" data-i18n="clearBtn">Clear</button>
+      </div>
+    </div>
+
+    <div class="set-group">
+      <div class="set-head">
+        <label class="set-label" for="key-deepl" data-i18n="deeplKeyLabel">DeepL API 密钥</label>
+        <span id="key-deepl-state" class="set-state">not set</span>
+      </div>
+      <input id="key-deepl" class="set-input" type="password" autocomplete="off" spellcheck="false"
+             placeholder="…:fx" aria-label="DeepL API key">
+      <div class="set-row">
+        <button id="key-deepl-save" type="button" aria-label="Save the DeepL API key" data-i18n="saveBtn">Save</button>
+        <button id="key-deepl-clear" type="button" aria-label="Clear the stored DeepL API key" data-i18n="clearBtn">Clear</button>
       </div>
     </div>
 

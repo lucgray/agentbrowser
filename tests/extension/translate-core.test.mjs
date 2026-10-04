@@ -12,6 +12,8 @@ import {
   isNoTranslation,
   TRANSLATE_MODES,
   resolveEngineConfig,
+  PROTECT_TAGS,
+  splitProtected,
 } from '../../extension/page/translate-core.js';
 
 const text = (v) => ({ nodeType: 3, nodeValue: v });
@@ -80,4 +82,25 @@ test('tag sets cover the expected exclusions and modes list is complete', () => 
     assert.ok(BLOCK_TAGS.has(tag), tag);
   }
   assert.deepEqual(TRANSLATE_MODES, ['bilingual', 'card', 'dim', 'replace', 'ondemand']);
+});
+
+test('splitProtected: text runs and placeholder indexes in order (v2.15)', () => {
+  assert.deepEqual(splitProtected('run {{1}} then {{2}} end'), [
+    { text: 'run ' }, { idx: 1 }, { text: ' then ' }, { idx: 2 }, { text: ' end' },
+  ]);
+  // Tolerant of the spacing variants providers emit.
+  assert.deepEqual(splitProtected('a {{ 3 }} b'), [{ text: 'a ' }, { idx: 3 }, { text: ' b' }]);
+  // No placeholders → a single text run; leading/trailing placeholders keep
+  // no empty runs.
+  assert.deepEqual(splitProtected('plain'), [{ text: 'plain' }]);
+  assert.deepEqual(splitProtected('{{1}} tail'), [{ idx: 1 }, { text: ' tail' }]);
+  assert.deepEqual(splitProtected(''), []);
+  assert.deepEqual(splitProtected(null), []);
+});
+
+test('PROTECT_TAGS covers inline code and math surfaces', () => {
+  for (const tag of ['CODE', 'KBD', 'SAMP', 'VAR', 'MATH']) {
+    assert.ok(PROTECT_TAGS.has(tag), tag);
+  }
+  assert.equal(PROTECT_TAGS.has('P'), false);
 });

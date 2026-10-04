@@ -441,10 +441,17 @@ tools = await client.get_tools()
 - **显示模式** — `bilingual`、`card`、`dim`、`replace`、`ondemand`
   （悬停段落点「译」原地替换为译文，点「原」切回原文）。
 - **悬浮划词** — 开启 `wordHover` 后，鼠标悬停单词即出词义 tooltip。
-- **服务来源** — `auto` 依次取已存 OpenAI 密钥 → Anthropic → 免 key
-  端点；`config.json` 的 `translate` 块（或设置行）可固定
-  `provider`/`model`/`targetLang`。hub 每次攒 4 段一请求，按内容 hash
-  缓存并对在飞请求去重。
+- **行内 code/公式保护** — `code`/`kbd`/`samp`/`var`/`math` 在文本离开
+  页面前被换成 `{{n}}` 占位符，译文渲染时原样还原——模型看不到、也
+  无法改写它们。
+- **服务来源** — `auto` 依次取已存密钥（OpenAI → Anthropic → DeepL），
+  无 key 回落微软免 key 端点；`free` 为 Google 抓取端点。`config.json`
+  的 `translate` 块（或设置行）可固定 `provider`/`model`/`targetLang`；
+  `ratePerSec`/`rateBurst` 令牌桶限速，遇到 429 指数退避暂停。hub 每次攒
+  4 段一请求，按内容 hash 缓存并对在飞请求去重。
+- **agent 上下文与管理** — `translate_recent` 返回刚翻译的内容（便于接
+  着问答）；`translate_stats`/`translate_cache_clear` 由 hub 直接应答，
+  为后续 web 端管理面预留同一套接口。
 
 ## 浏览器工具
 
@@ -474,6 +481,9 @@ tools = await client.get_tools()
 | `page_translate_stop` | `{tabId?}` | `{stopped}` |
 | `translate_para` | `{tid, tabId?}` | 重译已扫描的某一段 |
 | `translate_status` | `{tabId?}` | `{active, mode, targetLang, total, done, translating}` |
+| `translate_recent` | `{n?}` | `{recent:[{text, translation, targetLang, provider, ts}]}`（hub 应答） |
+| `translate_stats` | `{}` | 服务/缓存/限流状态（hub 应答） |
+| `translate_cache_clear` | `{}` | 清空两级翻译缓存（hub 应答） |
 
 省略 `tabId` 即当前活动标签页。service worker 按需 attach
 debugger，每个标签页串行执行命令，被 Chrome 断开后自动重连。

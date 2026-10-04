@@ -302,6 +302,7 @@ const I18N = {
     enterKeyFirst: "enter a key first",
     anthropicKeyLabel: "Anthropic API key",
     openaiKeyLabel: "OpenAI API key",
+    deeplKeyLabel: "DeepL API key (translation)",
     saveBtn: "Save",
     clearBtn: "Clear",
     keysNote: "Keys are stored locally on this machine only, by the hub, in a file only your user account can read. The panel never receives a saved key back; it is only told whether one is configured.",
@@ -355,6 +356,7 @@ const I18N = {
     enterKeyFirst: "请先输入密钥",
     anthropicKeyLabel: "Anthropic API 密钥",
     openaiKeyLabel: "OpenAI API 密钥",
+    deeplKeyLabel: "DeepL API 密钥（翻译专用）",
     saveBtn: "保存",
     clearBtn: "清除",
     keysNote: "密钥只保存在本机（由 hub 写入仅当前用户可读的文件），面板只会收到“是否已配置”，不会收到密钥本身。",
@@ -770,12 +772,17 @@ export function pickModel(adapters, name, wanted) {
   return models[0].id;
 }
 
-// capabilities only ever carries keyConfigured, never a key.
-export function keyStateFromCapabilities(adapters) {
-  const out = { anthropic: false, openai: false };
+// capabilities only ever carries keyConfigured / the keystore status map,
+// never a key. `keys` covers keystore providers with no adapter of their own
+// (deepl — translation service only).
+export function keyStateFromCapabilities(adapters, keys) {
+  const out = { anthropic: false, openai: false, deepl: false };
   for (const a of adapters || []) {
     if (!a || !a.provider || !a.keyConfigured) continue;
     if (Object.prototype.hasOwnProperty.call(out, a.provider)) out[a.provider] = true;
+  }
+  for (const p of Object.keys(out)) {
+    if (keys && keys[p] === true) out[p] = true;
   }
   return out;
 }
@@ -835,6 +842,13 @@ async function init() {
       state: document.getElementById("key-openai-state"),
       save: document.getElementById("key-openai-save"),
       clear: document.getElementById("key-openai-clear"),
+    },
+    {
+      provider: "deepl",
+      input: document.getElementById("key-deepl"),
+      state: document.getElementById("key-deepl-state"),
+      save: document.getElementById("key-deepl-save"),
+      clear: document.getElementById("key-deepl-clear"),
     },
   ];
 
@@ -1055,7 +1069,7 @@ async function init() {
   let prefModel = null;
   let selAdapter = ""; // current adapter name
   let selModel = null; // current model id, or null when the adapter has none
-  let keyState = { anthropic: false, openai: false };
+  let keyState = { anthropic: false, openai: false, deepl: false };
   let panelCfg = null; // {proactiveAnnotation:{enabled,adapter,prompt}} echoed via capabilities
   let browsers = []; // capabilities: [{id,name,default?}] — extensions sharing this hub
   let superseded = false; // another extension took our browser id (v2.13)
@@ -1142,7 +1156,8 @@ async function init() {
       renderBrowsers();
       applyCapabilities(
         Array.isArray(msg.adapters) ? msg.adapters : [],
-        Array.isArray(msg.commands) ? msg.commands : []
+        Array.isArray(msg.commands) ? msg.commands : [],
+        msg.keys && typeof msg.keys === "object" ? msg.keys : null
       );
       renderProactiveControls();
     } else if (msg.type === "chat_event") {
@@ -1247,12 +1262,12 @@ async function init() {
   // The command list is whatever the hub sent, normalized. There is no built-in
   // fallback: a hub with no registry means the panel offers no commands, and
   // "/anything" goes out as ordinary chat text.
-  function applyCapabilities(list, commandList) {
+  function applyCapabilities(list, commandList, keys) {
     adapters = list;
     commands = normalizeCommands(commandList);
     if (palette) updatePalette();
     renderBackend();
-    keyState = keyStateFromCapabilities(adapters);
+    keyState = keyStateFromCapabilities(adapters, keys);
     renderKeyState();
   }
 

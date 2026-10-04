@@ -908,6 +908,27 @@ export const TOOLS = [
       },
       required: []
     }
+  },
+  {
+    name: "translate_recent",
+    description: "Recent paragraph/word translations from the page-translation pipeline, newest last (v2.15): {recent: [{text, translation, targetLang, provider, ts}]}. Use it to ground follow-up answers in what the user just read without re-reading the page. Answered by the hub — no tab needed.",
+    args: {
+      type: "object",
+      properties: {
+        n: { type: "integer", description: "How many entries, newest backwards (default 20, max 200)" }
+      },
+      required: []
+    }
+  },
+  {
+    name: "translate_stats",
+    description: "Hub-side translation service stats (v2.15): {provider, model, targetLang, memCache, fileCache, inflight, active, recent, rateLimit:{perSec,burst,cooldownUntil}}. Answered by the hub — no tab needed.",
+    args: { type: "object", properties: {}, required: [] }
+  },
+  {
+    name: "translate_cache_clear",
+    description: "Clear both translation caches (in-memory LRU and the persisted ~/.agentchat/translate-cache.json) (v2.15). Subsequent paragraphs re-translate. Answered by the hub — no tab needed.",
+    args: { type: "object", properties: {}, required: [] }
   }
 ];
 
