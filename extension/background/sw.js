@@ -779,7 +779,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     subtitle
       .fetchDownload(tabId, String(message.kind || 'subs'))
       .then(async (r) => {
-        const url = 'data:text/plain;charset=utf-8,' + encodeURIComponent(r.text);
+        // octet-stream keeps the intended .srt/.xml extension — a text/plain
+        // data URL makes Chrome rewrite the download to .txt.
+        const url = 'data:application/octet-stream;charset=utf-8,' + encodeURIComponent(r.text);
         await chrome.downloads.download({
           url,
           filename: r.filename,
