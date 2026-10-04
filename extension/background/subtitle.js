@@ -5,7 +5,13 @@
 // channel under "sb-" prefixed request ids.
 
 import * as cdp from './cdp.js';
-import { parseSrv3, parseBilibili, excerptTranscript, buildSrt } from '../page/subtitle-core.js';
+import {
+  parseSrv3,
+  parseBilibili,
+  excerptTranscript,
+  buildSrt,
+  decodeEntities,
+} from '../page/subtitle-core.js';
 
 const BINDING = '__abSubtitleBus';
 const CORE_URL = 'page/subtitle-core.js';
@@ -258,26 +264,75 @@ export async function transcript(tabId, args) {
   };
 }
 
+// Raw bilibili danmaku XML for a probed page (cid comes from the probe or a
+// pagelist lookup).
+async function danmakuXml(p) {
+  if (!p.bvid) throw new Error('bilibili video id not found');
+  let cid = p.cid;
+  if (!cid) {
+    const list = await fetchJson(
+      `https://api.bilibili.com/x/player/pagelist?bvid=${encodeURIComponent(p.bvid)}`
+    );
+    cid = list && list.data && list.data[0] && list.data[0].cid;
+  }
+  if (!cid) throw new Error('bilibili cid not found');
+  const res = await fetch(
+    `https://api.bilibili.com/x/v1/dm/list.so?oid=${encodeURIComponent(cid)}`
+  );
+  if (!res.ok) throw new Error(`danmaku fetch ${res.status}`);
+  return res.text();
+}
+
+// <d p="t,mode,size,color,ts,pool,uid,dmid">text</d> -> [{t, text}].
+function parseDanmaku(xml) {
+  const out = [];
+  const re = /<d\s+p="([^"]*)"[^>]*>([\s\S]*?)<\/d>/g;
+  let m;
+  while ((m = re.exec(xml))) {
+    const t = Number(String(m[1]).split(',')[0]);
+    const text = decodeEntities(String(m[2]).trim());
+    if (text) out.push({ t: Number.isFinite(t) ? t : 0, text });
+  }
+  return out;
+}
+
+// Learn popup data: raw cue list for the 字幕 tab.
+export async function fetchSubs(tabId) {
+  const p = await probe(tabId);
+  const { cues, track } =
+    p.site === 'x' ? await loadCuesX(tabId, p) : await loadCues(p);
+  return {
+    site: p.site,
+    videoId: p.videoId || p.bvid || null,
+    track,
+    cues: cues.map((c) => ({ start: c.start, end: c.end, text: c.text })),
+  };
+}
+
+// Learn popup 汇总: the transcript as one excerpt string (bounded, timeline-
+// sliced when long) for the summary prompt.
+export async function transcriptExcerpt(tabId) {
+  const p = await probe(tabId);
+  const { cues, track } =
+    p.site === 'x' ? await loadCuesX(tabId, p) : await loadCues(p);
+  return { site: p.site, track, text: excerptTranscript(cues) };
+}
+
+// Learn popup 弹幕热议: parsed danmaku entries for the digest prompt.
+export async function fetchDanmaku(tabId) {
+  const p = await probe(tabId);
+  if (p.site !== 'bilibili') throw new Error('danmaku is bilibili-only');
+  const xml = await danmakuXml(p);
+  return { site: p.site, bvid: p.bvid, entries: parseDanmaku(xml) };
+}
+
 // Media-menu 获取字幕/弹幕: return {filename, text} for the sw to hand to
 // chrome.downloads — no overlay, no translation, probe+fetch only.
 export async function fetchDownload(tabId, kind) {
   const p = await probe(tabId);
   if (kind === 'danmaku') {
     if (p.site !== 'bilibili') throw new Error('danmaku is bilibili-only');
-    if (!p.bvid) throw new Error('bilibili video id not found');
-    let cid = p.cid;
-    if (!cid) {
-      const list = await fetchJson(
-        `https://api.bilibili.com/x/player/pagelist?bvid=${encodeURIComponent(p.bvid)}`
-      );
-      cid = list && list.data && list.data[0] && list.data[0].cid;
-    }
-    if (!cid) throw new Error('bilibili cid not found');
-    const res = await fetch(
-      `https://api.bilibili.com/x/v1/dm/list.so?oid=${encodeURIComponent(cid)}`
-    );
-    if (!res.ok) throw new Error(`danmaku fetch ${res.status}`);
-    return { filename: `${p.bvid}-danmaku.xml`, text: await res.text() };
+    return { filename: `${p.bvid}-danmaku.xml`, text: await danmakuXml(p) };
   }
   const { cues, track } = p.site === 'x' ? await loadCuesX(tabId, p) : await loadCues(p);
   const srt = buildSrt(cues);

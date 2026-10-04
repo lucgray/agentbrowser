@@ -55,14 +55,18 @@ if (isContextValid()) {
     .get({ [FLOAT_THEME_KEY]: "frost" })
     .then((r) => {
       floatTheme = FLOAT_THEMES.has(r[FLOAT_THEME_KEY]) ? r[FLOAT_THEME_KEY] : "frost";
-      for (const el of [btn, menu, toast]) if (el) el.dataset.abtheme = floatTheme;
+      for (const el of [btn, menu, toast, learn && learn.el]) {
+        if (el) el.dataset.abtheme = floatTheme;
+      }
     })
     .catch((err) => logWarn("floatTheme read failed", err));
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== "local" || !(FLOAT_THEME_KEY in changes)) return;
     const v = changes[FLOAT_THEME_KEY].newValue;
     floatTheme = FLOAT_THEMES.has(v) ? v : "frost";
-    for (const el of [btn, menu, toast]) if (el) el.dataset.abtheme = floatTheme;
+    for (const el of [btn, menu, toast, learn && learn.el]) {
+      if (el) el.dataset.abtheme = floatTheme;
+    }
   });
 }
 
@@ -107,6 +111,11 @@ const SUB_PATHS = [
   "M7 14h6",
 ];
 const DM_PATHS = ["M4 6h16", "M4 12h10", "M4 18h13"];
+const BOOK_PATHS = [
+  "M4 4h6v16H4z",
+  "M14 4h6v16h-6z",
+  "M6.5 8h2M6.5 11h2",
+];
 
 // ---------------------------------------------------------------------------
 // Floating chip (fallback for players without a recognized control bar, and
@@ -338,6 +347,12 @@ function toggleMenu(anchorRect) {
     })
   );
   if (hoverKind === "video") {
+    m.appendChild(
+      menuItem(BOOK_PATHS, "学习弹窗", () => {
+        closeMenu();
+        openLearn();
+      })
+    );
     const sub = menuItem(SUB_PATHS, "获取字幕", (it, t) => {
       if (it.dataset.busy) return;
       it.dataset.busy = "1";
@@ -585,6 +600,207 @@ function onDownload(done) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Learn popup （学习弹窗）: fixed side dialog, three tabs — 字幕 (cue list,
+// click to seek, follows the playhead), 汇总 and 弹幕热议 (agent generations
+// streamed back via learn_event on the learn-<tabId> chat).
+const LEARN_ID = "agentbrowser-learn";
+let learn = null; // { el, panes, tabBtns }
+let learnCues = null;
+let learnNowRow = null;
+let learnGen = null; // { kind, outEl, text }
+
+function learnAsk(kind) {
+  return chrome.runtime
+    .sendMessage({
+      target: "sw",
+      cmd: "learn_ask",
+      kind,
+      title: String(document.title || ""),
+    })
+    .catch((err) => {
+      logWarn("learn_ask send failed", err);
+      return { success: false, error: String((err && err.message) || err) };
+    });
+}
+
+function ensureLearn() {
+  if (learn) return learn;
+  const el = document.createElement("div");
+  el.id = LEARN_ID;
+  el.dataset.abtheme = floatTheme;
+
+  const head = document.createElement("div");
+  head.className = "ab-learn-head";
+  const tabsEl = document.createElement("div");
+  tabsEl.className = "ab-learn-tabs";
+  const close = document.createElement("button");
+  close.type = "button";
+  close.className = "ab-learn-close";
+  close.textContent = "✕";
+  close.addEventListener("click", closeLearn);
+  head.appendChild(tabsEl);
+  head.appendChild(close);
+  el.appendChild(head);
+
+  const body = document.createElement("div");
+  body.className = "ab-learn-body";
+  el.appendChild(body);
+
+  const panes = {};
+  const tabBtns = {};
+  const tabDefs = [
+    ["cues", "字幕"],
+    ["summary", "汇总"],
+    ["danmaku", "弹幕热议"],
+  ];
+  for (const [key, label] of tabDefs) {
+    const t = document.createElement("button");
+    t.type = "button";
+    t.className = "ab-learn-tab";
+    t.textContent = label;
+    t.addEventListener("click", () => learnTab(key));
+    tabsEl.appendChild(t);
+    tabBtns[key] = t;
+    const pane = document.createElement("div");
+    pane.className = "ab-learn-pane";
+    body.appendChild(pane);
+    panes[key] = pane;
+  }
+  (document.body || document.documentElement).appendChild(el);
+  learn = { el, panes, tabBtns };
+  buildLearnPanes();
+  return learn;
+}
+
+function learnTab(key) {
+  if (!learn) return;
+  for (const k of Object.keys(learn.panes)) {
+    learn.panes[k].classList.toggle("ab-active", k === key);
+    learn.tabBtns[k].classList.toggle("ab-active", k === key);
+  }
+}
+
+function buildLearnPanes() {
+  // 汇总 / 弹幕热议 share one shape: output area + a generate button.
+  for (const [key, btnLabel] of [
+    ["summary", "生成汇总"],
+    ["danmaku", "生成热议分析"],
+  ]) {
+    const pane = learn.panes[key];
+    const out = document.createElement("div");
+    out.className = "ab-learn-out";
+    const gen = document.createElement("button");
+    gen.type = "button";
+    gen.className = "ab-learn-gen";
+    gen.textContent = btnLabel;
+    gen.addEventListener("click", () => runLearnGen(key, out, gen));
+    pane.appendChild(out);
+    pane.appendChild(gen);
+  }
+}
+
+function runLearnGen(kind, outEl, genBtn) {
+  if (learnGen) return;
+  learnGen = { kind, outEl, text: "" };
+  outEl.textContent = "生成中…";
+  genBtn.classList.add("ab-busy");
+  learnAsk(kind).then((res) => {
+    genBtn.classList.remove("ab-busy");
+    if (!res || !res.success) {
+      outEl.textContent = `生成失败：${(res && res.error) || "未知错误"}`;
+      if (learnGen && learnGen.outEl === outEl) learnGen = null;
+    }
+  });
+}
+
+function loadLearnCues() {
+  const pane = learn.panes.cues;
+  pane.textContent = "";
+  const note = document.createElement("div");
+  note.className = "ab-learn-note";
+  note.textContent = "读取字幕…";
+  pane.appendChild(note);
+  learnAsk("cues").then((res) => {
+    pane.textContent = "";
+    if (!res || !res.success || !res.cues || !res.cues.length) {
+      const n = document.createElement("div");
+      n.className = "ab-learn-note";
+      n.textContent = `没有可用字幕${res && res.error ? `：${res.error}` : ""}`;
+      pane.appendChild(n);
+      return;
+    }
+    learnCues = res.cues;
+    const frag = document.createDocumentFragment();
+    for (const c of res.cues) {
+      const row = document.createElement("div");
+      row.className = "ab-learn-cue";
+      const t = document.createElement("span");
+      t.className = "t";
+      t.textContent = fmtSec(c.start);
+      row.appendChild(t);
+      row.appendChild(document.createTextNode(String(c.text || "")));
+      row._t = Number(c.start) || 0;
+      row.addEventListener("click", () => {
+        const v =
+          hoverEl && hoverEl.tagName === "VIDEO"
+            ? hoverEl
+            : document.querySelector("video");
+        if (v) v.currentTime = c.start;
+      });
+      frag.appendChild(row);
+    }
+    pane.appendChild(frag);
+  });
+}
+
+// Follow the playhead inside the 字幕 tab.
+let learnTick = null;
+function startLearnTick() {
+  if (learnTick) return;
+  learnTick = setInterval(() => {
+    if (!learn || !learn.el.classList.contains("ab-show")) return;
+    if (!learnCues || !learn.panes.cues.classList.contains("ab-active")) return;
+    const v =
+      hoverEl && hoverEl.tagName === "VIDEO"
+        ? hoverEl
+        : document.querySelector("video");
+    if (!v) return;
+    const t = Number(v.currentTime) || 0;
+    const rows = learn.panes.cues.children;
+    let hit = null;
+    for (const row of rows) {
+      if (row._t == null) continue;
+      if (row._t <= t) hit = row;
+      else break;
+    }
+    if (hit === learnNowRow) return;
+    if (learnNowRow) learnNowRow.classList.remove("ab-now");
+    learnNowRow = hit;
+    if (hit) {
+      hit.classList.add("ab-now");
+      hit.scrollIntoView({ block: "nearest" });
+    }
+  }, 500);
+}
+
+function openLearn() {
+  const l = ensureLearn();
+  // 弹幕 tab only makes sense on bilibili.
+  const hasDm = /(^|\.)bilibili\.com$/.test(location.hostname);
+  l.tabBtns.danmaku.style.display = hasDm ? "" : "none";
+  l.el.dataset.abtheme = floatTheme;
+  l.el.classList.add("ab-show");
+  learnTab("cues");
+  if (!learnCues) loadLearnCues();
+  startLearnTick();
+}
+
+function closeLearn() {
+  if (learn) learn.el.classList.remove("ab-show");
+  learnNowRow = null;
+}
+
 // 获取字幕/弹幕: sw fetches the track (or danmaku XML) and saves the file
 // via chrome.downloads — the request itself resolves in the response, so a
 // settled promise is the whole lifecycle.
@@ -613,6 +829,24 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     const cb = dlDone;
     dlDone = null;
     if (cb) cb(!!msg.ok, String(msg.file || msg.error || ""));
+    sendResponse({ ok: true });
+    return true;
+  }
+  if (msg.cmd === "learn_event") {
+    const ev = msg.event || {};
+    const g = learnGen;
+    if (g && g.outEl) {
+      if (ev.kind === "token" && ev.text) {
+        g.text += String(ev.text);
+        g.outEl.textContent = g.text;
+        g.outEl.scrollTop = g.outEl.scrollHeight;
+      } else if (ev.kind === "error") {
+        g.outEl.textContent = `${g.text}\n\n生成出错：${ev.message || "error"}`;
+        learnGen = null;
+      } else if (ev.kind === "done") {
+        learnGen = null;
+      }
+    }
     sendResponse({ ok: true });
     return true;
   }

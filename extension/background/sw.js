@@ -400,6 +400,9 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 // the card on the page instead of the panel.
 
 const annChats = new Map(); // chatId -> { tabId, annId }
+// Learn popup chats (chatId 'learn-<tabId>'): 汇总/弹幕热议 generations
+// stream back to the page dialog, same pattern as annChats.
+const learnChats = new Map(); // chatId -> { tabId }
 
 // --- tab recording (v2.7) ---------------------------------------------------
 // recordings: tabId -> { startedAt, markers: [{t,x,y,kind}] }. Markers are
@@ -477,6 +480,9 @@ function settleRecorder(op, message) {
 chrome.tabs.onRemoved.addListener((tabId) => {
   for (const [chatId, ann] of annChats) {
     if (ann.tabId === tabId) annChats.delete(chatId);
+  }
+  for (const [chatId, learn] of learnChats) {
+    if (learn.tabId === tabId) learnChats.delete(chatId);
   }
   recordings.delete(tabId);
 });
@@ -765,6 +771,77 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       );
     return true;
   }
+  if (message.cmd === 'learn_ask') {
+    // Learn popup: 'cues' returns the track for the 字幕 tab; 'summary' and
+    // 'danmaku' gather the transcript/danmaku here and start a hub chat
+    // whose streamed reply lands back in the popup via learn_event.
+    const tabId = sender && sender.tab && sender.tab.id;
+    if (tabId == null) {
+      sendResponse({ success: false, error: 'no tab' });
+      return true;
+    }
+    const kind = String(message.kind || 'cues');
+    if (kind === 'cues') {
+      subtitle.fetchSubs(tabId).then(
+        (r) =>
+          sendResponse({ success: true, site: r.site, track: r.track, cues: r.cues }),
+        (err) =>
+          sendResponse({ success: false, error: String((err && err.message) || err) })
+      );
+      return true;
+    }
+    if (!hubConnected) {
+      sendResponse({ success: false, error: 'hub not connected' });
+      return true;
+    }
+    const title = String(message.title || (sender.tab && sender.tab.title) || 'this video');
+    const gather =
+      kind === 'danmaku'
+        ? subtitle.fetchDanmaku(tabId).then((r) => {
+            const step = Math.max(1, Math.floor(r.entries.length / 350));
+            const lines = r.entries
+              .filter((_, i) => i % step === 0)
+              .map((e) => `${Math.round(e.t)}s: ${e.text}`)
+              .join('\n');
+            return (
+              `你是弹幕舆情助手。这是视频「${title}」的弹幕（时间:内容，等距抽样 ${r.entries.length} 条）。` +
+              '用中文回答：观众在激烈讨论什么？归纳 3-5 个热议话题、各自观点倾向和出现的大致时间段。\n\n' +
+              lines
+            );
+          })
+        : subtitle.transcriptExcerpt(tabId).then((r) =>
+            `你是视频学习助手。这是视频「${title}」的字幕转写（时间线对齐节选）。` +
+            '用中文汇总：1) 主题概述 2) 分节要点 3) 三个值得记住的结论。\n\n' +
+            r.text
+          );
+    gather
+      .then((prompt) => {
+        const chatId = `learn-${tabId}`;
+        learnChats.set(chatId, { tabId });
+        sendToOffscreen({
+          target: 'offscreen',
+          cmd: 'send',
+          payload: {
+            type: 'chat',
+            chatId,
+            text: prompt,
+            adapter: lastPanelAdapter || undefined,
+            context: {
+              currentTab: {
+                tabId,
+                url: (sender.tab && sender.tab.url) || '',
+                title,
+              },
+            },
+          },
+        });
+        sendResponse({ success: true, started: true });
+      })
+      .catch((err) =>
+        sendResponse({ success: false, error: String((err && err.message) || err) })
+      );
+    return true;
+  }
   if (message.cmd === 'annotation_comment') {
     const tabId = sender && sender.tab && sender.tab.id;
     if (tabId == null || !message.annId || !message.text) {
@@ -843,6 +920,19 @@ function handleHubMessage(payload) {
         })
         .catch((err) => {
           console.warn('[agentbrowser] annotation event delivery failed', err);
+        });
+      return;
+    }
+    const learn = learnChats.get(payload.chatId);
+    if (learn) {
+      chrome.tabs
+        .sendMessage(learn.tabId, {
+          target: 'video-ask',
+          cmd: 'learn_event',
+          event: payload.event,
+        })
+        .catch((err) => {
+          console.warn('[agentbrowser] learn event delivery failed', err);
         });
       return;
     }
