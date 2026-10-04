@@ -568,6 +568,8 @@ function handleHubMessage(payload) {
     postToPanel(payload);
   } else if (payload.type === 'translate_result') {
     if (!subtitle.onResult(payload)) translate.onResult(payload);
+  } else if (payload.type === 'summary_result') {
+    subtitle.onSummary(payload);
   } else if (payload.type === 'translate_config') {
     postToPanel(payload);
   }

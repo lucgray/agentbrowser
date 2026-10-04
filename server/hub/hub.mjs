@@ -1889,6 +1889,8 @@ function handleMessage(ws, msg) {
     else if (msg.type === "chat_resume") handleChatResume(ws, msg);
     else if (msg.type === "translate_request")
       handleTranslateRequest(ws, msg).catch((err) => log("translate_request failed:", err && err.message));
+    else if (msg.type === "summary_request")
+      handleSummaryRequest(ws, msg).catch((err) => log("summary_request failed:", err && err.message));
     else if (msg.type === "set_translate_config")
       handleSetTranslateConfig(ws, msg).catch((err) => log("set_translate_config failed:", err && err.message));
     else if (msg.type === "get_translate_config")
@@ -1973,6 +1975,26 @@ async function handleTranslateRequest(ws, msg) {
     reply({ results: r.results, provider: r.provider, cached: r.cached });
   } catch (err) {
     log("translate_request failed:", err && err.message);
+    reply({ error: String((err && err.message) || err) });
+  }
+}
+
+// summary_request (extension -> hub, v2.18): the subtitle sidebar's AI
+// summary tab. Same implicit per-socket routing as translate_result.
+async function handleSummaryRequest(ws, msg) {
+  const id = typeof msg.id === "string" ? msg.id : null;
+  const reply = (extra) => {
+    try {
+      ws.send(JSON.stringify({ type: "summary_result", id, ...extra }));
+    } catch (err) {
+      log("summary_result send failed:", err && err.message);
+    }
+  };
+  try {
+    const r = await translator.summarize(msg);
+    reply({ summary: r.summary, provider: r.provider });
+  } catch (err) {
+    log("summary_request failed:", err && err.message);
     reply({ error: String((err && err.message) || err) });
   }
 }

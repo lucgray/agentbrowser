@@ -173,8 +173,8 @@ async function callOpenAI(texts, opts, fetchFn, keyOf) {
     body: JSON.stringify({
       model: opts.model || DEFAULT_MODELS.openai,
       messages: [
-        { role: 'system', content: SYSTEM_PROMPT },
-        { role: 'user', content: buildUserPrompt(joinBatch(texts), opts.targetLang, opts.context) },
+        { role: 'system', content: opts.system || SYSTEM_PROMPT },
+        { role: 'user', content: opts.user || buildUserPrompt(joinBatch(texts), opts.targetLang, opts.context) },
       ],
       temperature: 0.3,
     }),
@@ -200,8 +200,8 @@ async function callAnthropic(texts, opts, fetchFn, keyOf) {
     body: JSON.stringify({
       model: opts.model || DEFAULT_MODELS.anthropic,
       max_tokens: 4096,
-      system: SYSTEM_PROMPT,
-      messages: [{ role: 'user', content: buildUserPrompt(joinBatch(texts), opts.targetLang, opts.context) }],
+      system: opts.system || SYSTEM_PROMPT,
+      messages: [{ role: 'user', content: opts.user || buildUserPrompt(joinBatch(texts), opts.targetLang, opts.context) }],
     }),
     signal: opts.signal,
   });
@@ -545,8 +545,34 @@ export function createTranslator({ config, fetchImpl, cacheDir, getKey: getKeyOv
     return { results, provider, cached: cachedCount };
   }
 
+  // summary_request (extension -> hub): a video transcript -> markdown
+  // summary in the target language. Chat-only providers apply; deepl,
+  // microsoft and free are pure translators and reject here.
+  const SUMMARY_SYSTEM = `You are a video-summary engine. Given a video transcript, write a compact summary in the requested target language.
+
+Rules:
+- Output markdown only: a "TL;DR" section (2-3 sentences), then "## 要点" bullet points with timestamps where the cue positions allow, then "## 关键词" as a comma-separated tag list.
+- Keep it under 400 words. No preamble, no sign-off.`;
+
+  async function summarize(msg) {
+    const provider = providerOf(cfg.provider);
+    if (!['openai', 'anthropic'].includes(provider)) {
+      throw new Error(`provider "${provider}" cannot summarize — set translate.provider to openai or anthropic`);
+    }
+    const transcript = String(msg.transcript || '').slice(0, 24000);
+    if (!transcript.trim()) throw new Error('empty transcript');
+    const targetLang = String(msg.targetLang || cfg.targetLang);
+    const text = await callProvider(['x'], {
+      targetLang,
+      system: SUMMARY_SYSTEM,
+      user: `Target language: ${targetLang}\n\nTranscript:\n${transcript}`,
+    });
+    return { summary: String(text || '').trim(), provider };
+  }
+
   return {
     handleRequest,
+    summarize,
     provider: () => providerOf(cfg.provider),
     config: cfg,
     flushCache: () => file.flush(),

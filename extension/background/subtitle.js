@@ -5,11 +5,12 @@
 // channel under "sb-" prefixed request ids.
 
 import * as cdp from './cdp.js';
-import { parseSrv3, parseBilibili } from '../page/subtitle-core.js';
+import { parseSrv3, parseBilibili, sampleTranscript } from '../page/subtitle-core.js';
 
 const BINDING = '__abSubtitleBus';
 const CORE_URL = 'page/subtitle-core.js';
 const ENGINE_URL = 'page/subtitle-engine.js';
+const SIDEBAR_URL = 'page/subtitle-sidebar.js';
 const MAX_TRANSCRIPT_CUES = 400;
 
 const sessions = new Map(); // tabId -> {cfg, running, startPromise}
@@ -24,13 +25,15 @@ export function wireHub({ sendToHub }) {
 
 async function loadSources() {
   if (sources) return sources;
-  const [core, engine] = await Promise.all([
+  const [core, engine, sidebar] = await Promise.all([
     fetch(chrome.runtime.getURL(CORE_URL)).then((r) => r.text()),
     fetch(chrome.runtime.getURL(ENGINE_URL)).then((r) => r.text()),
+    fetch(chrome.runtime.getURL(SIDEBAR_URL)).then((r) => r.text()),
   ]);
   // The core ships ES exports for node --test; the page evaluate is a classic
-  // script, so they are stripped before concatenation.
-  sources = core.replace(/^export\s+/gm, '') + '\n' + engine;
+  // script, so they are stripped before concatenation. Core first: engine and
+  // sidebar call its helpers (fmtTs/buildSrt/...) as top-level globals.
+  sources = core.replace(/^export\s+/gm, '') + '\n' + engine + '\n' + sidebar;
   return sources;
 }
 
@@ -164,6 +167,7 @@ export async function start(tabId, cfg) {
     );
     if (r && r.error) throw new Error(r.error);
     s.running = true;
+    s.cues = cues;
     return { site: p.site, track, cues: cues.length, ...(r || {}) };
   })();
   try {
@@ -256,9 +260,36 @@ export function onBindingCalled(tabId, payload) {
       items: Array.isArray(msg.items) ? msg.items : [],
       targetLang: (s && s.cfg && s.cfg.targetLang) || 'zh',
     });
+  } else if (msg.kind === 'summary' && hubSend) {
+    const reqId = `sum-${tabId}`;
+    pendingReqs.set(reqId, tabId);
+    hubSend({
+      type: 'summary_request',
+      id: reqId,
+      tabId,
+      transcript: sampleTranscript(s && s.cues),
+      targetLang: (s && s.cfg && s.cfg.targetLang) || 'zh',
+    });
   } else if (msg.kind === 'error') {
     console.warn('[agentbrowser] subtitle engine error:', msg.error);
   }
+}
+
+// summary_result fan-in — sw forwards it here; the page sidebar renders via
+// __abSubSidebar.onSummary.
+export function onSummary(msg) {
+  const tabId = pendingReqs.get(msg.id);
+  if (tabId == null) return false;
+  pendingReqs.delete(msg.id);
+  const s = sessions.get(tabId);
+  if (!s || !s.running) return true;
+  evalRaw(
+    tabId,
+    `__abSubSidebar && __abSubSidebar.onSummary(${JSON.stringify({ summary: msg.summary || null, error: msg.error || null })})`
+  ).catch((err) => {
+    console.warn('[agentbrowser] summary apply failed', err);
+  });
+  return true;
 }
 
 // translate_result fan-in — sw asks us first; returns true when the id was

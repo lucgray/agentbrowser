@@ -1336,6 +1336,30 @@ Non-admin HTTP requests get 426 (upgrade required). The page polls
 `/admin/api/state` every 15s — no auth, same localhost trust level as the
 WS port itself.
 
+## Video learn sidebar, v2.18
+
+A per-video learning sidebar (逐句 transcript / AI 摘要 / 生词本 tabs),
+injected by the subtitle engine — it mounts whenever a subtitle session
+is running (`subtitle_translate`) and shares the same cue array, so no
+new wire path is needed for transcript data.
+
+- **Page side** (`page/subtitle-sidebar.js`): `__abSubSidebar` global.
+  `mount({cues, video, bus})` builds the panel purely with DOM APIs
+  (YouTube Trusted Types forbids innerHTML); `cueTranslated(i)` patches a
+  row when a batch lands; `setActive(i)` follows the playhead with a
+  ⌖跟随 toggle; rows click-seek. Docks two ways: normal mode floats over
+  the recommendations column (`#secondary` / `.recommend-list-v1`);
+  fullscreen reparents into `document.fullscreenElement` (top layer) and
+  hugs the player's right edge. SRT export uses `buildSrt` from
+  subtitle-core.
+- **Summary wire**: the AI 摘要 tab sends `{kind:'summary'}` over the
+  subtitle binding → SW relays `summary_request {id:"sum-<tab>", tabId,
+  transcript, targetLang}` (transcript = `sampleTranscript` of the loaded
+  cues, capped ~20k chars) → hub `translator.summarize()` calls the
+  configured chat provider (openai/anthropic only; deepl/microsoft/free
+  reply `error`) → `summary_result {id, summary}` → evaluated as
+  `__abSubSidebar.onSummary({summary, error})`.
+
 ## mcp-proxy.mjs
 
 Stdio MCP server (use `@modelcontextprotocol/sdk`, installed) exposing the ten

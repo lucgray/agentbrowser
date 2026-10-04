@@ -156,7 +156,10 @@
       for (var k in results) {
         var i = Number(k);
         var c = cues[i];
-        if (c && results[k]) c.translated = String(results[k]);
+        if (c && results[k]) {
+          c.translated = String(results[k]);
+          if (window.__abSubSidebar) window.__abSubSidebar.cueTranslated(i);
+        }
       }
     }
     sendMore();
@@ -177,11 +180,16 @@
     ensureUI();
     onTime = function () {
       var i = cueAt(cues, video.currentTime);
-      if (i !== activeCue) { activeCue = i; render(); }
+      if (i !== activeCue) {
+        activeCue = i;
+        render();
+        if (window.__abSubSidebar) window.__abSubSidebar.setActive(i);
+      }
     };
     video.addEventListener('timeupdate', onTime);
     var at = cueAt(cues, video.currentTime);
     activeCue = at;
+    if (window.__abSubSidebar) window.__abSubSidebar.mount({ cues: cues, video: video, bus: bus });
     sendQueue = sendOrder(cues.length, at >= 0 ? at : 0);
     // Cues with text already in the target script get skipped by the hub's
     // own heuristics downstream; sending them anyway keeps this branch-free.
@@ -196,6 +204,7 @@
     onTime = null;
     if (wrap && wrap.isConnected) wrap.remove();
     wrap = null;
+    if (window.__abSubSidebar) window.__abSubSidebar.unmount();
     if (styleEl && styleEl.isConnected) styleEl.remove();
     styleEl = null;
     cues = [];

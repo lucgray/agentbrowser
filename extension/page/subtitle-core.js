@@ -86,3 +86,62 @@ export function sendOrder(length, fromIdx) {
   for (let i = 0; i < Math.max(0, fromIdx); i++) out.push(i);
   return out;
 }
+
+// ---- sidebar helpers (v2.18): pure so node --test covers them ----
+
+// "MM:SS" below an hour, "H:MM:SS" above — matches player timestamp style.
+export function fmtTs(sec) {
+  const s = Math.max(0, Math.floor(Number(sec) || 0));
+  const mm = Math.floor(s / 60) % 60;
+  const ss = s % 60;
+  const hh = Math.floor(s / 3600);
+  const pad = (n) => String(n).padStart(2, '0');
+  return hh ? `${hh}:${pad(mm)}:${pad(ss)}` : `${mm}:${pad(ss)}`;
+}
+
+// SRT timestamp "HH:MM:SS,mmm" for the transcript export.
+function srtTs(sec) {
+  const ms = Math.round(Math.max(0, Number(sec) || 0) * 1000);
+  const pad = (n, w) => String(n).padStart(w, '0');
+  return `${pad(Math.floor(ms / 3600000), 2)}:${pad(Math.floor(ms / 60000) % 60, 2)}:` +
+    `${pad(Math.floor(ms / 1000) % 60, 2)},${pad(ms % 1000, 3)}`;
+}
+
+// Bilingual .srt text: source line then translated line under one sequence.
+export function buildSrt(cues) {
+  const out = [];
+  let n = 0;
+  for (const c of cues || []) {
+    if (!c || !c.text) continue;
+    n += 1;
+    out.push(String(n));
+    out.push(`${srtTs(c.start)} --> ${srtTs(c.end)}`);
+    out.push(String(c.text));
+    if (c.translated) out.push(String(c.translated));
+    out.push('');
+  }
+  return out.join('\n');
+}
+
+// Transcript text for the summary request, bounded to `budget` chars. When
+// the track is longer, even windows of contiguous lines are sampled so the
+// model still sees beginning, middle and end rather than a hard truncation.
+export function sampleTranscript(cues, budget = 20000) {
+  const lines = (cues || []).map((c) => String(c && c.text || '').trim()).filter(Boolean);
+  const joined = lines.join('\n');
+  if (joined.length <= budget) return joined;
+  const WINDOWS = 8;
+  const winSize = Math.ceil(lines.length / WINDOWS);
+  const perWin = Math.floor((budget - (WINDOWS - 1) * 2) / WINDOWS);
+  const runs = [];
+  for (let i = 0; i < lines.length; i += winSize) {
+    let run = '';
+    for (const line of lines.slice(i, i + winSize)) {
+      const next = run ? `${run}\n${line}` : line;
+      if (next.length > perWin) break;
+      run = next;
+    }
+    if (run) runs.push(run);
+  }
+  return runs.join('\n\n');
+}
