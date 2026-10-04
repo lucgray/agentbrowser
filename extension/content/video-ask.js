@@ -24,7 +24,7 @@ const CONTROL_BARS = [
   { match: /(^|\.)youtube-nocookie\.com$/, bar: ".ytp-right-controls" },
   {
     match: /(^|\.)bilibili\.com$/,
-    bar: ".bpx-player-control-bottom-right, .bilibili-player-video-control-bottom-right",
+    bar: ".bpx-player-control-bottom-right, .bilibili-player-video-control",
   },
 ];
 
@@ -251,6 +251,7 @@ function closeMenu() {
     menu.classList.remove("ab-show");
     menu.style.display = "none";
   }
+  scheduleHide(); // the menu was keeping the chip alive — re-arm the hide
 }
 
 function menuItem(iconPaths, text, onClick) {
@@ -344,7 +345,13 @@ function showToast(anchorRect, text, isErr) {
 }
 
 document.addEventListener("mousedown", (e) => {
-  if (menu && menu.classList.contains("ab-show") && !menu.contains(e.target) && !(btn && btn.contains(e.target))) {
+  if (
+    menu &&
+    menu.classList.contains("ab-show") &&
+    !menu.contains(e.target) &&
+    !(btn && btn.contains(e.target)) &&
+    !(e.target && e.target.closest && e.target.closest(".ab-media-cb"))
+  ) {
     closeMenu();
   }
 });
@@ -360,8 +367,10 @@ document.addEventListener(
       return;
     }
     if (hit.kind === "video" && mountControlIcon(hit.el)) {
-      // Control-bar icon handles the affordance; no floating chip needed.
-      if (hoverEl) hideButton();
+      // Control-bar icon handles the affordance; retire the float chip if
+      // it was showing, but never clobber control-mode state — the menu may
+      // be open against it.
+      if (hoverMode === "float") hideButton();
       return;
     }
     clearHideTimer();
@@ -475,6 +484,14 @@ function onDownload(done) {
         cmd: "video_download",
         id: reqId,
         url: String(location.href),
+      })
+      .then((res) => {
+        // Rejected up front (no hub, bad url) — surface it instead of
+        // leaving the item on 下载中… forever.
+        if (res && res.success === false && dlDone === done) {
+          dlDone = null;
+          done(false, String(res.error || "download rejected"));
+        }
       })
       .catch((err) => logWarn("video_download send failed", err));
   } catch (err) {

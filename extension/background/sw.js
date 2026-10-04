@@ -708,8 +708,24 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse({ success: false, error: 'no tab/url' });
       return true;
     }
+    if (!hubConnected) {
+      sendResponse({ success: false, error: 'hub not connected' });
+      return true;
+    }
     const id = String(message.id || `dl-${tabId}-${Date.now()}`);
-    mediaDlTabs.set(id, tabId);
+    const timer = setTimeout(() => {
+      if (mediaDlTabs.delete(id)) {
+        chrome.tabs
+          .sendMessage(tabId, {
+            target: 'video-ask',
+            cmd: 'download_result',
+            ok: false,
+            error: 'download timed out',
+          })
+          .catch((err) => console.warn('[agentbrowser] download timeout notify failed', err));
+      }
+    }, 11 * 60 * 1000); // just past the hub's 10min yt-dlp cap
+    mediaDlTabs.set(id, { tabId, timer });
     sendToOffscreen({
       target: 'offscreen',
       cmd: 'send',
@@ -832,11 +848,12 @@ function handleHubMessage(payload) {
       translate.onResult(payload);
     }
   } else if (payload.type === 'media_download_result') {
-    const tabId = mediaDlTabs.get(String(payload.id || ''));
+    const rec = mediaDlTabs.get(String(payload.id || ''));
     mediaDlTabs.delete(String(payload.id || ''));
-    if (tabId != null) {
+    if (rec) {
+      clearTimeout(rec.timer);
       chrome.tabs
-        .sendMessage(tabId, {
+        .sendMessage(rec.tabId, {
           target: 'video-ask',
           cmd: 'download_result',
           ok: !!payload.ok,
