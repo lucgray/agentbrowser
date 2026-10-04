@@ -58,11 +58,18 @@ function replaceInputText(el, text) {
       range.selectNodeContents(el);
       sel.removeAllRanges();
       sel.addRange(range);
-      if (!document.execCommand("insertText", false, text)) el.innerText = text;
+      if (!document.execCommand("insertText", false, text)) {
+        el.innerText = text;
+        el.dispatchEvent(new Event("input", { bubbles: true }));
+      }
     } else {
       el.setSelectionRange(0, String(el.value || "").length);
-      // execCommand keeps the edit undoable; direct assignment is the fallback.
-      if (!document.execCommand("insertText", false, text)) el.value = text;
+      // execCommand keeps the edit undoable; direct assignment is the fallback
+      // (dispatch input so framework-controlled fields still see the change).
+      if (!document.execCommand("insertText", false, text)) {
+        el.value = text;
+        el.dispatchEvent(new Event("input", { bubbles: true }));
+      }
     }
   } catch (err) {
     logWarn("input translate replace failed", err);

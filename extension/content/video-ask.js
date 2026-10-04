@@ -618,6 +618,7 @@ function onDownload(done) {
 const LEARN_ID = "agentbrowser-learn";
 let learn = null; // { el, panes, tabBtns }
 let learnCues = null;
+let learnCuesFor = null; // location.href the cue list belongs to (SPA navs)
 let learnNowRow = null;
 let learnGen = null; // { kind, outEl, text }
 
@@ -742,6 +743,7 @@ function loadLearnCues() {
       return;
     }
     learnCues = res.cues;
+    learnCuesFor = location.href;
     const frag = document.createDocumentFragment();
     for (const c of res.cues) {
       const row = document.createElement("div");
@@ -808,7 +810,11 @@ function openLearn() {
   l.el.dataset.abtheme = floatTheme;
   l.el.classList.add("ab-show");
   learnTab("cues");
-  if (!learnCues) loadLearnCues();
+  if (!learnCues || learnCuesFor !== location.href) {
+    learnCues = null;
+    learnCuesFor = location.href;
+    loadLearnCues();
+  }
   startLearnTick();
 }
 

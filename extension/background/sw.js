@@ -403,6 +403,7 @@ const annChats = new Map(); // chatId -> { tabId, annId }
 // Learn popup chats (chatId 'learn-<tabId>'): 汇总/弹幕热议 generations
 // stream back to the page dialog, same pattern as annChats.
 const learnChats = new Map(); // chatId -> { tabId }
+let learnChatSeq = 0; // nonce so each generation is a fresh chat, not a turn
 
 // --- tab recording (v2.7) ---------------------------------------------------
 // recordings: tabId -> { startedAt, markers: [{t,x,y,kind}] }. Markers are
@@ -818,7 +819,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           );
     gather
       .then((prompt) => {
-        const chatId = `learn-${tabId}`;
+        const chatId = `learn-${tabId}-${++learnChatSeq}`;
         learnChats.set(chatId, { tabId });
         sendToOffscreen({
           target: 'offscreen',
