@@ -2279,9 +2279,16 @@ const adminHandler = createAdminHandler({
 
 const httpServer = http.createServer((req, res) => {
   if (req.method === "GET" && req.url && req.url.startsWith("/dl/")) {
-    const id = decodeURIComponent(req.url.slice(4).split("?")[0]);
-    const rec = dlFiles.get(id);
+    let id = "";
+    let rec = null;
+    try {
+      id = decodeURIComponent(req.url.slice(4).split("?")[0]);
+      rec = dlFiles.get(id) || null;
+    } catch {
+      rec = null; // malformed % encoding
+    }
     if (!rec || rec.exp < Date.now() || !existsSync(rec.file)) {
+      dlFiles.delete(id);
       res.writeHead(404, { "content-type": "text/plain" });
       res.end("download expired");
       return;
