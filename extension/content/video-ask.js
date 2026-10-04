@@ -1,15 +1,16 @@
 // Content script: a floating "@" button at the left edge of whatever <video>
-// the pointer is over. Clicking it sends the video's context (url, title,
-// playhead, pause state, element rect) to the service worker, which opens the
-// side panel, pulls the running subtitle session's transcript window, and —
-// while the video is paused — grabs a cropped tab screenshot of the frame.
-// Both land in the composer as a selection chip + image attachment.
+// or <img> the pointer is over. Clicking it sends the media's context (url,
+// title, playhead/pause state for video, src/alt for images, element rect) to
+// the service worker, which opens the side panel and stages a selection chip
+// plus an image attachment — a cropped screenshot for a paused video or
+// unfetchable image, the fetched source otherwise.
 
 const BTN_ID = "agentbrowser-video-ask-btn";
 const HIDE_DELAY_MS = 600;
 
 let btn = null;
-let hoverVideo = null;
+let hoverEl = null;
+let hoverKind = null;
 let hideTimer = null;
 let lastContext = null;
 
@@ -31,7 +32,7 @@ function ensureButton() {
   btn.id = BTN_ID;
   btn.type = "button";
   btn.textContent = "@";
-  btn.title = "引用此视频到 AgentBrowser";
+  btn.title = "引用到 AgentBrowser";
   btn.addEventListener("mousedown", (e) => e.preventDefault());
   btn.addEventListener("click", onAsk);
   // Keep the button alive while the pointer moves from the video onto it.
@@ -51,7 +52,8 @@ function clearHideTimer() {
 function hideButton() {
   clearHideTimer();
   if (btn) btn.style.display = "none";
-  hoverVideo = null;
+  hoverEl = null;
+  hoverKind = null;
 }
 
 function scheduleHide() {
@@ -59,21 +61,25 @@ function scheduleHide() {
   hideTimer = setTimeout(hideButton, HIDE_DELAY_MS);
 }
 
-function pickVideo(target) {
+function pickMedia(target) {
   let el = target && target.nodeType === 1 ? target : null;
   while (el) {
-    if (el.tagName === "VIDEO" && el.isConnected) return el;
+    if (el.isConnected && (el.tagName === "VIDEO" || el.tagName === "IMG")) {
+      return { el, kind: el.tagName === "VIDEO" ? "video" : "image" };
+    }
     el = el.parentElement;
   }
   return null;
 }
 
-// The button parks at the video's top-left inner edge. Fullscreen still works:
+// The button parks at the media's top-left inner edge. Fullscreen still works:
 // the button lives in <body>, and a fullscreen video fills the viewport so
 // fixed positioning at its rect remains correct.
-function placeButton(video) {
-  const r = video.getBoundingClientRect();
-  if (r.width < 120 || r.height < 80) return false; // ignore thumbnail players
+function placeButton(el, kind) {
+  const r = el.getBoundingClientRect();
+  const minW = kind === "video" ? 120 : 80;
+  const minH = 80;
+  if (r.width < minW || r.height < minH) return false; // ignore thumbnails/icons
   const b = ensureButton();
   b.style.position = "fixed";
   b.style.left = Math.max(4, r.left + 8) + "px";
@@ -85,11 +91,12 @@ function placeButton(video) {
 document.addEventListener(
   "mouseover",
   (e) => {
-    const v = pickVideo(e.target);
-    if (!v) return;
+    const hit = pickMedia(e.target);
+    if (!hit) return;
     clearHideTimer();
-    hoverVideo = v;
-    if (!placeButton(v)) hideButton();
+    hoverEl = hit.el;
+    hoverKind = hit.kind;
+    if (!placeButton(hit.el, hit.kind)) hideButton();
   },
   true
 );
@@ -97,17 +104,17 @@ document.addEventListener(
 document.addEventListener(
   "mouseout",
   (e) => {
-    if (pickVideo(e.target)) scheduleHide();
+    if (pickMedia(e.target)) scheduleHide();
   },
   true
 );
 
-// Scrolling / fullscreen transitions can move the video out from under the
+// Scrolling / fullscreen transitions can move the media out from under the
 // button; re-place on scroll, drop on fullscreen change.
 addEventListener(
   "scroll",
   () => {
-    if (hoverVideo && (!hoverVideo.isConnected || !placeButton(hoverVideo))) hideButton();
+    if (hoverEl && (!hoverEl.isConnected || !placeButton(hoverEl, hoverKind))) hideButton();
   },
   true
 );
@@ -126,18 +133,26 @@ async function onAsk(e) {
   e.preventDefault();
   e.stopPropagation();
 
-  if (!isContextValid() || !hoverVideo) return;
-  const v = hoverVideo;
+  if (!isContextValid() || !hoverEl) return;
+  const v = hoverEl;
   const r = v.getBoundingClientRect();
   const ctx = {
+    kind: hoverKind || "video",
     url: String(location.href),
     title: String(document.title || ""),
-    currentTime: Number(v.currentTime) || 0,
-    duration: Number.isFinite(v.duration) ? Number(v.duration) : null,
-    paused: !!v.paused,
     rect: { left: r.left, top: r.top, width: r.width, height: r.height },
     viewport: { w: window.innerWidth, h: window.innerHeight },
   };
+  if (ctx.kind === "video") {
+    ctx.currentTime = Number(v.currentTime) || 0;
+    ctx.duration = Number.isFinite(v.duration) ? Number(v.duration) : null;
+    ctx.paused = !!v.paused;
+  } else {
+    ctx.src = String(v.currentSrc || v.src || "");
+    ctx.alt = String(v.alt || "").slice(0, 300);
+    ctx.naturalWidth = Number(v.naturalWidth) || 0;
+    ctx.naturalHeight = Number(v.naturalHeight) || 0;
+  }
   lastContext = ctx;
 
   try {

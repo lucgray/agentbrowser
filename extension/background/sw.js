@@ -117,48 +117,69 @@ function fmtClock(sec) {
   return hh ? `${hh}:${pad(mm)}:${pad(ss)}` : `${mm}:${pad(ss)}`;
 }
 
-// video "@" ask: stage the video's context as the composer's selection chip,
-// and — while the video is paused — a cropped screenshot as a pending image
-// attachment. Both land via chrome.storage.session; the panel picks them up.
-async function handleVideoAsk(tabId, video, windowId) {
-  const transcript = subtitle.transcriptWindow(tabId, video.currentTime);
-  const head =
-    `[video] ${video.title || 'untitled'}\n` +
-    `${video.url || ''}\n` +
-    `playhead ${fmtClock(video.currentTime)}` +
-    (video.duration ? ` / ${fmtClock(video.duration)}` : '') +
-    (video.paused ? ' (paused)' : ' (playing)');
+// media "@" ask: stage the media's context as the composer's selection chip
+// plus an image attachment — a cropped screenshot of a paused video (or of
+// an image that can't be fetched, e.g. a page-local blob: URL), the fetched
+// source for ordinary <img>. Both land via chrome.storage.session; the
+// panel picks them up.
+async function handleVideoAsk(tabId, media, windowId) {
+  const isImage = media && media.kind === 'image';
+  const transcript = isImage ? null : subtitle.transcriptWindow(tabId, media.currentTime);
+  const head = isImage
+    ? `[image] ${media.alt || media.title || 'image'}\n` +
+      `${media.url || ''}\n` +
+      `src ${media.src || ''}` +
+      (media.naturalWidth ? `\n${media.naturalWidth}x${media.naturalHeight}px` : '')
+    : `[video] ${media.title || 'untitled'}\n` +
+      `${media.url || ''}\n` +
+      `playhead ${fmtClock(media.currentTime)}` +
+      (media.duration ? ` / ${fmtClock(media.duration)}` : '') +
+      (media.paused ? ' (paused)' : ' (playing)');
   const selection = {
     text: transcript ? `${head}\n\ntranscript around playhead:\n${transcript}` : head,
     contentType: 'text',
-    parentHeading: 'video reference',
-    pageUrl: String(video.url || ''),
-    pageTitle: String(video.title || ''),
+    parentHeading: isImage ? 'image reference' : 'video reference',
+    pageUrl: String(media.url || ''),
+    pageTitle: String(media.title || ''),
   };
 
+  let img = null;
+  if (isImage) {
+    try {
+      img = await fetchImage(media.src);
+    } catch (err) {
+      console.warn('[agentbrowser] image fetch failed, falling back to crop', err);
+    }
+  }
   let shot = null;
-  if (video.paused && video.rect && video.rect.width > 10) {
+  const wantCrop = isImage ? !img : media.paused;
+  if (wantCrop && media.rect && media.rect.width > 10) {
     try {
       const dataUrl = await chrome.tabs.captureVisibleTab(windowId, { format: 'png' });
-      shot = await cropShot(dataUrl, video.rect, video.viewport);
+      shot = await cropShot(dataUrl, media.rect, media.viewport);
     } catch (err) {
-      console.warn('[agentbrowser] video frame capture failed', err);
+      console.warn('[agentbrowser] media frame capture failed', err);
     }
   }
 
+  const cropName = isImage
+    ? 'image-crop.png'
+    : `video-frame-${fmtClock(media.currentTime).replace(/:/g, '-')}.png`;
+  const attachment = img || (shot && {
+    base64: shot.base64,
+    size: shot.size,
+    mimeType: 'image/png',
+    name: cropName,
+  });
+
   const writes = [deliverSelection(tabId, selection)];
-  if (shot) {
+  if (attachment) {
     writes.push(
       chrome.storage.session
         .set({
           pendingAttachment: {
             tabId,
-            attachment: {
-              name: `video-frame-${fmtClock(video.currentTime).replace(/:/g, '-')}.png`,
-              mimeType: 'image/png',
-              size: shot.size,
-              base64: shot.base64,
-            },
+            attachment,
             timestamp: Date.now(),
           },
         })
@@ -169,6 +190,52 @@ async function handleVideoAsk(tabId, video, windowId) {
   }
   const [selOk] = await Promise.all(writes);
   return selOk;
+}
+
+const MAX_ASK_IMAGE_BYTES = 8 * 1024 * 1024;
+
+// Fetch an <img>'s source through the extension host permissions — CORS does
+// not apply here, so cross-origin images resolve at full fidelity. data: URLs
+// decode in place; anything else (blob:, chrome:, file:, failures) returns
+// null and the caller falls back to a tab-screenshot crop.
+async function fetchImage(src) {
+  if (!src || typeof src !== 'string') return null;
+  let blob;
+  if (src.startsWith('data:')) {
+    const res = await fetch(src);
+    blob = await res.blob();
+  } else {
+    if (!/^https?:\/\//.test(src)) return null;
+    const res = await fetch(src);
+    if (!res.ok) return null;
+    const len = Number(res.headers.get('content-length') || 0);
+    if (len > MAX_ASK_IMAGE_BYTES) return null;
+    blob = await res.blob();
+  }
+  if (!blob || blob.size === 0 || blob.size > MAX_ASK_IMAGE_BYTES) return null;
+  const base64 = await new Promise((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onload = () => resolve(String(fr.result).split(',')[1] || '');
+    fr.onerror = () => reject(fr.error || new Error('read failed'));
+    fr.readAsDataURL(blob);
+  });
+  const mimeType = blob.type && blob.type.startsWith('image/') ? blob.type : 'image/png';
+  const name = imageName(src, mimeType);
+  return { base64, size: blob.size, mimeType, name };
+}
+
+function imageName(src, mimeType) {
+  try {
+    if (src.startsWith('data:')) {
+      return `image.${mimeType.split('/')[1] || 'png'}`;
+    }
+    const last = new URL(src).pathname.split('/').pop() || '';
+    const clean = last.split(/[?#]/)[0];
+    if (clean && clean.length <= 80 && /\.[a-z0-9]{2,5}$/i.test(clean)) return clean;
+  } catch (err) {
+    console.warn('[agentbrowser] image name parse failed', err);
+  }
+  return `image.${mimeType.split('/')[1] || 'png'}`;
 }
 
 // Crop a captureVisibleTab PNG to the video element's rect. The image is in

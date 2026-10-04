@@ -1367,15 +1367,19 @@ for its cue list, and returns it — X ships no fetchable caption document,
 so this is the only source. Everything downstream (overlay, sidebar,
 translation batches, transcript_get, transcriptWindow) is site-agnostic.
 
-**Video "@" reference** (`content/video-ask.js`): hovering any `<video>`
-≥120×80 CSS px shows an @ button at its top-left edge. Clicking sends
-`video_ask {url,title,currentTime,duration,paused,rect,viewport}` to the
+**Media "@" reference** (`content/video-ask.js`): hovering any `<video>`
+(≥120×80) or `<img>` (≥80×80) CSS px shows an @ button at its top-left
+edge. Clicking sends `video_ask {kind, url,title, rect,viewport, …}` to the
 SW, which (1) opens the side panel inside the gesture, (2) stages a
-`pendingSelection` chip whose text is `[video] title + url + playhead` plus
-the running subtitle session's transcript window (`transcriptWindow`,
-±15s/90s), and (3) while paused, `tabs.captureVisibleTab` → OffscreenCanvas
-crop to the video rect → `pendingAttachment` in storage.session — the
-panel applies both slots (tabId-matched to the owning window).
+`pendingSelection` chip — video: `[video] title + url + playhead` plus the
+running subtitle session's transcript window (`transcriptWindow`, ±15s/90s);
+image: `[image] alt + url + src + natural size`, and (3) stages a
+`pendingAttachment` in storage.session — paused videos get a
+`tabs.captureVisibleTab` → OffscreenCanvas crop of the element rect; images
+get the fetched source (`fetch` under host permissions, ≤8 MB, data: URLs
+decoded inline) with a crop fallback when the src is unfetchable (e.g.
+page-local `blob:` URLs). The panel applies both slots (tabId-matched to
+the owning window).
 
 **`video_download {url?, format?, dir?}`** is hub-answered (same
 interception as translate_stats): the hub resolves the chat's bound-tab
