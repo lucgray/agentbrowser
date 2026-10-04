@@ -32,7 +32,7 @@ let lastRightClickElement = null;
 let floatingAskEnabled = true; // cached; kept in sync below
 let autoSelectionEnabled = true; // cached; panel 设置开关
 let floatTheme = "frost"; // cached; settings select
-let spaceTrEnabled = true; // cached; settings checkbox
+let spaceTrEnabled = false; // cached; settings checkbox — opt-in
 let spaceRun = 0;
 let spaceTimer = null;
 
@@ -99,13 +99,13 @@ if (isContextValid()) {
       [FLOAT_ASK_KEY]: true,
       [AUTO_SEL_KEY]: true,
       [FLOAT_THEME_KEY]: "frost",
-      [SPACE_TR_KEY]: true,
+      [SPACE_TR_KEY]: false,
     })
     .then((r) => {
       floatingAskEnabled = r[FLOAT_ASK_KEY] !== false;
       autoSelectionEnabled = r[AUTO_SEL_KEY] !== false;
       floatTheme = FLOAT_THEMES.has(r[FLOAT_THEME_KEY]) ? r[FLOAT_THEME_KEY] : "frost";
-      spaceTrEnabled = r[SPACE_TR_KEY] !== false;
+      spaceTrEnabled = r[SPACE_TR_KEY] === true;
     })
     .catch((err) => {
       logWarn("floating-ask setting read failed", err);
@@ -122,7 +122,7 @@ if (isContextValid()) {
       autoSelectionEnabled = changes[AUTO_SEL_KEY].newValue !== false;
     }
     if (SPACE_TR_KEY in changes) {
-      spaceTrEnabled = changes[SPACE_TR_KEY].newValue !== false;
+      spaceTrEnabled = changes[SPACE_TR_KEY].newValue === true;
     }
     if (FLOAT_THEME_KEY in changes) {
       const v = changes[FLOAT_THEME_KEY].newValue;

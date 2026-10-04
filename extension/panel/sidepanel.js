@@ -894,7 +894,7 @@ async function init() {
     setFloatTheme.value = ["frost", "ink", "paper"].includes(stored.floatTheme)
       ? stored.floatTheme
       : "frost";
-    trSpace.checked = stored.abSpaceTranslate !== false;
+    trSpace.checked = stored.abSpaceTranslate === true;
   }).catch(() => applyI18n());
   setLanguage.addEventListener("change", () => {
     uiLang = setLanguage.value;
