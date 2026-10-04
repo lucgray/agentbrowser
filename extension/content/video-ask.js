@@ -258,7 +258,9 @@ function mountControlIcon(video) {
   const found = findControlBar(video);
   if (!found) return false;
   const { bar, site } = found;
-  if (cbBtns.has(bar)) return true;
+  // Players can re-render the bar's children while keeping the bar element
+  // (YouTube does on resolution/quality changes) — a WeakSet hit would skip
+  // remounting our wiped button, so check the live DOM instead.
   if (bar.querySelector(".ab-media-cb")) {
     cbBtns.add(bar);
     return true;
@@ -691,8 +693,8 @@ function ensureLearn() {
   const panes = {};
   const tabBtns = {};
   const tabDefs = [
-    ["cues", "字幕"],
-    ["summary", "汇总"],
+    ["cues", "逐句"],
+    ["summary", "AI 摘要"],
     ["danmaku", "弹幕热议"],
   ];
   for (const [key, label] of tabDefs) {
@@ -708,8 +710,45 @@ function ensureLearn() {
     body.appendChild(pane);
     panes[key] = pane;
   }
+
+  // Tool strip (demo parity): SRT export, follow toggle, LIVE badge.
+  const tools = document.createElement("div");
+  tools.className = "ab-learn-tools";
+  const srt = document.createElement("button");
+  srt.type = "button";
+  srt.className = "ab-learn-tool";
+  srt.textContent = "⬇ SRT";
+  srt.title = "导出字幕文件";
+  srt.addEventListener("click", () => {
+    srt.classList.add("ab-busy");
+    onFetchSubs("subs", (ok, detail) => {
+      srt.classList.remove("ab-busy");
+      showToast(el.getBoundingClientRect(), ok ? `已保存 ${detail}` : detail, !ok);
+    });
+  });
+  const follow = document.createElement("button");
+  follow.type = "button";
+  follow.className = "ab-learn-tool ab-on";
+  follow.textContent = "⌖ 跟随";
+  follow.title = "跟随播放头滚动";
+  follow.addEventListener("click", () => {
+    learnFollow = !learnFollow;
+    follow.classList.toggle("ab-on", learnFollow);
+  });
+  const live = document.createElement("span");
+  live.className = "ab-learn-live";
+  live.innerHTML = "<i></i>LIVE";
+  live.style.display = "none";
+  tools.appendChild(srt);
+  tools.appendChild(follow);
+  const tsp = document.createElement("span");
+  tsp.className = "ab-learn-sp";
+  tools.appendChild(tsp);
+  tools.appendChild(live);
+  el.insertBefore(tools, body);
+
   floatHost().appendChild(el);
-  learn = { el, panes, tabBtns };
+  learn = { el, panes, tabBtns, live };
   buildLearnPanes();
   return learn;
 }
@@ -774,23 +813,67 @@ function loadLearnCues() {
     learnCues = res.cues;
     learnCuesFor = location.href;
     const frag = document.createDocumentFragment();
+    const rows = [];
     for (const c of res.cues) {
       const row = document.createElement("div");
       row.className = "ab-learn-cue";
       const t = document.createElement("span");
       t.className = "t";
       t.textContent = fmtSec(c.start);
+      const src = document.createElement("span");
+      src.className = "src";
+      src.textContent = String(c.text || "");
+      const tr = document.createElement("span");
+      tr.className = "tr";
       row.appendChild(t);
-      row.appendChild(document.createTextNode(String(c.text || "")));
+      row.appendChild(src);
+      row.appendChild(tr);
       row._t = Number(c.start) || 0;
       row.addEventListener("click", () => {
         const v = learnTargetVideo();
         if (v) v.currentTime = c.start;
       });
+      rows.push(row);
       frag.appendChild(row);
     }
     pane.appendChild(frag);
+    translateLearnCues(rows);
   });
+}
+
+// Fill the .tr line of each cue row via the hub's translate pipeline, in
+// chunks so translations land progressively. Skips silently when the hub
+// isn't there — the source track still renders.
+function translateLearnCues(rows) {
+  const CHUNK = 24;
+  const href = location.href;
+  const step = (i) => {
+    if (i >= rows.length || learnCuesFor !== href || !isContextValid()) return;
+    const slice = rows.slice(i, i + CHUNK);
+    chrome.runtime
+      .sendMessage({
+        target: "sw",
+        cmd: "learn_ask",
+        kind: "cues_translate",
+        items: slice.map((r) => r.querySelector(".src").textContent),
+      })
+      .then((res) => {
+        if (res && res.success && res.results) {
+          slice.forEach((r, j) => {
+            const tr = r.querySelector(".tr");
+            const text = res.results[String(j)];
+            if (tr && text && text !== "{{NO_TRANSLATION_NEEDED}}") {
+              tr.textContent = String(text);
+            }
+          });
+        } else if (res && !res.success) {
+          return; // provider/hub unavailable — don't churn the rest
+        }
+        step(i + CHUNK);
+      })
+      .catch((err) => logWarn("cues_translate failed", err));
+  };
+  step(0);
 }
 
 // The video the learn popup was opened for — captured at open time because
@@ -802,19 +885,21 @@ function learnTargetVideo() {
   return document.querySelector("video");
 }
 
-// Follow the playhead inside the 字幕 tab.
+// Follow the playhead inside the 逐句 tab; the 跟随 toggle only gates the
+// auto-scroll, the highlight still tracks. LIVE badge mirrors play state.
 let learnTick = null;
+let learnFollow = true;
 function startLearnTick() {
   if (learnTick) return;
   learnTick = setInterval(() => {
     if (!learn || !learn.el.classList.contains("ab-show")) return;
-    if (!learnCues || !learn.panes.cues.classList.contains("ab-active")) return;
     const v = learnTargetVideo();
+    if (learn.live) learn.live.style.display = v && !v.paused ? "" : "none";
+    if (!learnCues || !learn.panes.cues.classList.contains("ab-active")) return;
     if (!v) return;
     const t = Number(v.currentTime) || 0;
-    const rows = learn.panes.cues.children;
     let hit = null;
-    for (const row of rows) {
+    for (const row of learn.panes.cues.querySelectorAll(".ab-learn-cue")) {
       if (row._t == null) continue;
       if (row._t <= t) hit = row;
       else break;
@@ -824,7 +909,7 @@ function startLearnTick() {
     learnNowRow = hit;
     if (hit) {
       hit.classList.add("ab-now");
-      hit.scrollIntoView({ block: "nearest" });
+      if (learnFollow) hit.scrollIntoView({ block: "nearest" });
     }
   }, 500);
 }

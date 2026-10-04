@@ -606,6 +606,12 @@ subtitle.wireHub({
 const translateAsks = new Map();
 let translateAskSeq = 0;
 
+// Learn popup's bilingual cue list: same translate_request path but many
+// items (chunked per content-script call); ids are "lc-<tab>-<n>" and the
+// whole results map goes back, not just results['0'].
+const learnTrAsks = new Map();
+let learnTrAskSeq = 0;
+
 // Media menu 下载视频: reqId -> tabId so the hub's media_download_result
 // can be pushed back to the tab that asked (minutes-long; no response held).
 const mediaDlTabs = new Map();
@@ -799,6 +805,40 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       );
       return true;
     }
+    if (kind === 'cues_translate') {
+      // Bilingual cue rows: relay the content script's text chunk to the
+      // hub translate service; results map tid -> translated text.
+      const items = Array.isArray(message.items) ? message.items.slice(0, 64) : [];
+      if (!items.length) {
+        sendResponse({ success: false, error: 'no items' });
+        return true;
+      }
+      if (!hubConnected) {
+        sendResponse({ success: false, error: 'hub not connected' });
+        return true;
+      }
+      const reqId = `lc-${tabId}-${++learnTrAskSeq}`;
+      const timer = setTimeout(() => {
+        if (learnTrAsks.delete(reqId)) {
+          sendResponse({ success: false, error: 'translate timeout' });
+        }
+      }, 30000);
+      learnTrAsks.set(reqId, (res) => {
+        clearTimeout(timer);
+        sendResponse(res);
+      });
+      sendToOffscreen({
+        target: 'offscreen',
+        cmd: 'send',
+        payload: {
+          type: 'translate_request',
+          id: reqId,
+          tabId,
+          items: items.map((t, i) => ({ tid: String(i), text: String(t).slice(0, 2000) })),
+        },
+      });
+      return true;
+    }
     if (!hubConnected) {
       sendResponse({ success: false, error: 'hub not connected' });
       return true;
@@ -981,6 +1021,16 @@ function handleHubMessage(payload) {
           } else {
             settle({ success: true, text });
           }
+        }
+      }
+    } else if (id.startsWith('lc-')) {
+      const settle = learnTrAsks.get(id);
+      learnTrAsks.delete(id);
+      if (settle) {
+        if (payload.error) {
+          settle({ success: false, error: String(payload.error) });
+        } else {
+          settle({ success: true, results: payload.results || {} });
         }
       }
     } else if (!subtitle.onResult(payload)) {
