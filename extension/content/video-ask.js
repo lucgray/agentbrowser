@@ -20,11 +20,20 @@ const FLOAT_THEMES = new Set(["frost", "ink", "paper"]);
 // of the hovered <video> for the selector — the first ancestor that contains
 // it wins, so nested player containers work.
 const CONTROL_BARS = [
-  { match: /(^|\.)youtube\.com$/, bar: ".ytp-right-controls" },
-  { match: /(^|\.)youtube-nocookie\.com$/, bar: ".ytp-right-controls" },
+  {
+    match: /(^|\.)youtube\.com$/,
+    bar: ".ytp-right-controls",
+    anchor: ".ytp-fullscreen-button",
+  },
+  {
+    match: /(^|\.)youtube-nocookie\.com$/,
+    bar: ".ytp-right-controls",
+    anchor: ".ytp-fullscreen-button",
+  },
   {
     match: /(^|\.)bilibili\.com$/,
     bar: ".bpx-player-control-bottom-right, .bilibili-player-video-control",
+    anchor: ".bpx-player-ctrl-full",
   },
 ];
 
@@ -207,7 +216,7 @@ function findControlBar(video) {
       if (!site.match.test(location.hostname)) continue;
       try {
         const bar = el.querySelector ? el.querySelector(site.bar) : null;
-        if (bar && bar.isConnected) return bar;
+        if (bar && bar.isConnected) return { bar, site };
       } catch (err) {
         logWarn("control bar probe failed", err);
       }
@@ -218,8 +227,10 @@ function findControlBar(video) {
 }
 
 function mountControlIcon(video) {
-  const bar = findControlBar(video);
-  if (!bar || cbBtns.has(bar)) return !!bar;
+  const found = findControlBar(video);
+  if (!found) return false;
+  const { bar, site } = found;
+  if (cbBtns.has(bar)) return true;
   if (bar.querySelector(".ab-media-cb")) {
     cbBtns.add(bar);
     return true;
@@ -253,11 +264,17 @@ function mountControlIcon(video) {
   b.style.display = "inline-flex";
   b.style.alignItems = "center";
   b.style.justifyContent = "center";
+  b.style.alignSelf = "center";
   b.style.width = h + "px";
   b.style.height = h + "px";
   b.style.color = "inherit";
   b.style.opacity = "0.92";
-  bar.insertBefore(b, bar.firstChild);
+  const svg = b.firstElementChild;
+  if (svg) svg.style.display = "block";
+  // Sit just left of the fullscreen button (site.anchor); unknown layouts
+  // fall back to the left edge of the right-controls group.
+  const anchorEl = site.anchor ? bar.querySelector(site.anchor) : null;
+  bar.insertBefore(b, anchorEl || bar.firstChild);
   cbBtns.add(bar);
   return true;
 }
