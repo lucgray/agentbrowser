@@ -11,6 +11,10 @@
 // adapted from that implementation; Chrome-API glue (storage, messaging,
 // side panel handoff) is ours.
 
+// All content scripts share one isolated world — wrap in an IIFE so
+// top-level identifiers can't collide with annotation.js / video-ask.js.
+(function () {
+
 const BTN_ID = "agentbrowser-ask-btn";
 const POP_ID = "agentbrowser-sel-tr-pop";
 const FLOAT_ASK_KEY = "floatingAskEnabled"; // chrome.storage.local, set by sw
@@ -508,18 +512,61 @@ function barRectEstimate(left, top) {
   return { left: left - window.scrollX, top: top - window.scrollY, width: 190, height: 30 };
 }
 
-// returns true when a foreign overlay already owns the spot.
-function foreignBlocks(left, top) {
+// returns the foreign overlay at the spot, else null.
+function foreignAt(left, top) {
   const g = window.__abFloatGuard;
-  if (!g) return false;
-  return !!g.foreignAtRect(barRectEstimate(left, top));
+  if (!g) return null;
+  return g.foreignAtRect(barRectEstimate(left, top));
+}
+
+// Park beside a foreign overlay instead of stacking on it: probe below,
+// right, above, left of its rect (viewport coords) until a slot is free.
+function spotBeside(foreignEl, w, h) {
+  const g = window.__abFloatGuard;
+  if (!g || !foreignEl) return null;
+  let r;
+  try {
+    r = foreignEl.getBoundingClientRect();
+  } catch (err) {
+    logWarn("foreign rect failed", err);
+    return null;
+  }
+  const cands = [
+    { left: r.left, top: r.bottom + 6 },
+    { left: r.right + 6, top: r.top },
+    { left: r.left, top: r.top - h - 6 },
+    { left: r.left - w - 6, top: r.top },
+  ];
+  for (const c of cands) {
+    const left = Math.max(4, Math.min(c.left, window.innerWidth - w - 4));
+    const top = Math.max(4, Math.min(c.top, window.innerHeight - h - 4));
+    if (!g.foreignAtRect({ left, top, width: w, height: h })) return { left, top };
+  }
+  return null;
+}
+
+// A foreign floater appeared over our bar — slide beside it rather than
+// hide. Only when every side is taken do we yield by hiding.
+function relocateOrHide() {
+  const g = window.__abFloatGuard;
+  if (!g || !floatBtn) return hideButton();
+  const r = floatBtn.getBoundingClientRect();
+  const fx = g.foreignAtRect(r);
+  if (!fx) return;
+  const beside = spotBeside(fx, r.width || 190, r.height || 30);
+  if (beside) {
+    floatBtn.style.left = `${beside.left + window.scrollX}px`;
+    floatBtn.style.top = `${beside.top + window.scrollY}px`;
+    return;
+  }
+  hideButton();
 }
 
 function armForeignWatcher() {
   const g = window.__abFloatGuard;
   if (!g || foreignStop) return;
   const r = floatBtn.getBoundingClientRect();
-  foreignStop = g.watchForeign(r, hideButton);
+  foreignStop = g.watchForeign(r, relocateOrHide);
 }
 
 function showButtonAtSelection(selection) {
@@ -545,15 +592,29 @@ function showButtonAtSelection(selection) {
       const firstRect = rects[0] || rect;
       top = firstRect.top + window.scrollY - btnHeight - 8;
     }
-    // Yield to foreign floaters: try the other side of the selection, then
-    // give up rather than stack on somebody else's overlay.
-    if (foreignBlocks(left, top)) {
+    // Foreign floater at the spot: try the other side of the selection,
+    // then park beside the foreign overlay — hide only if everything is
+    // taken.
+    const fx = foreignAt(left, top);
+    if (fx) {
       const firstRect = rects[0] || rect;
       const alt =
         top > rect.top + window.scrollY
           ? firstRect.top + window.scrollY - btnHeight - 8
           : rect.bottom + window.scrollY + 8;
-      if (foreignBlocks(left, alt)) return;
+      const fxAlt = foreignAt(left, alt);
+      if (fxAlt) {
+        const beside =
+          spotBeside(fxAlt, btnWidth, btnHeight) ||
+          spotBeside(fx, btnWidth, btnHeight);
+        if (!beside) return;
+        btn.style.left = `${beside.left + window.scrollX}px`;
+        btn.style.top = `${beside.top + window.scrollY}px`;
+        btn.classList.remove("agentbrowser-hidden");
+        requestAnimationFrame(() => btn.classList.add("ab-show"));
+        armForeignWatcher();
+        return;
+      }
       top = alt;
     }
 
@@ -848,3 +909,5 @@ document.addEventListener("keyup", handleKeyUp);
 document.addEventListener("mousedown", handleMouseDown);
 document.addEventListener("contextmenu", handleContextMenu, true);
 window.addEventListener("scroll", handleScroll, { passive: true });
+
+})();
