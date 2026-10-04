@@ -54,6 +54,28 @@ chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch((err) 
   console.warn('[agentbrowser] setPanelBehavior failed', err);
 });
 
+// Packaged-app windows (e.g. Edge "install this site as an app") have no
+// extensions rail, so sidePanel.open rejects there. Fall back to a floating
+// popup window running the same panel page; ?bind= tells the panel which tab
+// it serves instead of its own window's active tab.
+function openPanel(tabId) {
+  const popup = () => {
+    const url = `${chrome.runtime.getURL('panel/sidepanel.html')}?bind=${tabId}`;
+    chrome.windows.create({ url, type: 'popup', width: 420, height: 720 }).catch((err) => {
+      console.warn('[agentbrowser] popup panel open failed', err);
+    });
+  };
+  try {
+    chrome.sidePanel.open({ tabId }).catch((err) => {
+      console.warn('[agentbrowser] sidePanel.open failed, opening popup panel', err);
+      popup();
+    });
+  } catch (err) {
+    console.warn('[agentbrowser] sidePanel.open threw, opening popup panel', err);
+    popup();
+  }
+}
+
 // --- selection -> side panel -------------------------------------------------
 //
 // The content script reports two things: a completed text selection the user
@@ -355,9 +377,7 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
   }
   if (info.menuItemId !== CONTEXT_MENU_ID || !tab || tab.id == null) return;
   // Open synchronously: sidePanel.open only works inside the user gesture.
-  chrome.sidePanel.open({ tabId: tab.id }).catch((err) => {
-    console.warn('[agentbrowser] sidePanel.open failed', err);
-  });
+  openPanel(tab.id);
   resolveMenuSelection(info, tab)
     .then((selection) => {
       if (selection) return deliverSelection(tab.id, selection);
@@ -629,9 +649,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return true;
     }
     // Open first, still inside the click's user gesture.
-    chrome.sidePanel.open({ tabId }).catch((err) => {
-      console.warn('[agentbrowser] sidePanel.open failed', err);
-    });
+    openPanel(tabId);
     deliverSelection(tabId, message.selection).then(
       (ok) => sendResponse({ success: ok }),
       () => sendResponse({ success: false })
@@ -670,9 +688,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse({ success: false, error: 'no tab' });
       return true;
     }
-    chrome.sidePanel.open({ tabId }).catch((err) => {
-      console.warn('[agentbrowser] sidePanel.open failed', err);
-    });
+    openPanel(tabId);
     handleVideoAsk(tabId, video, sender.tab.windowId).then(
       (ok) => sendResponse({ success: ok }),
       () => sendResponse({ success: false })

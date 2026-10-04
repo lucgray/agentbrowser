@@ -1054,6 +1054,10 @@ async function init() {
 
   let port = null;
   let ownWindowId = null; // browser window hosting this panel (v2.1)
+  // Popup-panel mode (v2.19): opened as `?bind=<tabId>` in a chrome.windows
+  // popup because the host window has no side-panel rail (packaged apps).
+  // The panel serves that tab no matter which window it lives in.
+  let boundTabId = null;
   let connected = false;
   let chatId = crypto.randomUUID();
   let streaming = false;
@@ -2606,15 +2610,22 @@ async function init() {
   async function refreshCurrentTab() {
     let next = null;
     try {
-      // Scope to the window hosting this panel — lastFocusedWindow would
-      // report another window's tab whenever that window has focus.
-      const query =
-        ownWindowId != null
-          ? { active: true, windowId: ownWindowId }
-          : { active: true, lastFocusedWindow: true };
-      const [tab] = await chrome.tabs.query(query);
-      if (tab && tab.id != null && isContextUrl(tab.url)) {
-        next = { tabId: tab.id, url: tab.url, title: tab.title || tab.url };
+      if (boundTabId != null) {
+        const bound = await chrome.tabs.get(boundTabId);
+        if (bound && isContextUrl(bound.url)) {
+          next = { tabId: bound.id, url: bound.url, title: bound.title || bound.url };
+        }
+      } else {
+        // Scope to the window hosting this panel — lastFocusedWindow would
+        // report another window's tab whenever that window has focus.
+        const query =
+          ownWindowId != null
+            ? { active: true, windowId: ownWindowId }
+            : { active: true, lastFocusedWindow: true };
+        const [tab] = await chrome.tabs.query(query);
+        if (tab && tab.id != null && isContextUrl(tab.url)) {
+          next = { tabId: tab.id, url: tab.url, title: tab.title || tab.url };
+        }
       }
     } catch (err) {
       console.warn("[agentbrowser] active tab query failed", err);
@@ -2658,9 +2669,11 @@ async function init() {
     if (ts <= selectionAppliedTs) return;
     const sel = normalizeSelection(record.selection);
     if (!sel) return;
-    // Selections are stored globally; only the panel in the window that owns
-    // the tab should consume one.
-    if (ownWindowId != null && record.tabId != null) {
+    // Selections are stored globally; only the panel that owns the tab
+    // should consume one — the hosting window's, or a bound popup's tab.
+    if (boundTabId != null) {
+      if (record.tabId !== boundTabId) return;
+    } else if (ownWindowId != null && record.tabId != null) {
       try {
         const tab = await chrome.tabs.get(record.tabId);
         if (!tab || tab.windowId !== ownWindowId) return;
@@ -2685,7 +2698,9 @@ async function init() {
     if (ts <= attachmentAppliedTs) return;
     const a = record.attachment;
     if (!a || !a.base64 || !a.name) return;
-    if (ownWindowId != null && record.tabId != null) {
+    if (boundTabId != null) {
+      if (record.tabId !== boundTabId) return;
+    } else if (ownWindowId != null && record.tabId != null) {
       try {
         const tab = await chrome.tabs.get(record.tabId);
         if (!tab || tab.windowId !== ownWindowId) return;
@@ -3623,6 +3638,13 @@ async function init() {
     ownWindowId = w && typeof w.id === "number" ? w.id : null;
   } catch (err) {
     console.warn("[agentbrowser] window id lookup failed", err);
+  }
+  try {
+    const bind = new URLSearchParams(location.search).get("bind");
+    const id = bind == null ? NaN : Number(bind);
+    if (Number.isInteger(id) && id >= 0) boundTabId = id;
+  } catch (err) {
+    console.warn("[agentbrowser] bind param parse failed", err);
   }
   connectPort();
   watchTabs();

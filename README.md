@@ -130,6 +130,11 @@ npm start          # listens on ws://127.0.0.1:9010
 3. Click the AgentBrowser toolbar icon. The side panel opens; the status dot
    turns green when the hub is reachable.
 
+> **Packaged-app windows** — a site installed as an Edge/PWA-style app has no
+> extensions rail, so the side panel can't open there. AgentBrowser detects
+> that and opens the same panel as a floating popup window bound to the app's
+> tab — Ask/翻译/@ flows keep working (v2.19).
+
 Type a message, pick an adapter from the dropdown if you don't want the
 default from `server/hub/config.json`, and send. Tool activity shows up as
 compact chips in the transcript.

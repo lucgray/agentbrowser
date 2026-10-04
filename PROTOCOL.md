@@ -1416,6 +1416,22 @@ hover. Both share `content/float-theme.css` and one storage key:
   MutationObserver + re-probe) hides our bar when a foreign overlay lands
   on it. We never hide or touch foreign elements — we only yield.
 
+### Popup-panel fallback (v2.19)
+
+Packaged-app windows (e.g. a site installed as an Edge "app") have no
+extensions rail, so `chrome.sidePanel.open` rejects there. Every entry
+point (context menu, floating 问 AI, media @, translate_ask) goes through
+`openPanel(tabId)` in sw.js, which on rejection opens the same panel page
+as a floating window instead:
+
+- `chrome.windows.create({ type:'popup', width:420, height:720,
+  url: sidepanel.html?bind=<tabId> })`.
+- Panel-side, `?bind=<tabId>` sets `boundTabId`: `refreshCurrentTab`
+  resolves that tab via `chrome.tabs.get` (not the popup's own active
+  tab), and `pendingSelection`/`pendingAttachment` are consumed only when
+  `record.tabId === boundTabId`. Port naming and chat routing are
+  unchanged — the port still carries the popup's own `windowId`.
+
 ## mcp-proxy.mjs
 
 Stdio MCP server (use `@modelcontextprotocol/sdk`, installed) exposing the ten
