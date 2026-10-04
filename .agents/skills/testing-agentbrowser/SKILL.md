@@ -156,3 +156,9 @@ None for the stub-hub or shim paths. Real adapters need their provider keys/CLIs
 - Viewport batching means a **background tab never progresses** (IntersectionObserver stays quiet) — translate_status shows done<total, translating:0 until the tab is active.
 - Panel settings save writes the WHOLE `translate` object to `server/hub/config.json` — fields absent from the form (e.g. `baseUrl`) are dropped on save; check config.json if the provider path dies right after a settings save.
 - `chrome.tabs.create({url:chrome.runtime.getURL('panel/sidepanel.html')})` from the SW opens the panel as a normal tab when the real side panel can't be opened (it then resolves itself as "the active tab" for panel-triggered actions).
+
+## Panel streaming / DOM quirks
+
+- **MV3 SW hard-restarts kill panel chat streams ~10–30s in** ("connection to background restarted; chat stream lost") — a fresh SW target replaces the dead one. Keep stub turns short or expect transcripts to collapse; rebuild history between turns rather than fighting it.
+- Panel DOM `getBoundingClientRect` coords do NOT match tool screenshot coords — click via the visible row position or calibrate with CDP `elementFromPoint` first.
+- Lane blocks need no `/parallel`: emit `lane:{index,title}` fields on stub adapter events — the hub relays them verbatim and the panel groups them.
