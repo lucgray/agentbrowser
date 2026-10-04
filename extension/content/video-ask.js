@@ -123,6 +123,30 @@ function pickMedia(target) {
   return null;
 }
 
+// Ancestor-walk misses media covered by sibling overlays — YouTube parks an
+// invisible control layer on top of <video>, so the pointer's target is never
+// the media itself. elementsFromPoint sees through the cover; scan the whole
+// stack for the first media element (skipping our own floaters).
+function pickMediaAt(e) {
+  const direct = pickMedia(e.target);
+  if (direct) return direct;
+  if (typeof document.elementsFromPoint !== "function") return null;
+  let stack;
+  try {
+    stack = document.elementsFromPoint(e.clientX, e.clientY);
+  } catch (err) {
+    logWarn("elementsFromPoint failed", err);
+    return null;
+  }
+  for (const el of stack) {
+    if (el.id && String(el.id).startsWith("agentbrowser-")) continue;
+    if (el.tagName === "VIDEO" || el.tagName === "IMG") {
+      return { el, kind: el.tagName === "VIDEO" ? "video" : "image" };
+    }
+  }
+  return null;
+}
+
 // The button parks at the media's top-left inner edge. Fullscreen still works:
 // the button lives in <body>, and a fullscreen video fills the viewport so
 // fixed positioning at its rect remains correct. A foreign overlay already
@@ -154,9 +178,13 @@ function placeButton(el, kind) {
 document.addEventListener(
   "mouseover",
   (e) => {
-    const hit = pickMedia(e.target);
-    if (!hit) return;
+    const hit = pickMediaAt(e);
+    if (!hit) {
+      if (hoverEl) scheduleHide();
+      return;
+    }
     clearHideTimer();
+    if (hit.el === hoverEl) return;
     hoverEl = hit.el;
     hoverKind = hit.kind;
     if (!placeButton(hit.el, hit.kind)) hideButton();
@@ -167,7 +195,7 @@ document.addEventListener(
 document.addEventListener(
   "mouseout",
   (e) => {
-    if (pickMedia(e.target)) scheduleHide();
+    if (!pickMediaAt(e) && hoverEl) scheduleHide();
   },
   true
 );
