@@ -742,16 +742,22 @@ function loadLearnCues() {
       row.appendChild(document.createTextNode(String(c.text || "")));
       row._t = Number(c.start) || 0;
       row.addEventListener("click", () => {
-        const v =
-          hoverEl && hoverEl.tagName === "VIDEO"
-            ? hoverEl
-            : document.querySelector("video");
+        const v = learnTargetVideo();
         if (v) v.currentTime = c.start;
       });
       frag.appendChild(row);
     }
     pane.appendChild(frag);
   });
+}
+
+// The video the learn popup was opened for — captured at open time because
+// hoverEl is cleared when the menu auto-hides, and first-in-DOM <video> is
+// wrong on multi-video pages.
+let learnVideo = null;
+function learnTargetVideo() {
+  if (learnVideo && learnVideo.isConnected) return learnVideo;
+  return document.querySelector("video");
 }
 
 // Follow the playhead inside the 字幕 tab.
@@ -761,10 +767,7 @@ function startLearnTick() {
   learnTick = setInterval(() => {
     if (!learn || !learn.el.classList.contains("ab-show")) return;
     if (!learnCues || !learn.panes.cues.classList.contains("ab-active")) return;
-    const v =
-      hoverEl && hoverEl.tagName === "VIDEO"
-        ? hoverEl
-        : document.querySelector("video");
+    const v = learnTargetVideo();
     if (!v) return;
     const t = Number(v.currentTime) || 0;
     const rows = learn.panes.cues.children;
@@ -785,6 +788,8 @@ function startLearnTick() {
 }
 
 function openLearn() {
+  learnVideo =
+    hoverEl && hoverEl.tagName === "VIDEO" ? hoverEl : learnVideo;
   const l = ensureLearn();
   // 弹幕 tab only makes sense on bilibili.
   const hasDm = /(^|\.)bilibili\.com$/.test(location.hostname);
