@@ -296,15 +296,20 @@ const I18N = {
     floatingAskLabel: "Show the floating Ask toolbar on selection",
     floatThemeLabel: "Floating toolbar style",
     floatThemeNote: "Theme for the selection toolbar and media @ chip — frost, ink or paper.",
-    proactiveLabel: "Proactive annotation (auto co-read on new tabs)",
+    proactiveLabel: "Auto co-read new tabs",
+    proactiveSection: "Proactive annotation",
     proactiveAdapterAuto: "Same as the chat adapter",
     proactiveModelDefault: "Adapter default",
     proactiveModelTitle: "Proactive annotation model",
     proactivePromptPlaceholder: "Empty = default: read the page and annotate confusing passages",
     enterKeyFirst: "enter a key first",
-    anthropicKeyLabel: "Anthropic API key",
-    openaiKeyLabel: "OpenAI API key",
-    deeplKeyLabel: "DeepL API key (translation)",
+    anthropicKeyLabel: "Anthropic",
+    openaiKeyLabel: "OpenAI",
+    deeplKeyLabel: "DeepL (translation)",
+    keysSection: "API keys",
+    advancedSection: "Advanced",
+    openAdminBtn: "Open admin page",
+    adminNote: "Plugins, browsers and more advanced options live in the hub's admin page (/admin on this machine).",
     saveBtn: "Save",
     clearBtn: "Clear",
     keysNote: "Keys are stored locally on this machine only, by the hub, in a file only your user account can read. The panel never receives a saved key back; it is only told whether one is configured.",
@@ -352,15 +357,20 @@ const I18N = {
     floatingAskLabel: "选中后显示悬浮工具栏",
     floatThemeLabel: "悬浮工具栏风格",
     floatThemeNote: "划词工具栏与媒体 @ 键的悬浮风格：雾玻璃 / 墨玉 / 纸白。",
-    proactiveLabel: "主动标注（打开新标签页时自动 co-read）",
+    proactiveLabel: "打开新标签页时自动 co-read",
+    proactiveSection: "主动标注",
     proactiveAdapterAuto: "跟随对话适配器",
     proactiveModelDefault: "适配器默认",
     proactiveModelTitle: "主动标注模型",
     proactivePromptPlaceholder: "留空 = 默认：阅读页面并标注令人困惑的段落",
     enterKeyFirst: "请先输入密钥",
-    anthropicKeyLabel: "Anthropic API 密钥",
-    openaiKeyLabel: "OpenAI API 密钥",
-    deeplKeyLabel: "DeepL API 密钥（翻译专用）",
+    anthropicKeyLabel: "Anthropic",
+    openaiKeyLabel: "OpenAI",
+    deeplKeyLabel: "DeepL（翻译专用）",
+    keysSection: "API 密钥",
+    advancedSection: "高级",
+    openAdminBtn: "打开管理页面",
+    adminNote: "插件、浏览器与更多高级配置都在管理页面完成（本机 hub 的 /admin）。",
     saveBtn: "保存",
     clearBtn: "清除",
     keysNote: "密钥只保存在本机（由 hub 写入仅当前用户可读的文件），面板只会收到“是否已配置”，不会收到密钥本身。",
@@ -3589,6 +3599,17 @@ async function init() {
 
   settingsBtn.addEventListener("click", () => setSettingsOpen(settingsView.hidden));
   settingsClose.addEventListener("click", () => setSettingsOpen(false));
+  document.getElementById("open-admin").addEventListener("click", () => {
+    chrome.storage.local
+      .get("hubUrl")
+      .then(({ hubUrl }) => {
+        const base = String(hubUrl || "ws://127.0.0.1:9010")
+          .replace(/^ws/, "http")
+          .replace(/\/+$/, "");
+        return chrome.tabs.create({ url: `${base}/admin` });
+      })
+      .catch((err) => console.warn("[agentbrowser] open admin failed", err));
+  });
   for (const field of KEY_FIELDS) {
     field.save.addEventListener("click", () => sendKey(field, field.input.value));
     field.clear.addEventListener("click", () => sendKey(field, null));

@@ -61,6 +61,7 @@
 
   function foreignOverlayAt(x, y) {
     if (typeof document.elementsFromPoint !== "function") return null;
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
     let stack;
     try {
       stack = document.elementsFromPoint(x, y);

@@ -682,6 +682,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse({ success: false, error: 'no tab' });
       return true;
     }
+    if (!hubConnected) {
+      sendResponse({ success: false, error: 'hub not connected' });
+      return true;
+    }
     handleTranslateAsk(tabId, message.text, sendResponse);
     return true;
   }
@@ -841,7 +845,16 @@ function handleHubMessage(payload) {
           settle({ success: false, error: String(payload.error) });
         } else {
           const results = payload.results || {};
-          settle({ success: true, text: results['0'] || Object.values(results)[0] || '' });
+          const text = results['0'] || Object.values(results)[0] || '';
+          // An empty or sentinel result is a failure for a one-shot ask —
+          // report it instead of settling success with no text to show.
+          if (text === '{{NO_TRANSLATION_NEEDED}}') {
+            settle({ success: false, error: 'text is already in the target language' });
+          } else if (!text) {
+            settle({ success: false, error: 'provider returned nothing' });
+          } else {
+            settle({ success: true, text });
+          }
         }
       }
     } else if (!subtitle.onResult(payload)) {

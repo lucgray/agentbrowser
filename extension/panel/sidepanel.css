@@ -1647,6 +1647,84 @@ button:disabled {
   overflow-wrap: anywhere;
 }
 
+/* collapsible settings sections — secondary groups fold away behind a
+   summary row; only the day-to-day toggles stay visible. */
+.set-details {
+  border: 1px solid var(--ac-border-soft);
+  border-radius: var(--ac-radius-control);
+  padding: var(--ac-space-8) var(--ac-space-10);
+  min-width: 0;
+}
+
+.set-summary {
+  display: flex;
+  align-items: baseline;
+  gap: var(--ac-space-8);
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+  font: var(--ac-type-secondary);
+  color: var(--ac-text-secondary);
+  min-width: 0;
+}
+
+.set-summary::-webkit-details-marker {
+  display: none;
+}
+
+.set-summary::after {
+  content: "";
+  flex: none;
+  margin-left: auto;
+  width: 7px;
+  height: 7px;
+  border-right: 1.5px solid var(--ac-text-muted);
+  border-bottom: 1.5px solid var(--ac-text-muted);
+  transform: rotate(45deg);
+  transition: transform var(--ac-dur-fast) var(--ac-ease);
+}
+
+.set-details[open] > .set-summary::after {
+  transform: rotate(225deg);
+}
+
+.set-details > .set-group {
+  margin-top: var(--ac-space-8);
+}
+
+.key-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ac-space-8);
+  padding-top: var(--ac-space-8);
+  border-top: 1px solid var(--ac-border-soft);
+}
+
+.key-row:first-child {
+  padding-top: 0;
+  border-top: none;
+}
+
+/* Narrow panels (dragged thin or snapped small): the browser name is the
+   lowest-value header item — drop it and shrink the icon buttons so the
+   chat switcher keeps its row. */
+@media (max-width: 400px) {
+  .browser-tag {
+    display: none;
+  }
+
+  .icon-btn {
+    width: 24px;
+    height: 24px;
+  }
+
+  #header {
+    gap: var(--ac-space-4);
+    padding-left: var(--ac-space-8);
+    padding-right: var(--ac-space-8);
+  }
+}
+
 /* ----- reduced motion: state stays readable, nothing loops ----- */
 
 @media (prefers-reduced-motion: reduce) {
