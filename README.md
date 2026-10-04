@@ -74,6 +74,10 @@ error-handling standard.
 > floating Ask button) is adapted from
 > [cola-sk/context-lens](https://github.com/cola-sk/context-lens) (MIT), noted
 > in that file's header.
+>
+> Tool credit: `video_download` shells out to
+> [yt-dlp](https://github.com/yt-dlp/yt-dlp) on the hub machine — all credit
+> for the actual download engine goes to that project.
 
 ## Why CDP
 

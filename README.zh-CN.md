@@ -72,6 +72,10 @@
 > 格/代码块捕获、语义化路径、浮窗 Ask 按钮）改编自
 > [cola-sk/context-lens](https://github.com/cola-sk/context-lens)（MIT），
 > 文件头部亦有标注。
+>
+> 工具致谢：`video_download` 调用 hub 机器上的
+> [yt-dlp](https://github.com/yt-dlp/yt-dlp)——实际下载引擎的全部功劳
+> 归该项目。
 
 ## 为什么用 CDP
 
