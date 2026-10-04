@@ -1281,6 +1281,157 @@ inspiration credited in the README: bilingual-in-player rendering follows
 the read-frog approach; the bilibili track discovery mirrors what
 community subtitle extensions do — both reimplemented here.
 
+## Plugin layer, v2.17
+
+Plugins are feature packs loaded from `server/plugins/` (built-in) and
+`~/.agentchat/plugins/` (user). Each is a `plugin.json` declaring a prompt
+fragment and tool ownership — see PLUGINS.md for the authoring spec.
+
+- **Prompt injection**: enabled plugins' `prompt` strings are appended to the
+  system prompt after `systemPromptExtra`, as `## Plugin: <name>` blocks,
+  at session creation (`sessionConfig()` in hub.mjs).
+- **Tool gating**: `exposeTools` names existing `tools.mjs` entries the
+  plugin owns; disabling a plugin filters them out of `effectiveTools()`
+  (the table handed to adapters) and blocks hub-answered tools and the
+  direct-wire translate admin messages with `tool hidden by disabled
+  plugin: <name>` / `translate plugin disabled`. `extraTools` appends new
+  schemas while enabled.
+- **State**: `config.plugins.<id>.enabled` overrides the manifest default
+  and persists to `config.json`.
+
+Wire messages (extension role):
+
+- `{type:"plugins_list"}` → `{type:"plugins", plugins:[{id, name, version,
+  description, enabled, builtin, tools}]}`
+- `{type:"plugin_set", id, enabled}` → same `plugins` reply, persists
+  config, and re-broadcasts `capabilities` (which now also carries
+  `plugins`).
+
+The built-in `translate` plugin owns every translate_*/subtitle_*/
+transcript_* tool — the first consumer of this layer.
+
+### Admin HTTP surface
+
+The hub's port now answers two protocols: WebSocket upgrade for the wire
+protocol, and HTTP for a management console. `GET /admin` serves a
+single-file page; `/admin/api/*` is JSON:
+
+- `GET /admin/api/state` → `{adapters, keys, browsers, plugins, translate,
+  translateProvider, translateStats, config, port}` — one call feeds the
+  whole page (config contains no keys; they live in the keystore).
+- `POST /admin/api/plugin {id, enabled}` → `setPluginEnabled` — same code
+  path as `plugin_set`, plus a capabilities re-broadcast.
+- `POST /admin/api/translate {provider?, model?, targetLang?, mode?,
+  wordHover?}` → `applyTranslateConfig` — same merge+persist+rebuild as
+  `set_translate_config`.
+- `POST /admin/api/key {provider, key}` → keystore write (null clears);
+  the key value is never returned to any client.
+- `POST /admin/api/config {…}` → top-level config patch restricted to a
+  key allowlist (`adapter`, `model`, `systemPromptExtra`, `mcpServers`,
+  `permissions`, `proactiveAnnotation`, `plugins`, `translate`,
+  `adapterModels`, `promptBudget`, `browserName`); unknown keys are
+  rejected so the raw editor can't drop fields it doesn't model.
+
+Non-admin HTTP requests get 426 (upgrade required). The page polls
+`/admin/api/state` every 15s — no auth, same localhost trust level as the
+WS port itself.
+
+## Video learn sidebar, v2.18
+
+A per-video learning sidebar (逐句 transcript / AI 摘要 / 生词本 tabs),
+injected by the subtitle engine — it mounts whenever a subtitle session
+is running (`subtitle_translate`) and shares the same cue array, so no
+new wire path is needed for transcript data.
+
+- **Page side** (`page/subtitle-sidebar.js`): `__abSubSidebar` global.
+  `mount({cues, video, bus})` builds the panel purely with DOM APIs
+  (YouTube Trusted Types forbids innerHTML); `cueTranslated(i)` patches a
+  row when a batch lands; `setActive(i)` follows the playhead with a
+  ⌖跟随 toggle; rows click-seek. Docks two ways: normal mode floats over
+  the recommendations column (`#secondary` / `.recommend-list-v1`);
+  fullscreen reparents into `document.fullscreenElement` (top layer) and
+  hugs the player's right edge. SRT export uses `buildSrt` from
+  subtitle-core.
+- **Summary wire**: the AI 摘要 tab sends `{kind:'summary'}` over the
+  subtitle binding → SW relays `summary_request {id:"sum-<tab>", tabId,
+  transcript, targetLang}` (transcript = `excerptTranscript` of the loaded
+  cues, capped ~20k chars) → hub `translator.summarize()` calls the
+  configured chat provider (openai/anthropic only; deepl/microsoft/free
+  reply `error`) → `summary_result {id, summary}` → evaluated as
+  `__abSubSidebar.onSummary({summary, error})`.
+
+**X (twitter.com) captions** ride the same pipeline: `detectSite` returns
+`'x'`; `probe()` reads `video.textTracks` in-page (kind subtitles/captions)
+and `__abSubtitle.readTextTrackCues(i)` flips the track to `hidden`, polls
+for its cue list, and returns it — X ships no fetchable caption document,
+so this is the only source. Everything downstream (overlay, sidebar,
+translation batches, transcript_get, transcriptWindow) is site-agnostic.
+
+**Media "@" reference** (`content/video-ask.js`): hovering any `<video>`
+(≥120×80) or `<img>` (≥80×80) CSS px shows an @ button at its top-left
+edge. Clicking sends `video_ask {kind, url,title, rect,viewport, …}` to the
+SW, which (1) opens the side panel inside the gesture, (2) stages a
+`pendingSelection` chip — video: `[video] title + url + playhead` plus the
+running subtitle session's transcript window (`transcriptWindow`, ±15s/90s);
+image: `[image] alt + url + src + natural size`, and (3) stages a
+`pendingAttachment` in storage.session — paused videos get a
+`tabs.captureVisibleTab` → OffscreenCanvas crop of the element rect; images
+get the fetched source (`fetch` under host permissions, ≤8 MB, data: URLs
+decoded inline) with a crop fallback when the src is unfetchable (e.g.
+page-local `blob:` URLs). The panel applies both slots (tabId-matched to
+the owning window).
+
+**`video_download {url?, format?, dir?}`** is hub-answered (same
+interception as translate_stats): the hub resolves the chat's bound-tab
+url (`chatTabUrls`) when `url` is omitted, locates yt-dlp
+(`yt-dlp` then `python3 -m yt_dlp`), and spawns it with
+`-o <dir>/%(title).80s.%(ext)s --print after_move:filepath` into `dir`
+(default `~/.agentchat/downloads`). Replies `{ok, file?, error?}`; a
+missing binary returns an install hint, a non-zero exit returns the
+stderr tail. Gated by the translate plugin's exposeTools.
+
+## Floating toolbar + theme + overlay guard, v2.19
+
+The selection floater is now a three-action toolbar
+(`#agentbrowser-ask-btn`: 问 AI / 翻译 / 复制), and the media floater
+(`#agentbrowser-video-ask-btn`) is a compact @ chip that expands "引用" on
+hover. Both share `content/float-theme.css` and one storage key:
+
+- `floatTheme` in `chrome.storage.local` — `"frost"` | `"ink"` | `"paper"`,
+  default `"frost"`; editable in panel settings. Content scripts cache it
+  and live-update via `storage.onChanged`, applied as `data-abtheme`.
+
+- **`translate_ask`** (content → SW): `{target:'sw', cmd:'translate_ask',
+  text}` — a one-shot `translate_request` (`id: "ts-<tabId>-<n>"`, single
+  item `tid:"0"`, targetLang from hub config) whose `translate_result` is
+  routed back to the sender's `sendResponse` instead of a page binding.
+  20s timeout; popup renders the result under the bar.
+
+- **Overlay guard** (`content/float-guard.js`, `window.__abFloatGuard`):
+  before showing, `foreignAtRect` probes the target rect with
+  `document.elementsFromPoint` — a topmost element that is fixed/absolute,
+  z ≥ 9999, small, and not `agentbrowser-*` is a foreign floater
+  (read-frog, 沙拉查词, …). On conflict the bar tries the other side of
+  the selection, then skips. While visible, `watchForeign` (a filtered
+  MutationObserver + re-probe) hides our bar when a foreign overlay lands
+  on it. We never hide or touch foreign elements — we only yield.
+
+### Popup-panel fallback (v2.19)
+
+Packaged-app windows (e.g. a site installed as an Edge "app") have no
+extensions rail, so `chrome.sidePanel.open` rejects there. Every entry
+point (context menu, floating 问 AI, media @, translate_ask) goes through
+`openPanel(tabId)` in sw.js, which on rejection opens the same panel page
+as a floating window instead:
+
+- `chrome.windows.create({ type:'popup', width:420, height:720,
+  url: sidepanel.html?bind=<tabId> })`.
+- Panel-side, `?bind=<tabId>` sets `boundTabId`: `refreshCurrentTab`
+  resolves that tab via `chrome.tabs.get` (not the popup's own active
+  tab), and `pendingSelection`/`pendingAttachment` are consumed only when
+  `record.tabId === boundTabId`. Port naming and chat routing are
+  unchanged — the port still carries the popup's own `windowId`.
+
 ## mcp-proxy.mjs
 
 Stdio MCP server (use `@modelcontextprotocol/sdk`, installed) exposing the ten

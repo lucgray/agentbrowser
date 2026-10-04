@@ -5,11 +5,12 @@
 // channel under "sb-" prefixed request ids.
 
 import * as cdp from './cdp.js';
-import { parseSrv3, parseBilibili } from '../page/subtitle-core.js';
+import { parseSrv3, parseBilibili, excerptTranscript } from '../page/subtitle-core.js';
 
 const BINDING = '__abSubtitleBus';
 const CORE_URL = 'page/subtitle-core.js';
 const ENGINE_URL = 'page/subtitle-engine.js';
+const SIDEBAR_URL = 'page/subtitle-sidebar.js';
 const MAX_TRANSCRIPT_CUES = 400;
 
 const sessions = new Map(); // tabId -> {cfg, running, startPromise}
@@ -24,13 +25,15 @@ export function wireHub({ sendToHub }) {
 
 async function loadSources() {
   if (sources) return sources;
-  const [core, engine] = await Promise.all([
+  const [core, engine, sidebar] = await Promise.all([
     fetch(chrome.runtime.getURL(CORE_URL)).then((r) => r.text()),
     fetch(chrome.runtime.getURL(ENGINE_URL)).then((r) => r.text()),
+    fetch(chrome.runtime.getURL(SIDEBAR_URL)).then((r) => r.text()),
   ]);
   // The core ships ES exports for node --test; the page evaluate is a classic
-  // script, so they are stripped before concatenation.
-  sources = core.replace(/^export\s+/gm, '') + '\n' + engine;
+  // script, so they are stripped before concatenation. Core first: engine and
+  // sidebar call its helpers (fmtTs/buildSrt/...) as top-level globals.
+  sources = core.replace(/^export\s+/gm, '') + '\n' + engine + '\n' + sidebar;
   return sources;
 }
 
@@ -148,6 +151,22 @@ async function loadCues(p, lang) {
   throw new Error(`unsupported site: ${p.site}`);
 }
 
+// X keeps its captions in HTML5 textTracks — page-side only, so the read is
+// an eval, not a fetch. Needs the tabId loadCues doesn't otherwise use.
+async function loadCuesX(tabId, p, lang) {
+  const track = pickTrack(
+    (p.tracks || []).map((t) => ({ lang: t.lang, name: t.name, index: t.index })),
+    lang
+  ) || (p.tracks || [])[0];
+  if (!track) throw new Error('no text tracks on this video');
+  const r = await evalRaw(
+    tabId,
+    `__abSubtitle && __abSubtitle.readTextTrackCues(${Number(track.index) || 0})`
+  );
+  if (!r || r.error) throw new Error((r && r.error) || 'text track read failed');
+  return { cues: r.cues, track: r.track };
+}
+
 // ------------------------------------------------------------- tool entry
 
 // tool_call: subtitle_translate — bilingual overlay over the video.
@@ -157,13 +176,16 @@ export async function start(tabId, cfg) {
   if (s.startPromise) return s.startPromise;
   s.startPromise = (async () => {
     const p = await probe(tabId);
-    const { cues, track } = await loadCues(p, s.cfg.trackLang);
+    const { cues, track } = p.site === 'x'
+      ? await loadCuesX(tabId, p, s.cfg.trackLang)
+      : await loadCues(p, s.cfg.trackLang);
     const r = await evalRaw(
       tabId,
       `__abSubtitle.start(${JSON.stringify({ cues, targetLang: s.cfg.targetLang })})`
     );
     if (r && r.error) throw new Error(r.error);
     s.running = true;
+    s.cues = cues;
     return { site: p.site, track, cues: cues.length, ...(r || {}) };
   })();
   try {
@@ -203,7 +225,9 @@ export async function status(tabId) {
 // window around the playhead. No overlay is started.
 export async function transcript(tabId, args) {
   const p = await probe(tabId);
-  const { cues, track } = await loadCues(p, args && args.lang);
+  const { cues, track } = p.site === 'x'
+    ? await loadCuesX(tabId, p, args && args.lang)
+    : await loadCues(p, args && args.lang);
   let out = cues;
   let truncated = false;
   if (args && args.aroundSec != null) {
@@ -256,9 +280,52 @@ export function onBindingCalled(tabId, payload) {
       items: Array.isArray(msg.items) ? msg.items : [],
       targetLang: (s && s.cfg && s.cfg.targetLang) || 'zh',
     });
+  } else if (msg.kind === 'summary' && hubSend) {
+    const reqId = `sum-${tabId}`;
+    pendingReqs.set(reqId, tabId);
+    hubSend({
+      type: 'summary_request',
+      id: reqId,
+      tabId,
+      transcript: excerptTranscript(s && s.cues),
+      targetLang: (s && s.cfg && s.cfg.targetLang) || 'zh',
+    });
   } else if (msg.kind === 'error') {
     console.warn('[agentbrowser] subtitle engine error:', msg.error);
   }
+}
+
+// summary_result fan-in — sw forwards it here; the page sidebar renders via
+// __abSubSidebar.onSummary.
+export function onSummary(msg) {
+  const tabId = pendingReqs.get(msg.id);
+  if (tabId == null) return false;
+  pendingReqs.delete(msg.id);
+  const s = sessions.get(tabId);
+  if (!s || !s.running) return true;
+  evalRaw(
+    tabId,
+    `__abSubSidebar && __abSubSidebar.onSummary(${JSON.stringify({ summary: msg.summary || null, error: msg.error || null })})`
+  ).catch((err) => {
+    console.warn('[agentbrowser] summary apply failed', err);
+  });
+  return true;
+}
+
+// Transcript slice around a playhead second, for the video "@" ask flow:
+// sw pulls the running session's cue text so the agent sees what the video
+// is saying around where the user stopped — not the whole track.
+export function transcriptWindow(tabId, timeSec, aroundSec = 90) {
+  const s = sessions.get(tabId);
+  const cues = s && s.cues;
+  if (!Array.isArray(cues) || !cues.length || !s.running) return null;
+  const t = Number(timeSec) || 0;
+  const lo = t - 15;
+  const hi = t + Number(aroundSec);
+  const lines = cues
+    .filter((c) => c.end >= lo && c.start <= hi)
+    .map((c) => c.translated ? `${c.text} / ${c.translated}` : c.text);
+  return lines.length ? lines.join('\n') : null;
 }
 
 // translate_result fan-in — sw asks us first; returns true when the id was
@@ -272,6 +339,14 @@ export function onResult(msg) {
   if (msg.error) {
     console.warn('[agentbrowser] subtitle translate request failed:', msg.error);
     return true;
+  }
+  // Mirror translations into the session's cue copy so transcriptWindow can
+  // hand bilingual lines to the "@" ask flow (keys are global cue indexes).
+  if (msg.results && typeof msg.results === 'object') {
+    for (const k in msg.results) {
+      const c = s.cues && s.cues[Number(k)];
+      if (c && msg.results[k]) c.translated = String(msg.results[k]);
+    }
   }
   const req = Number(String(msg.id || '').split('-').pop()) || 0;
   evalRaw(

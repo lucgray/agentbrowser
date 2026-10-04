@@ -10,6 +10,9 @@ import {
   parseBilibili,
   cueAt,
   sendOrder,
+  fmtTs,
+  buildSrt,
+  excerptTranscript,
 } from '../../extension/page/subtitle-core.js';
 
 test('detectSite recognises youtube and bilibili urls', () => {
@@ -17,7 +20,10 @@ test('detectSite recognises youtube and bilibili urls', () => {
   assert.equal(detectSite('https://youtu.be/abc'), 'youtube');
   assert.equal(detectSite('https://www.bilibili.com/video/BV1xx411c7mD'), 'bilibili');
   assert.equal(detectSite('https://b23.tv/xyz'), 'bilibili');
+  assert.equal(detectSite('https://x.com/user/status/123'), 'x');
+  assert.equal(detectSite('https://mobile.twitter.com/user/status/123'), 'x');
   assert.equal(detectSite('https://example.com'), null);
+  assert.equal(detectSite('https://notx.com/video/1'), null);
 });
 
 test('decodeEntities maps named and numeric entities', () => {
@@ -79,4 +85,39 @@ test('sendOrder is playback-first then wraps to the prefix', () => {
   assert.deepEqual(sendOrder(5, 2), [2, 3, 4, 0, 1]);
   assert.deepEqual(sendOrder(3, 0), [0, 1, 2]);
   assert.deepEqual(sendOrder(4, -1), [0, 1, 2, 3]);
+});
+
+test('fmtTs renders MM:SS and H:MM:SS', () => {
+  assert.equal(fmtTs(0), '0:00');
+  assert.equal(fmtTs(65.9), '1:05');
+  assert.equal(fmtTs(3725), '1:02:05');
+  assert.equal(fmtTs(-3), '0:00');
+  assert.equal(fmtTs('90'), '1:30');
+});
+
+test('buildSrt emits numbered cue blocks with SRT timestamps', () => {
+  const cues = [
+    { start: 0.5, end: 2, text: 'Hello there', translated: '你好' },
+    { start: 3725.25, end: 3727, text: 'second line', translated: null },
+  ];
+  const srt = buildSrt(cues);
+  const blocks = srt.trim().split(/\n\n/);
+  assert.equal(blocks.length, 2);
+  assert.match(blocks[0], /^1\n00:00:00,500 --> 00:00:02,000\nHello there\n你好$/);
+  // untranslated cues export the source line only
+  assert.match(blocks[1], /^2\n01:02:05,250 --> 01:02:07,000\nsecond line$/);
+});
+
+test('excerptTranscript joins short tracks, slices long ones', () => {
+  const short = [{ start: 0, end: 1, text: 'a' }, { start: 1, end: 2, text: 'b' }];
+  assert.equal(excerptTranscript(short), 'a\nb');
+  assert.equal(excerptTranscript([]), '');
+  assert.equal(excerptTranscript(null), '');
+
+  const long = [];
+  for (let i = 0; i < 80; i++) long.push({ start: i, end: i + 1, text: 'x'.repeat(500) });
+  const sampled = excerptTranscript(long, 20000);
+  assert.ok(sampled.length <= 20000);
+  assert.ok(sampled.length < long.length * 500); // windows sampled, not joined whole
+  assert.ok(sampled.includes('\n\u2026\n')); // slice separator
 });

@@ -25,11 +25,13 @@
         "*://*/*"
       ],
       "js": [
+        "content/float-guard.js",
         "content/selection.js",
-        "content/annotation.js"
+        "content/annotation.js",
+        "content/video-ask.js"
       ],
       "css": [
-        "content/selection.css",
+        "content/float-theme.css",
         "content/annotation.css"
       ],
       "run_at": "document_idle",

@@ -293,7 +293,9 @@ const I18N = {
     langAuto: "Follow browser / Auto",
     autoSelectionLabel: "Auto-capture selected text",
     autoSelectionNote: "Selecting text on a page appends it to the chat context — no Ask click needed.",
-    floatingAskLabel: "Show the floating Ask button on selection",
+    floatingAskLabel: "Show the floating Ask toolbar on selection",
+    floatThemeLabel: "Floating toolbar style",
+    floatThemeNote: "Theme for the selection toolbar and media @ chip — frost, ink or paper.",
     proactiveLabel: "Proactive annotation (auto co-read on new tabs)",
     proactiveAdapterAuto: "Same as the chat adapter",
     proactiveModelDefault: "Adapter default",
@@ -347,7 +349,9 @@ const I18N = {
     langAuto: "跟随浏览器 / Auto",
     autoSelectionLabel: "自动捕获选中的文字",
     autoSelectionNote: "在网页上选中文字后自动加入对话上下文，无需点击 Ask。",
-    floatingAskLabel: "选中后显示悬浮 Ask 按钮",
+    floatingAskLabel: "选中后显示悬浮工具栏",
+    floatThemeLabel: "悬浮工具栏风格",
+    floatThemeNote: "划词工具栏与媒体 @ 键的悬浮风格：雾玻璃 / 墨玉 / 纸白。",
     proactiveLabel: "主动标注（打开新标签页时自动 co-read）",
     proactiveAdapterAuto: "跟随对话适配器",
     proactiveModelDefault: "适配器默认",
@@ -860,6 +864,7 @@ async function init() {
   const setLanguage = document.getElementById("set-language");
   const toggleAutoSelection = document.getElementById("toggle-auto-selection");
   const toggleFloatingAsk = document.getElementById("toggle-floating-ask");
+  const setFloatTheme = document.getElementById("set-float-theme");
   refreshDynamicI18n = () => {
     BASE_PLACEHOLDER = t("composerPlaceholder");
     renderBackend();
@@ -867,12 +872,15 @@ async function init() {
       field.state.textContent = keyState[field.provider] ? t("keyConfigured") : t("keyNotSet");
     }
   };
-  chrome.storage.local.get(["panelLanguage", "autoSelectionEnabled", "floatingAskEnabled"]).then((stored) => {
+  chrome.storage.local.get(["panelLanguage", "autoSelectionEnabled", "floatingAskEnabled", "floatTheme"]).then((stored) => {
     uiLang = (stored && stored.panelLanguage) || "auto";
     applyI18n();
     setLanguage.value = uiLang;
     toggleAutoSelection.checked = stored.autoSelectionEnabled !== false;
     toggleFloatingAsk.checked = stored.floatingAskEnabled !== false;
+    setFloatTheme.value = ["frost", "ink", "paper"].includes(stored.floatTheme)
+      ? stored.floatTheme
+      : "frost";
   }).catch(() => applyI18n());
   setLanguage.addEventListener("change", () => {
     uiLang = setLanguage.value;
@@ -884,6 +892,9 @@ async function init() {
   });
   toggleFloatingAsk.addEventListener("change", () => {
     chrome.storage.local.set({ floatingAskEnabled: toggleFloatingAsk.checked });
+  });
+  setFloatTheme.addEventListener("change", () => {
+    chrome.storage.local.set({ floatTheme: setFloatTheme.value });
   });
 
   // Proactive annotation (auto co-read on a fresh tab): toggle + provider +
@@ -1043,6 +1054,10 @@ async function init() {
 
   let port = null;
   let ownWindowId = null; // browser window hosting this panel (v2.1)
+  // Popup-panel mode (v2.19): opened as `?bind=<tabId>` in a chrome.windows
+  // popup because the host window has no side-panel rail (packaged apps).
+  // The panel serves that tab no matter which window it lives in.
+  let boundTabId = null;
   let connected = false;
   let chatId = crypto.randomUUID();
   let streaming = false;
@@ -2595,15 +2610,22 @@ async function init() {
   async function refreshCurrentTab() {
     let next = null;
     try {
-      // Scope to the window hosting this panel — lastFocusedWindow would
-      // report another window's tab whenever that window has focus.
-      const query =
-        ownWindowId != null
-          ? { active: true, windowId: ownWindowId }
-          : { active: true, lastFocusedWindow: true };
-      const [tab] = await chrome.tabs.query(query);
-      if (tab && tab.id != null && isContextUrl(tab.url)) {
-        next = { tabId: tab.id, url: tab.url, title: tab.title || tab.url };
+      if (boundTabId != null) {
+        const bound = await chrome.tabs.get(boundTabId);
+        if (bound && isContextUrl(bound.url)) {
+          next = { tabId: bound.id, url: bound.url, title: bound.title || bound.url };
+        }
+      } else {
+        // Scope to the window hosting this panel — lastFocusedWindow would
+        // report another window's tab whenever that window has focus.
+        const query =
+          ownWindowId != null
+            ? { active: true, windowId: ownWindowId }
+            : { active: true, lastFocusedWindow: true };
+        const [tab] = await chrome.tabs.query(query);
+        if (tab && tab.id != null && isContextUrl(tab.url)) {
+          next = { tabId: tab.id, url: tab.url, title: tab.title || tab.url };
+        }
       }
     } catch (err) {
       console.warn("[agentbrowser] active tab query failed", err);
@@ -2647,9 +2669,11 @@ async function init() {
     if (ts <= selectionAppliedTs) return;
     const sel = normalizeSelection(record.selection);
     if (!sel) return;
-    // Selections are stored globally; only the panel in the window that owns
-    // the tab should consume one.
-    if (ownWindowId != null && record.tabId != null) {
+    // Selections are stored globally; only the panel that owns the tab
+    // should consume one — the hosting window's, or a bound popup's tab.
+    if (boundTabId != null) {
+      if (record.tabId !== boundTabId) return;
+    } else if (ownWindowId != null && record.tabId != null) {
       try {
         const tab = await chrome.tabs.get(record.tabId);
         if (!tab || tab.windowId !== ownWindowId) return;
@@ -2664,19 +2688,59 @@ async function init() {
     inputEl.focus();
   }
 
+  let attachmentAppliedTs = 0;
+
+  // pendingAttachment (video "@" screenshot) — same single-slot semantics as
+  // pendingSelection: latest write wins, timestamps guard re-application.
+  async function applyPendingAttachment(record) {
+    if (!record || typeof record !== "object") return;
+    const ts = Number(record.timestamp) || 0;
+    if (ts <= attachmentAppliedTs) return;
+    const a = record.attachment;
+    if (!a || !a.base64 || !a.name) return;
+    if (boundTabId != null) {
+      if (record.tabId !== boundTabId) return;
+    } else if (ownWindowId != null && record.tabId != null) {
+      try {
+        const tab = await chrome.tabs.get(record.tabId);
+        if (!tab || tab.windowId !== ownWindowId) return;
+      } catch (err) {
+        console.warn("[agentbrowser] pendingAttachment tab lookup failed", err);
+        return;
+      }
+    }
+    attachmentAppliedTs = ts;
+    attachments.push({
+      name: String(a.name),
+      mimeType: String(a.mimeType || "image/png"),
+      size: Number(a.size) || 0,
+      base64: String(a.base64),
+    });
+    renderAttachments();
+    updateControls();
+  }
+
   function watchSelections() {
     const store = chrome.storage && chrome.storage.session;
     if (!store || typeof store.get !== "function") return;
     store
-      .get("pendingSelection")
-      .then((data) => applyPendingSelection(data && data.pendingSelection))
+      .get(["pendingSelection", "pendingAttachment"])
+      .then((data) => {
+        applyPendingSelection(data && data.pendingSelection);
+        applyPendingAttachment(data && data.pendingAttachment);
+      })
       .catch((err) =>
         console.warn("[agentbrowser] pendingSelection read failed", err)
       );
     if (!chrome.storage.onChanged) return;
     chrome.storage.onChanged.addListener((changes, area) => {
-      if (area !== "session" || !changes.pendingSelection) return;
-      applyPendingSelection(changes.pendingSelection.newValue);
+      if (area !== "session") return;
+      if (changes.pendingSelection) {
+        applyPendingSelection(changes.pendingSelection.newValue);
+      }
+      if (changes.pendingAttachment) {
+        applyPendingAttachment(changes.pendingAttachment.newValue);
+      }
     });
   }
 
@@ -3419,6 +3483,16 @@ async function init() {
     }
   });
 
+  // Paste images/files straight into the composer: clipboardData.files holds
+  // screenshots and copied files; a paste with no files falls through to the
+  // default text insertion untouched.
+  inputEl.addEventListener("paste", (e) => {
+    const files = e.clipboardData && e.clipboardData.files;
+    if (!files || files.length === 0) return;
+    e.preventDefault();
+    addFiles(files);
+  });
+
   inputEl.addEventListener("input", () => {
     autoGrow();
     updatePalette();
@@ -3564,6 +3638,13 @@ async function init() {
     ownWindowId = w && typeof w.id === "number" ? w.id : null;
   } catch (err) {
     console.warn("[agentbrowser] window id lookup failed", err);
+  }
+  try {
+    const bind = new URLSearchParams(location.search).get("bind");
+    const id = bind == null ? NaN : Number(bind);
+    if (Number.isInteger(id) && id >= 0) boundTabId = id;
+  } catch (err) {
+    console.warn("[agentbrowser] bind param parse failed", err);
   }
   connectPort();
   watchTabs();

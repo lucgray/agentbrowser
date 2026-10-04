@@ -87,6 +87,21 @@
         cid: vd.cid || st.cid || window.cid || null,
       };
     }
+    if (site === 'x') {
+      // X ships HTML5 textTracks on the <video> itself — no network fetch at
+      // all: the SW just asks us to read the cues out of the chosen track.
+      var xv = findVideo();
+      var xtracks = [];
+      if (xv && xv.textTracks) {
+        for (var i = 0; i < xv.textTracks.length; i++) {
+          var tt = xv.textTracks[i];
+          if (tt && (tt.kind === 'subtitles' || tt.kind === 'captions')) {
+            xtracks.push({ index: i, lang: String(tt.language || ''), name: String(tt.label || tt.language || '') });
+          }
+        }
+      }
+      return { site: site, tracks: xtracks };
+    }
     return { site: null };
   }
 
@@ -156,11 +171,53 @@
       for (var k in results) {
         var i = Number(k);
         var c = cues[i];
-        if (c && results[k]) c.translated = String(results[k]);
+        if (c && results[k]) {
+          c.translated = String(results[k]);
+          if (window.__abSubSidebar) window.__abSubSidebar.cueTranslated(i);
+        }
       }
     }
     sendMore();
     render(); // the current cue may have just been translated
+  }
+
+  // ------------------------------------------------------------- x tracks
+  // Read cues out of an HTML5 TextTrack. mode='hidden' keeps them loading
+  // without showing X's own rendering; some players leave tracks unloaded
+  // until asked, so we poll briefly for cues to appear.
+  function readTextTrackCues(index) {
+    var v = findVideo();
+    if (!v || !v.textTracks) return Promise.resolve({ error: 'no video' });
+    var track = v.textTracks[Number(index)];
+    if (!track || (track.kind !== 'subtitles' && track.kind !== 'captions')) {
+      return Promise.resolve({ error: 'no subtitle track at index ' + index });
+    }
+    var hadMode = track.mode;
+    track.mode = 'hidden';
+    var deadline = Date.now() + 4000;
+    return new Promise(function (resolve) {
+      (function poll() {
+        var list = track.cues;
+        if (list && list.length) {
+          var out = [];
+          for (var i = 0; i < list.length; i++) {
+            var c = list[i];
+            var text = String(c.text || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+            if (text) out.push({ start: c.startTime, end: c.endTime, text: text });
+          }
+          if (out.length) {
+            resolve({ cues: out, track: { lang: String(track.language || ''), name: String(track.label || '') } });
+            return;
+          }
+        }
+        if (Date.now() > deadline) resolve({ error: 'track never produced cues' });
+        else setTimeout(poll, 150);
+      })();
+    }).then(function (r) {
+      // Restore 'showing' only if the player had it that way — ours set hidden.
+      if (hadMode === 'showing' && track.mode === 'hidden') track.mode = 'showing';
+      return r;
+    });
   }
 
   // ---------------------------------------------------------------- API
@@ -177,11 +234,16 @@
     ensureUI();
     onTime = function () {
       var i = cueAt(cues, video.currentTime);
-      if (i !== activeCue) { activeCue = i; render(); }
+      if (i !== activeCue) {
+        activeCue = i;
+        render();
+        if (window.__abSubSidebar) window.__abSubSidebar.setActive(i);
+      }
     };
     video.addEventListener('timeupdate', onTime);
     var at = cueAt(cues, video.currentTime);
     activeCue = at;
+    if (window.__abSubSidebar) window.__abSubSidebar.mount({ cues: cues, video: video, bus: bus });
     sendQueue = sendOrder(cues.length, at >= 0 ? at : 0);
     // Cues with text already in the target script get skipped by the hub's
     // own heuristics downstream; sending them anyway keeps this branch-free.
@@ -196,6 +258,7 @@
     onTime = null;
     if (wrap && wrap.isConnected) wrap.remove();
     wrap = null;
+    if (window.__abSubSidebar) window.__abSubSidebar.unmount();
     if (styleEl && styleEl.isConnected) styleEl.remove();
     styleEl = null;
     cues = [];
@@ -224,5 +287,6 @@
     stop: stop,
     status: status,
     applyBatch: applyBatch,
+    readTextTrackCues: readTextTrackCues,
   };
 })();

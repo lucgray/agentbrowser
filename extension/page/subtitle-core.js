@@ -8,6 +8,7 @@ export function detectSite(url) {
   const u = String(url || '');
   if (/youtube\.com\/watch/.test(u) || /youtu\.be\//.test(u)) return 'youtube';
   if (/bilibili\.com\/video\//.test(u) || /b23\.tv\//.test(u)) return 'bilibili';
+  if (/\/\/(?:[a-z0-9-]+\.)*(x|twitter)\.com\//.test(u)) return 'x';
   return null;
 }
 
@@ -85,4 +86,67 @@ export function sendOrder(length, fromIdx) {
   for (let i = Math.max(0, fromIdx); i < length; i++) out.push(i);
   for (let i = 0; i < Math.max(0, fromIdx); i++) out.push(i);
   return out;
+}
+
+// ---- sidebar helpers (v2.18): pure so node --test covers them ----
+
+// "MM:SS" below an hour, "H:MM:SS" above — matches player timestamp style.
+export function fmtTs(sec) {
+  const s = Math.max(0, Math.floor(Number(sec) || 0));
+  const mm = Math.floor(s / 60) % 60;
+  const ss = s % 60;
+  const hh = Math.floor(s / 3600);
+  const pad = (n) => String(n).padStart(2, '0');
+  return hh ? `${hh}:${pad(mm)}:${pad(ss)}` : `${mm}:${pad(ss)}`;
+}
+
+// SRT timestamp "HH:MM:SS,mmm" for the transcript export.
+function srtTs(sec) {
+  const ms = Math.round(Math.max(0, Number(sec) || 0) * 1000);
+  const pad = (n, w) => String(n).padStart(w, '0');
+  return `${pad(Math.floor(ms / 3600000), 2)}:${pad(Math.floor(ms / 60000) % 60, 2)}:` +
+    `${pad(Math.floor(ms / 1000) % 60, 2)},${pad(ms % 1000, 3)}`;
+}
+
+// Bilingual .srt text: source line then translated line under one sequence.
+export function buildSrt(cues) {
+  const out = [];
+  let n = 0;
+  for (const c of cues || []) {
+    if (!c || !c.text) continue;
+    n += 1;
+    out.push(String(n));
+    out.push(`${srtTs(c.start)} --> ${srtTs(c.end)}`);
+    out.push(String(c.text));
+    if (c.translated) out.push(String(c.translated));
+    out.push('');
+  }
+  return out.join('\n');
+}
+
+// Transcript text for the summary request, bounded to `budget` chars. When
+// the track is longer, eight evenly-spaced slices of the timeline (aligned
+// to cue boundaries) keep beginning, middle and end instead of a hard
+// truncation of the head.
+export function excerptTranscript(cues, budget = 20000) {
+  const lines = (cues || []).map((c) => String(c && c.text || '').trim()).filter(Boolean);
+  const joined = lines.join('\n');
+  if (joined.length <= budget) return joined;
+  const SLICES = 8;
+  const per = Math.max(1, Math.floor((budget - (SLICES - 1) * 3) / SLICES));
+  const out = [];
+  for (let i = 0; i < SLICES; i++) {
+    const anchor = Math.floor((joined.length * i) / SLICES);
+    let from = 0;
+    if (anchor > 0) {
+      const nl = joined.indexOf('\n', anchor);
+      if (nl === -1) break;
+      from = nl + 1;
+    }
+    if (from >= joined.length) break;
+    let to = joined.lastIndexOf('\n', from + per);
+    if (to <= from) to = Math.min(from + per, joined.length);
+    out.push(joined.slice(from, to));
+  }
+  return out.join('\n\u2026\n');
 }

@@ -12,15 +12,21 @@
 // side panel handoff) is ours.
 
 const BTN_ID = "agentbrowser-ask-btn";
+const POP_ID = "agentbrowser-sel-tr-pop";
 const FLOAT_ASK_KEY = "floatingAskEnabled"; // chrome.storage.local, set by sw
 const AUTO_SEL_KEY = "autoSelectionEnabled"; // chrome.storage.local, set by the panel settings
+const FLOAT_THEME_KEY = "floatTheme"; // chrome.storage.local, frost | ink | paper
+const FLOAT_THEMES = new Set(["frost", "ink", "paper"]);
 
 let floatBtn = null;
+let trPop = null;
+let foreignStop = null; // float-guard watcher disarm while the bar is visible
 let currentSelectionContext = null; // compiled on selection mouseup
 let lastRightClickContext = null; // compiled on contextmenu
 let lastRightClickElement = null;
 let floatingAskEnabled = true; // cached; kept in sync below
 let autoSelectionEnabled = true; // cached; panel 设置开关
+let floatTheme = "frost"; // cached; settings select
 
 // The floating button can clash with other overlays, so it obeys a
 // persistent user setting flipped from the right-click menu. Read it once
@@ -28,10 +34,11 @@ let autoSelectionEnabled = true; // cached; panel 设置开关
 // button immediately.
 if (isContextValid()) {
   chrome.storage.local
-    .get({ [FLOAT_ASK_KEY]: true, [AUTO_SEL_KEY]: true })
+    .get({ [FLOAT_ASK_KEY]: true, [AUTO_SEL_KEY]: true, [FLOAT_THEME_KEY]: "frost" })
     .then((r) => {
       floatingAskEnabled = r[FLOAT_ASK_KEY] !== false;
       autoSelectionEnabled = r[AUTO_SEL_KEY] !== false;
+      floatTheme = FLOAT_THEMES.has(r[FLOAT_THEME_KEY]) ? r[FLOAT_THEME_KEY] : "frost";
     })
     .catch((err) => {
       logWarn("floating-ask setting read failed", err);
@@ -47,7 +54,17 @@ if (isContextValid()) {
     if (AUTO_SEL_KEY in changes) {
       autoSelectionEnabled = changes[AUTO_SEL_KEY].newValue !== false;
     }
+    if (FLOAT_THEME_KEY in changes) {
+      const v = changes[FLOAT_THEME_KEY].newValue;
+      floatTheme = FLOAT_THEMES.has(v) ? v : "frost";
+      applyTheme();
+    }
   });
+}
+
+function applyTheme() {
+  if (floatBtn) floatBtn.dataset.abtheme = floatTheme;
+  if (trPop) trPop.dataset.abtheme = floatTheme;
 }
 
 function isContextValid() {
@@ -395,48 +412,120 @@ function compileElementContext(element) {
   });
 }
 
-// --- floating button ---------------------------------------------------------
+// --- floating toolbar --------------------------------------------------------
+// Selection shows a three-action bar (Ask / translate / copy) styled by
+// floatTheme. __abFloatGuard yields the spot to foreign floating UI — we
+// never hide theirs, we just don't stack ours on top.
 
-function createFloatingButton() {
-  if (floatBtn) return floatBtn;
+const SVG_NS = "http://www.w3.org/2000/svg";
+const ICONS = {
+  ask: "M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z",
+  translate: "M5 8l6 6 M4 14l6-6 2-3 M2 5h12 M7 2h1 M22 22l-5-10-5 10 M14 18h6",
+  copy: "M9 9h13v13H9z M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1",
+};
 
-  floatBtn = document.createElement("div");
-  floatBtn.id = BTN_ID;
-  floatBtn.className = "agentbrowser-reset agentbrowser-hidden";
-
-  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-  svg.setAttribute("width", "12");
-  svg.setAttribute("height", "12");
+function svgIcon(d) {
+  const svg = document.createElementNS(SVG_NS, "svg");
   svg.setAttribute("viewBox", "0 0 24 24");
   svg.setAttribute("fill", "none");
   svg.setAttribute("stroke", "currentColor");
-  svg.setAttribute("stroke-width", "2.5");
+  svg.setAttribute("stroke-width", "2.1");
   svg.setAttribute("stroke-linecap", "round");
   svg.setAttribute("stroke-linejoin", "round");
-  const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-  path.setAttribute("d", "M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z");
-  svg.appendChild(path);
+  for (const dd of d.split(" M")) {
+    const path = document.createElementNS(SVG_NS, "path");
+    path.setAttribute("d", (dd.startsWith("M") ? "" : "M") + dd);
+    svg.appendChild(path);
+  }
+  return svg;
+}
 
-  const label = document.createElement("span");
-  label.textContent = "Ask";
+function mkItem(icon, label, onClick) {
+  const item = document.createElement("button");
+  item.type = "button";
+  item.className = "ab-item";
+  const text = document.createElement("span");
+  text.textContent = label;
+  item.append(svgIcon(icon), text);
+  item.addEventListener("mousedown", (e) => e.preventDefault());
+  item.addEventListener("click", onClick);
+  return item;
+}
 
-  floatBtn.append(svg, label);
-  floatBtn.addEventListener("click", handleButtonClick);
+function mkSep() {
+  const i = document.createElement("i");
+  i.className = "ab-sep";
+  return i;
+}
+
+function createFloatingButton() {
+  if (floatBtn) return floatBtn;
+  floatBtn = document.createElement("div");
+  floatBtn.id = BTN_ID;
+  floatBtn.className = "agentbrowser-hidden";
+  floatBtn.dataset.abtheme = floatTheme;
+  floatBtn.append(
+    mkItem(ICONS.ask, "问 AI", (e) => handleAskClick(e)),
+    mkSep(),
+    mkItem(ICONS.translate, "翻译", (e) => handleTranslateClick(e)),
+    mkSep(),
+    mkItem(ICONS.copy, "复制", (e) => handleCopyClick(e))
+  );
   (document.body || document.documentElement).appendChild(floatBtn);
   return floatBtn;
 }
 
 function hideButton() {
-  if (floatBtn && !floatBtn.classList.contains("agentbrowser-hidden")) {
+  if (foreignStop) {
+    foreignStop();
+    foreignStop = null;
+  }
+  if (floatBtn) {
+    floatBtn.classList.remove("ab-show");
     floatBtn.classList.add("agentbrowser-hidden");
     floatBtn.style.top = "";
     floatBtn.style.left = "";
   }
 }
 
+function hideTrPop() {
+  if (trPop) {
+    trPop.classList.remove("ab-show");
+    trPop.style.top = "";
+    trPop.style.left = "";
+  }
+}
+
+// Bar rect estimate before layout: three labelled items ≈ 190x30. After
+// showing once we can measure the real box for the guard's probe rect.
+function barRectEstimate(left, top) {
+  if (floatBtn && !floatBtn.classList.contains("agentbrowser-hidden")) {
+    const r = floatBtn.getBoundingClientRect();
+    if (r.width > 0) {
+      return { left: left - window.scrollX, top: top - window.scrollY, width: r.width, height: r.height };
+    }
+  }
+  return { left: left - window.scrollX, top: top - window.scrollY, width: 190, height: 30 };
+}
+
+// returns true when a foreign overlay already owns the spot.
+function foreignBlocks(left, top) {
+  const g = window.__abFloatGuard;
+  if (!g) return false;
+  return !!g.foreignAtRect(barRectEstimate(left, top));
+}
+
+function armForeignWatcher() {
+  const g = window.__abFloatGuard;
+  if (!g || foreignStop) return;
+  const r = floatBtn.getBoundingClientRect();
+  foreignStop = g.watchForeign(r, hideButton);
+}
+
 function showButtonAtSelection(selection) {
   if (selection.rangeCount === 0) return;
   const btn = createFloatingButton();
+  btn.dataset.abtheme = floatTheme;
 
   try {
     const range = selection.getRangeAt(0);
@@ -444,28 +533,97 @@ function showButtonAtSelection(selection) {
     let rect = rects.length > 0 ? rects[rects.length - 1] : range.getBoundingClientRect();
     if (!rect || (rect.width === 0 && rect.height === 0)) return;
 
-    const viewportTop = rect.bottom + window.scrollY + 8;
-    const viewportLeft = rect.right + window.scrollX - 30;
-
-    const btnWidth = 64;
-    const btnHeight = 26;
+    const btnWidth = 190;
+    const btnHeight = 30;
     const maxLeft = window.innerWidth + window.scrollX - btnWidth - 16;
     const minLeft = window.scrollX + 16;
+    const left = Math.max(minLeft, Math.min(rect.right + window.scrollX - 30, maxLeft));
 
-    let left = Math.max(minLeft, Math.min(viewportLeft, maxLeft));
-    let top = viewportTop;
+    // Preferred spot below the selection end, flipped above when cramped.
+    let top = rect.bottom + window.scrollY + 8;
     if (top + btnHeight > window.innerHeight + window.scrollY - 16) {
       const firstRect = rects[0] || rect;
       top = firstRect.top + window.scrollY - btnHeight - 8;
+    }
+    // Yield to foreign floaters: try the other side of the selection, then
+    // give up rather than stack on somebody else's overlay.
+    if (foreignBlocks(left, top)) {
+      const firstRect = rects[0] || rect;
+      const alt =
+        top > rect.top + window.scrollY
+          ? firstRect.top + window.scrollY - btnHeight - 8
+          : rect.bottom + window.scrollY + 8;
+      if (foreignBlocks(left, alt)) return;
+      top = alt;
     }
 
     btn.style.left = `${left}px`;
     btn.style.top = `${top}px`;
     btn.classList.remove("agentbrowser-hidden");
+    requestAnimationFrame(() => btn.classList.add("ab-show"));
+    armForeignWatcher();
   } catch (err) {
     logWarn("showButtonAtSelection failed", err);
     hideButton();
   }
+}
+
+// --- toolbar actions ----------------------------------------------------------
+
+function showTrPop(text) {
+  if (!trPop) {
+    trPop = document.createElement("div");
+    trPop.id = POP_ID;
+    (document.body || document.documentElement).appendChild(trPop);
+  }
+  trPop.dataset.abtheme = floatTheme;
+  trPop.textContent = text;
+  const anchor =
+    floatBtn && !floatBtn.classList.contains("agentbrowser-hidden")
+      ? floatBtn.getBoundingClientRect()
+      : null;
+  const left = anchor ? anchor.left + window.scrollX : window.scrollX + 40;
+  const top = anchor ? anchor.bottom + window.scrollY + 8 : window.scrollY + 80;
+  trPop.style.left = `${Math.min(left, window.innerWidth + window.scrollX - 340 - 16)}px`;
+  trPop.style.top = `${top}px`;
+  requestAnimationFrame(() => trPop.classList.add("ab-show"));
+}
+
+async function handleTranslateClick(e) {
+  e.preventDefault();
+  e.stopPropagation();
+  if (!isContextValid() || !currentSelectionContext) return;
+  const text = currentSelectionContext.text;
+  try {
+    const response = await chrome.runtime.sendMessage({
+      target: "sw",
+      cmd: "translate_ask",
+      text,
+    });
+    if (response && response.success && response.text) {
+      showTrPop(response.text);
+      hideButton();
+    } else {
+      showTrPop(`翻译失败：${(response && response.error) || "未知错误"}`);
+      hideButton();
+    }
+  } catch (err) {
+    logWarn("translate_ask send failed", err);
+    showTrPop("翻译不可用：扩展未连接");
+    hideButton();
+  }
+}
+
+async function handleCopyClick(e) {
+  e.preventDefault();
+  e.stopPropagation();
+  if (!currentSelectionContext) return;
+  try {
+    await navigator.clipboard.writeText(currentSelectionContext.text);
+  } catch (err) {
+    logWarn("clipboard write failed", err);
+  }
+  hideButton();
 }
 
 // --- events ------------------------------------------------------------------
@@ -535,7 +693,7 @@ function handleKeyUp(e) {
   autoKeyTimer = setTimeout(autoDeliverSelection, 350);
 }
 
-async function handleButtonClick(e) {
+async function handleAskClick(e) {
   e.preventDefault();
   e.stopPropagation();
 
@@ -563,7 +721,10 @@ function handleKeyDown(e) {
     document.removeEventListener("keydown", handleKeyDown);
     return;
   }
-  if (e.key === "Escape") hideButton();
+  if (e.key === "Escape") {
+    hideButton();
+    hideTrPop();
+  }
 }
 
 function handleScroll() {
@@ -572,12 +733,16 @@ function handleScroll() {
     return;
   }
   hideButton();
+  hideTrPop();
 }
 
 function handleMouseDown(e) {
   if (!isContextValid()) {
     document.removeEventListener("mousedown", handleMouseDown);
     return;
+  }
+  if (trPop && !trPop.classList.contains("agentbrowser-hidden") && trPop.classList.contains("ab-show")) {
+    if (!e.target.closest || !e.target.closest(`#${POP_ID}`)) hideTrPop();
   }
   if (floatBtn && !floatBtn.classList.contains("agentbrowser-hidden")) {
     if (!e.target.closest || !e.target.closest(`#${BTN_ID}`)) {

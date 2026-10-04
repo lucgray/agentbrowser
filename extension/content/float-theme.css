@@ -1,0 +1,209 @@
+/* Shared theme for AgentBrowser's floating affordances — the selection
+   toolbar (#agentbrowser-ask-btn) and the media "@" chip
+   (#agentbrowser-video-ask-btn). Three neutral themes selectable in settings
+   via storage.local floatTheme; applied as a data-abtheme attribute.
+   Everything is !important: host pages style divs. */
+
+/* ---------- shared geometry ---------- */
+#agentbrowser-ask-btn,
+#agentbrowser-video-ask-btn {
+  all: initial;
+  position: absolute;
+  z-index: 2147483647;
+  display: inline-flex;
+  align-items: stretch;
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  font-size: 12.5px;
+  line-height: 1;
+  cursor: default;
+  user-select: none;
+  white-space: nowrap;
+  overflow: hidden;
+  opacity: 0;
+  transform: translateY(4px) scale(0.92);
+  pointer-events: none;
+  transition: opacity 0.16s cubic-bezier(0.3, 1.2, 0.4, 1),
+    transform 0.2s cubic-bezier(0.3, 1.35, 0.4, 1);
+}
+#agentbrowser-ask-btn.ab-show,
+#agentbrowser-video-ask-btn.ab-show {
+  opacity: 1 !important;
+  transform: translateY(0) scale(1) !important;
+  pointer-events: auto !important;
+}
+#agentbrowser-ask-btn.agentbrowser-hidden,
+#agentbrowser-video-ask-btn.agentbrowser-hidden {
+  display: none !important;
+}
+
+#agentbrowser-ask-btn .ab-item {
+  all: initial;
+  display: inline-flex !important;
+  align-items: center;
+  gap: 5px;
+  padding: 7px 10px;
+  font: 600 12px/1 ui-sans-serif, system-ui, sans-serif;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease, transform 0.08s ease;
+  border: 0;
+}
+#agentbrowser-ask-btn .ab-item:first-child {
+  border-radius: 10px 0 0 10px !important;
+}
+#agentbrowser-ask-btn .ab-item:last-child {
+  border-radius: 0 10px 10px 0 !important;
+}
+#agentbrowser-ask-btn .ab-item:active { transform: scale(0.94) !important; }
+#agentbrowser-ask-btn .ab-sep {
+  all: initial;
+  display: block !important;
+  width: 1px;
+  align-self: stretch;
+  margin: 6px 0;
+  flex: none;
+}
+#agentbrowser-ask-btn svg {
+  display: block;
+  flex: none;
+  width: 13px;
+  height: 13px;
+}
+
+/* ---------- theme: frost (light frosted) ---------- */
+#agentbrowser-ask-btn[data-abtheme="frost"],
+#agentbrowser-video-ask-btn[data-abtheme="frost"] {
+  background: rgba(255, 255, 255, 0.78) !important;
+  color: #44403c !important;
+  border: 1px solid rgba(28, 25, 23, 0.1) !important;
+  border-radius: 10px !important;
+  backdrop-filter: blur(16px) saturate(1.5) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(1.5) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85),
+    0 1px 2px rgba(28, 25, 23, 0.06), 0 10px 28px -8px rgba(28, 25, 23, 0.25) !important;
+}
+#agentbrowser-ask-btn[data-abtheme="frost"] .ab-item { color: #44403c !important; }
+#agentbrowser-ask-btn[data-abtheme="frost"] .ab-item:hover {
+  background: rgba(28, 25, 23, 0.05) !important;
+  color: #1c1917 !important;
+}
+#agentbrowser-ask-btn[data-abtheme="frost"] .ab-sep { background: rgba(28, 25, 23, 0.1) !important; }
+
+/* ---------- theme: ink (dark frosted) ---------- */
+#agentbrowser-ask-btn[data-abtheme="ink"],
+#agentbrowser-video-ask-btn[data-abtheme="ink"] {
+  background: rgba(28, 25, 23, 0.82) !important;
+  color: #d6d3d1 !important;
+  border: 1px solid rgba(255, 255, 255, 0.09) !important;
+  border-radius: 10px !important;
+  backdrop-filter: blur(16px) saturate(1.3) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(1.3) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07),
+    0 1px 2px rgba(0, 0, 0, 0.3), 0 12px 30px -8px rgba(0, 0, 0, 0.5) !important;
+}
+#agentbrowser-ask-btn[data-abtheme="ink"] .ab-item { color: #d6d3d1 !important; }
+#agentbrowser-ask-btn[data-abtheme="ink"] .ab-item:hover {
+  background: rgba(255, 255, 255, 0.08) !important;
+  color: #fff !important;
+}
+#agentbrowser-ask-btn[data-abtheme="ink"] .ab-sep { background: rgba(255, 255, 255, 0.12) !important; }
+
+/* ---------- theme: paper (flat white, hard shadow) ---------- */
+#agentbrowser-ask-btn[data-abtheme="paper"],
+#agentbrowser-video-ask-btn[data-abtheme="paper"] {
+  background: #fff !important;
+  color: #44403c !important;
+  border: 1px solid rgba(28, 25, 23, 0.12) !important;
+  border-radius: 8px !important;
+  box-shadow: 0 2px 0 rgba(28, 25, 23, 0.08),
+    0 12px 28px -10px rgba(28, 25, 23, 0.28) !important;
+}
+#agentbrowser-ask-btn[data-abtheme="paper"] .ab-item { color: #44403c !important; }
+#agentbrowser-ask-btn[data-abtheme="paper"] .ab-item:hover {
+  background: #f5f4f2 !important;
+  color: #1c1917 !important;
+}
+#agentbrowser-ask-btn[data-abtheme="paper"] .ab-item:first-child { border-radius: 7px 0 0 7px !important; }
+#agentbrowser-ask-btn[data-abtheme="paper"] .ab-item:last-child { border-radius: 0 7px 7px 0 !important; }
+#agentbrowser-ask-btn[data-abtheme="paper"] .ab-sep { background: rgba(28, 25, 23, 0.1) !important; }
+
+/* ---------- media "@" chip: compact, expands label on hover ---------- */
+#agentbrowser-video-ask-btn { align-items: center; }
+#agentbrowser-video-ask-btn .ab-item {
+  all: initial;
+  display: inline-flex !important;
+  align-items: center;
+  gap: 5px;
+  padding: 9px 10px;
+  font: 600 12px/1 ui-sans-serif, system-ui, sans-serif;
+  cursor: pointer;
+  border-radius: inherit !important;
+  border: 0;
+  transition: transform 0.08s ease;
+}
+#agentbrowser-video-ask-btn .ab-item:active { transform: scale(0.94) !important; }
+#agentbrowser-video-ask-btn .ab-exp {
+  display: inline-block;
+  max-width: 0;
+  opacity: 0;
+  margin-left: -5px;
+  overflow: hidden;
+  transition: max-width 0.22s cubic-bezier(0.3, 1.2, 0.4, 1), opacity 0.15s ease,
+    margin-left 0.22s cubic-bezier(0.3, 1.2, 0.4, 1);
+}
+#agentbrowser-video-ask-btn:hover .ab-exp {
+  max-width: 64px !important;
+  opacity: 1 !important;
+  margin-left: 0 !important;
+}
+#agentbrowser-video-ask-btn[data-abtheme="frost"] .ab-item { color: #44403c !important; }
+#agentbrowser-video-ask-btn[data-abtheme="frost"] .ab-item:hover { color: #1c1917 !important; }
+#agentbrowser-video-ask-btn[data-abtheme="ink"] .ab-item { color: #d6d3d1 !important; }
+#agentbrowser-video-ask-btn[data-abtheme="ink"] .ab-item:hover { color: #fff !important; }
+#agentbrowser-video-ask-btn[data-abtheme="paper"] .ab-item { color: #44403c !important; }
+#agentbrowser-video-ask-btn[data-abtheme="paper"] .ab-item:hover { color: #1c1917 !important; }
+
+/* ---------- translate result popup ---------- */
+#agentbrowser-sel-tr-pop {
+  all: initial;
+  position: absolute;
+  z-index: 2147483647;
+  display: block;
+  max-width: 340px;
+  padding: 10px 12px;
+  font-family: ui-sans-serif, system-ui, "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: 13px;
+  line-height: 1.65;
+  border-radius: 10px;
+  opacity: 0;
+  transform: translateY(4px);
+  pointer-events: none;
+  transition: opacity 0.15s ease, transform 0.18s cubic-bezier(0.3, 1.2, 0.4, 1);
+}
+#agentbrowser-sel-tr-pop.ab-show {
+  opacity: 1 !important;
+  transform: translateY(0) !important;
+  pointer-events: auto !important;
+}
+#agentbrowser-sel-tr-pop[data-abtheme="frost"] {
+  background: rgba(255, 255, 255, 0.9) !important;
+  color: #292524 !important;
+  border: 1px solid rgba(28, 25, 23, 0.1) !important;
+  backdrop-filter: blur(16px) !important;
+  -webkit-backdrop-filter: blur(16px) !important;
+  box-shadow: 0 12px 32px -8px rgba(28, 25, 23, 0.25) !important;
+}
+#agentbrowser-sel-tr-pop[data-abtheme="ink"] {
+  background: rgba(28, 25, 23, 0.88) !important;
+  color: #e7e5e4 !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  backdrop-filter: blur(16px) !important;
+  -webkit-backdrop-filter: blur(16px) !important;
+  box-shadow: 0 12px 32px -8px rgba(0, 0, 0, 0.55) !important;
+}
+#agentbrowser-sel-tr-pop[data-abtheme="paper"] {
+  background: #fff !important;
+  color: #292524 !important;
+  border: 1px solid rgba(28, 25, 23, 0.12) !important;
+  box-shadow: 0 2px 0 rgba(28, 25, 23, 0.08), 0 12px 32px -8px rgba(28, 25, 23, 0.3) !important;
+}

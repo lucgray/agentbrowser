@@ -54,6 +54,28 @@ chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch((err) 
   console.warn('[agentbrowser] setPanelBehavior failed', err);
 });
 
+// Packaged-app windows (e.g. Edge "install this site as an app") have no
+// extensions rail, so sidePanel.open rejects there. Fall back to a floating
+// popup window running the same panel page; ?bind= tells the panel which tab
+// it serves instead of its own window's active tab.
+function openPanel(tabId) {
+  const popup = () => {
+    const url = `${chrome.runtime.getURL('panel/sidepanel.html')}?bind=${tabId}`;
+    chrome.windows.create({ url, type: 'popup', width: 420, height: 720 }).catch((err) => {
+      console.warn('[agentbrowser] popup panel open failed', err);
+    });
+  };
+  try {
+    chrome.sidePanel.open({ tabId }).catch((err) => {
+      console.warn('[agentbrowser] sidePanel.open failed, opening popup panel', err);
+      popup();
+    });
+  } catch (err) {
+    console.warn('[agentbrowser] sidePanel.open threw, opening popup panel', err);
+    popup();
+  }
+}
+
 // --- selection -> side panel -------------------------------------------------
 //
 // The content script reports two things: a completed text selection the user
@@ -107,6 +129,162 @@ chrome.runtime.onInstalled.addListener(() => {
   // copy of the item is never created.
   chrome.contextMenus.removeAll(() => registerContextMenu());
 });
+
+function fmtClock(sec) {
+  const s = Math.max(0, Math.floor(Number(sec) || 0));
+  const mm = Math.floor(s / 60) % 60;
+  const ss = s % 60;
+  const hh = Math.floor(s / 3600);
+  const pad = (n) => String(n).padStart(2, '0');
+  return hh ? `${hh}:${pad(mm)}:${pad(ss)}` : `${mm}:${pad(ss)}`;
+}
+
+// media "@" ask: stage the media's context as the composer's selection chip
+// plus an image attachment — a cropped screenshot of a paused video (or of
+// an image that can't be fetched, e.g. a page-local blob: URL), the fetched
+// source for ordinary <img>. Both land via chrome.storage.session; the
+// panel picks them up.
+async function handleVideoAsk(tabId, media, windowId) {
+  const isImage = media && media.kind === 'image';
+  const transcript = isImage ? null : subtitle.transcriptWindow(tabId, media.currentTime);
+  const head = isImage
+    ? `[image] ${media.alt || media.title || 'image'}\n` +
+      `${media.url || ''}\n` +
+      `src ${media.src || ''}` +
+      (media.naturalWidth ? `\n${media.naturalWidth}x${media.naturalHeight}px` : '')
+    : `[video] ${media.title || 'untitled'}\n` +
+      `${media.url || ''}\n` +
+      `playhead ${fmtClock(media.currentTime)}` +
+      (media.duration ? ` / ${fmtClock(media.duration)}` : '') +
+      (media.paused ? ' (paused)' : ' (playing)');
+  const selection = {
+    text: transcript ? `${head}\n\ntranscript around playhead:\n${transcript}` : head,
+    contentType: 'text',
+    parentHeading: isImage ? 'image reference' : 'video reference',
+    pageUrl: String(media.url || ''),
+    pageTitle: String(media.title || ''),
+  };
+
+  let img = null;
+  if (isImage) {
+    try {
+      img = await fetchImage(media.src);
+    } catch (err) {
+      console.warn('[agentbrowser] image fetch failed, falling back to crop', err);
+    }
+  }
+  let shot = null;
+  const wantCrop = isImage ? !img : media.paused;
+  if (wantCrop && media.rect && media.rect.width > 10) {
+    try {
+      const dataUrl = await chrome.tabs.captureVisibleTab(windowId, { format: 'png' });
+      shot = await cropShot(dataUrl, media.rect, media.viewport);
+    } catch (err) {
+      console.warn('[agentbrowser] media frame capture failed', err);
+    }
+  }
+
+  const cropName = isImage
+    ? 'image-crop.png'
+    : `video-frame-${fmtClock(media.currentTime).replace(/:/g, '-')}.png`;
+  const attachment = img || (shot && {
+    base64: shot.base64,
+    size: shot.size,
+    mimeType: 'image/png',
+    name: cropName,
+  });
+
+  const writes = [deliverSelection(tabId, selection)];
+  if (attachment) {
+    writes.push(
+      chrome.storage.session
+        .set({
+          pendingAttachment: {
+            tabId,
+            attachment,
+            timestamp: Date.now(),
+          },
+        })
+        .catch((err) => {
+          console.warn('[agentbrowser] pendingAttachment write failed', err);
+        })
+    );
+  }
+  const [selOk] = await Promise.all(writes);
+  return selOk;
+}
+
+const MAX_ASK_IMAGE_BYTES = 8 * 1024 * 1024;
+
+// Fetch an <img>'s source through the extension host permissions — CORS does
+// not apply here, so cross-origin images resolve at full fidelity. data: URLs
+// decode in place; anything else (blob:, chrome:, file:, failures) returns
+// null and the caller falls back to a tab-screenshot crop.
+async function fetchImage(src) {
+  if (!src || typeof src !== 'string') return null;
+  let blob;
+  if (src.startsWith('data:')) {
+    const res = await fetch(src);
+    blob = await res.blob();
+  } else {
+    if (!/^https?:\/\//.test(src)) return null;
+    const res = await fetch(src);
+    if (!res.ok) return null;
+    const len = Number(res.headers.get('content-length') || 0);
+    if (len > MAX_ASK_IMAGE_BYTES) return null;
+    blob = await res.blob();
+  }
+  if (!blob || blob.size === 0 || blob.size > MAX_ASK_IMAGE_BYTES) return null;
+  const base64 = await new Promise((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onload = () => resolve(String(fr.result).split(',')[1] || '');
+    fr.onerror = () => reject(fr.error || new Error('read failed'));
+    fr.readAsDataURL(blob);
+  });
+  const mimeType = blob.type && blob.type.startsWith('image/') ? blob.type : 'image/png';
+  const name = imageName(src, mimeType);
+  return { base64, size: blob.size, mimeType, name };
+}
+
+function imageName(src, mimeType) {
+  try {
+    if (src.startsWith('data:')) {
+      return `image.${mimeType.split('/')[1] || 'png'}`;
+    }
+    const last = new URL(src).pathname.split('/').pop() || '';
+    const clean = last.split(/[?#]/)[0];
+    if (clean && clean.length <= 80 && /\.[a-z0-9]{2,5}$/i.test(clean)) return clean;
+  } catch (err) {
+    console.warn('[agentbrowser] image name parse failed', err);
+  }
+  return `image.${mimeType.split('/')[1] || 'png'}`;
+}
+
+// Crop a captureVisibleTab PNG to the video element's rect. The image is in
+// device pixels while rect/viewport are CSS px — scale derives from the
+// viewport ratio. OffscreenCanvas keeps this worker-side (no DOM).
+async function cropShot(dataUrl, rect, viewport) {
+  const blob = await (await fetch(dataUrl)).blob();
+  const bmp = await createImageBitmap(blob);
+  const scale = viewport && viewport.w > 0 ? bmp.width / viewport.w : 1;
+  const sx = Math.max(0, Math.floor(rect.left * scale));
+  const sy = Math.max(0, Math.floor(rect.top * scale));
+  const sw = Math.min(bmp.width - sx, Math.ceil(rect.width * scale));
+  const sh = Math.min(bmp.height - sy, Math.ceil(rect.height * scale));
+  if (sw <= 0 || sh <= 0) return null;
+  const canvas = new OffscreenCanvas(sw, sh);
+  const g = canvas.getContext('2d');
+  g.drawImage(bmp, sx, sy, sw, sh, 0, 0, sw, sh);
+  const out = await canvas.convertToBlob({ type: 'image/png' });
+  const base64 = await new Promise((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onload = () => resolve(String(fr.result).split(',')[1] || '');
+    fr.onerror = () => reject(fr.error || new Error('read failed'));
+    fr.readAsDataURL(out);
+  });
+  bmp.close();
+  return { base64, size: out.size };
+}
 
 // Writes only; opening the panel happens in the caller while the user gesture
 // is still live (sidePanel.open rejects outside a gesture).
@@ -199,9 +377,7 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
   }
   if (info.menuItemId !== CONTEXT_MENU_ID || !tab || tab.id == null) return;
   // Open synchronously: sidePanel.open only works inside the user gesture.
-  chrome.sidePanel.open({ tabId: tab.id }).catch((err) => {
-    console.warn('[agentbrowser] sidePanel.open failed', err);
-  });
+  openPanel(tab.id);
   resolveMenuSelection(info, tab)
     .then((selection) => {
       if (selection) return deliverSelection(tab.id, selection);
@@ -411,6 +587,35 @@ subtitle.wireHub({
   sendToHub: (payload) => sendToOffscreen({ target: 'offscreen', cmd: 'send', payload }),
 });
 
+// Selection toolbar's 翻译 item: a one-shot translate_request whose result
+// goes back to the content script's sendMessage response, not into the page
+// engine. Map reqId -> settle(sendResponse); ids are "ts-<tab>-<n>".
+const translateAsks = new Map();
+let translateAskSeq = 0;
+
+function handleTranslateAsk(tabId, text, sendResponse) {
+  const reqId = `ts-${tabId}-${++translateAskSeq}`;
+  const timer = setTimeout(() => {
+    if (translateAsks.delete(reqId)) {
+      sendResponse({ success: false, error: 'translate timeout' });
+    }
+  }, 20000);
+  translateAsks.set(reqId, (res) => {
+    clearTimeout(timer);
+    sendResponse(res);
+  });
+  sendToOffscreen({
+    target: 'offscreen',
+    cmd: 'send',
+    payload: {
+      type: 'translate_request',
+      id: reqId,
+      tabId,
+      items: [{ tid: '0', text: String(text).slice(0, 4000) }],
+    },
+  });
+}
+
 function postToPanel(message) {
   for (const windowId of panelRouter.route(message)) {
     const port = panelRouter.ports.get(windowId);
@@ -444,9 +649,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return true;
     }
     // Open first, still inside the click's user gesture.
-    chrome.sidePanel.open({ tabId }).catch((err) => {
-      console.warn('[agentbrowser] sidePanel.open failed', err);
-    });
+    openPanel(tabId);
     deliverSelection(tabId, message.selection).then(
       (ok) => sendResponse({ success: ok }),
       () => sendResponse({ success: false })
@@ -464,6 +667,29 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     // click: selecting text is enough to append it to the chat context.
     // The slot is single — the latest selection wins.
     deliverSelection(tabId, message.selection).then(
+      (ok) => sendResponse({ success: ok }),
+      () => sendResponse({ success: false })
+    );
+    return true;
+  }
+  if (message.cmd === 'translate_ask') {
+    const tabId = sender && sender.tab && sender.tab.id;
+    if (tabId == null || !message.text) {
+      sendResponse({ success: false, error: 'no tab' });
+      return true;
+    }
+    handleTranslateAsk(tabId, message.text, sendResponse);
+    return true;
+  }
+  if (message.cmd === 'video_ask') {
+    const tabId = sender && sender.tab && sender.tab.id;
+    const video = message.video;
+    if (tabId == null || !video) {
+      sendResponse({ success: false, error: 'no tab' });
+      return true;
+    }
+    openPanel(tabId);
+    handleVideoAsk(tabId, video, sender.tab.windowId).then(
       (ok) => sendResponse({ success: ok }),
       () => sendResponse({ success: false })
     );
@@ -567,7 +793,23 @@ function handleHubMessage(payload) {
   } else if (payload.type === 'chat_list' || payload.type === 'chat_resumed') {
     postToPanel(payload);
   } else if (payload.type === 'translate_result') {
-    if (!subtitle.onResult(payload)) translate.onResult(payload);
+    const id = String(payload.id || '');
+    if (id.startsWith('ts-')) {
+      const settle = translateAsks.get(id);
+      translateAsks.delete(id);
+      if (settle) {
+        if (payload.error) {
+          settle({ success: false, error: String(payload.error) });
+        } else {
+          const results = payload.results || {};
+          settle({ success: true, text: results['0'] || Object.values(results)[0] || '' });
+        }
+      }
+    } else if (!subtitle.onResult(payload)) {
+      translate.onResult(payload);
+    }
+  } else if (payload.type === 'summary_result') {
+    subtitle.onSummary(payload);
   } else if (payload.type === 'translate_config') {
     postToPanel(payload);
   }

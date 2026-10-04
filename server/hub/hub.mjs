@@ -6,11 +6,18 @@ import {
   readdirSync
 } from "node:fs";
 import { randomUUID } from "node:crypto";
+import { spawn } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import os from "node:os";
 import path from "node:path";
 import { WebSocketServer } from "ws";
 import { TOOLS } from "./tools.mjs";
+import {
+  describePlugins,
+  effectiveTools,
+  pluginPrompt,
+  toolVisible
+} from "./plugins.mjs";
 import { createTranslator } from "./translate.mjs";
 import { loadCatalog } from "../adapters/model-catalog.mjs";
 import {
@@ -262,6 +269,11 @@ const chatBrowsers = new Map();
 // always resolve the browser first, then the tab.
 const chatTabs = new Map();
 
+// chatId -> url of the bound tab — set with chatTabs on each message so
+// hub-answered tools like video_download can resolve "this video" without a
+// browser round trip.
+const chatTabUrls = new Map();
+
 // chatId -> { input, output } running totals for the chat (PROTOCOL v1.3 A).
 // Kept out of `sessions` on purpose: an adapter or model switch disposes the
 // session mid-chat and the totals must survive that. Only an idle sweep (the
@@ -503,19 +515,104 @@ function failPendingExtensionCalls(browserId, errorMessage) {
 // pattern as browsers_list: no extension round trip, so a future web client
 // can manage the service over the same wire (v2.15).
 const HUB_TRANSLATE_TOOLS = new Set([
-  "translate_stats", "translate_recent", "translate_cache_clear",
+  "translate_stats", "translate_recent", "translate_cache_clear", "video_download",
 ]);
+
+// Config handed to adapters at session creation: plugin prompt fragments are
+// appended after the user's own systemPromptExtra (v2.17).
+function sessionConfig() {
+  const plugin = pluginPrompt(config);
+  if (!plugin) return config;
+  const extra = config.systemPromptExtra
+    ? `${config.systemPromptExtra}\n\n${plugin}`
+    : plugin;
+  return { ...config, systemPromptExtra: extra };
+}
 
 function hubTranslateTool(tool, args = {}) {
   if (tool === "translate_stats") return translator.stats();
   if (tool === "translate_recent") return { recent: translator.recentList(args.n) };
+  if (tool === "video_download") return runVideoDownload(args);
   return translator.clearCache();
+}
+
+// video_download (v2.18): shells out to yt-dlp on the hub host — the right
+// place for it (the extension can't write arbitrary files or spawn anyway).
+// Resolves yt-dlp on PATH, else `python3 -m yt_dlp`.
+const YTDLP_TIMEOUT_MS = 10 * 60 * 1000;
+let ytDlpCmd = null; // null = not probed yet; array argv prefix once found
+
+function findYtDlp() {
+  if (ytDlpCmd) return Promise.resolve(ytDlpCmd);
+  const tryCmd = (argv) => new Promise((resolve) => {
+    const p = spawn(argv[0], argv.slice(1).concat(["--version"]), { stdio: ["ignore", "pipe", "pipe"] });
+    let out = "";
+    p.stdout.on("data", (d) => { out += d; });
+    p.on("error", () => resolve(null));
+    p.on("close", (code) => resolve(code === 0 ? argv : null));
+  });
+  return (async () => {
+    ytDlpCmd = (await tryCmd(["yt-dlp"])) || (await tryCmd(["python3", "-m", "yt_dlp"]));
+    if (!ytDlpCmd) ytDlpCmd = null;
+    return ytDlpCmd;
+  })();
+}
+
+async function runVideoDownload(args) {
+  const url = String(args.url || "").trim();
+  if (!/^https?:\/\//.test(url)) throw new Error("video_download needs a video page url (or a bound tab)");
+  const cmd = await findYtDlp();
+  if (!cmd) {
+    throw new Error("yt-dlp not installed on the hub host — run: pipx install yt-dlp (or python3 -m pip install yt-dlp)");
+  }
+  const dir = path.resolve(
+    String(args.dir || "").trim() || path.join(os.homedir(), ".agentchat", "downloads")
+  );
+  mkdirSync(dir, { recursive: true });
+  const argv = cmd.concat([
+    "--no-playlist",
+    "--print", "after_move:filepath",
+    "-o", path.join(dir, "%(title).80s.%(ext)s"),
+    ...(args.format ? ["-f", String(args.format)] : []),
+    url,
+  ]);
+  return new Promise((resolve) => {
+    const proc = spawn(argv[0], argv.slice(1), { cwd: dir });
+    let tail = "";
+    let file = null;
+    const keep = (chunk) => {
+      const s = String(chunk);
+      tail = (tail + s).slice(-4000);
+    };
+    proc.stdout.on("data", (d) => {
+      keep(d);
+      const line = String(d).trim().split(/\r?\n/).pop();
+      if (line && line.startsWith("/")) file = line;
+    });
+    proc.stderr.on("data", keep);
+    const timer = setTimeout(() => { proc.kill("SIGKILL"); }, YTDLP_TIMEOUT_MS);
+    proc.on("error", (err) => {
+      clearTimeout(timer);
+      resolve({ ok: false, error: String(err.message || err) });
+    });
+    proc.on("close", (code) => {
+      clearTimeout(timer);
+      if (code === 0) resolve({ ok: true, file, dir });
+      else resolve({ ok: false, error: `yt-dlp exited ${code}: ${tail.slice(-800)}` });
+    });
+  });
 }
 
 function callBrowserTool(tool, args = {}, opts = {}) {
   const boundId = opts.browserId || null;
   if (HUB_TRANSLATE_TOOLS.has(tool)) {
-    return Promise.resolve(hubTranslateTool(tool, args));
+    // A disabled plugin hides its tools from agents AND stops the hub from
+    // answering them — fall through to the extension path for a clean
+    // "unknown tool" instead of a phantom success.
+    if (toolVisible(tool, config)) {
+      return Promise.resolve(hubTranslateTool(tool, args));
+    }
+    return Promise.reject(new Error(`tool hidden by disabled plugin: ${tool}`));
   }
   if (tool === "browsers_list") {
     const target = resolveBrowserTarget(args.browser, boundId);
@@ -548,6 +645,10 @@ function chatScopedBrowserTool(chatId) {
   return (tool, args = {}) => {
     const bound = chatTabs.get(chatId);
     const browserId = chatBrowsers.get(chatId);
+    if (tool === "video_download" && args && args.url == null) {
+      const u = chatTabUrls.get(chatId);
+      if (u) return callBrowserTool(tool, { ...args, url: u }, { browserId });
+    }
     if (bound != null && args && args.tabId == null) {
       return callBrowserTool(tool, { ...args, tabId: bound }, { browserId });
     }
@@ -1167,7 +1268,10 @@ async function buildCapabilities() {
         adapter: null,
         prompt: null
       }
-    }
+    },
+    // Plugin layer (v2.17): enabled state + what each plugin exposes, so the
+    // panel (and later the web admin) can render on/off controls.
+    plugins: describePlugins(config)
   };
 }
 
@@ -1296,10 +1400,10 @@ async function getSessionEntry(chatId, adapterName, model, emit, { abortRunning 
     : model || descriptor.defaultModel || null;
   const session = await mod.createSession(adapterName, {
     callBrowserTool: chatScopedBrowserTool(chatId),
-    config,
+    config: sessionConfig(),
     model: model || null,
     getApiKey,
-    tools: TOOLS
+    tools: effectiveTools(config)
   });
   entry = { session, adapterName, model: resolvedModel, lastUsed: Date.now() };
   sessions.set(chatId, entry);
@@ -1442,8 +1546,10 @@ async function handleChat(ws, msg) {
   // Re-bind the chat's tab on every message: the composer chip shows the tab
   // the user is looking at, so tools follow what they see unless the call
   // names a tabId explicitly.
-  const boundTabId = msg.context && msg.context.currentTab ? msg.context.currentTab.tabId : null;
+  const boundTab = msg.context && msg.context.currentTab ? msg.context.currentTab : null;
+  const boundTabId = boundTab ? boundTab.tabId : null;
   if (boundTabId != null) chatTabs.set(chatId, boundTabId);
+  if (boundTab && boundTab.url) chatTabUrls.set(chatId, boundTab.url);
   chatBrowsers.set(chatId, ws.browserId);
   // The browser the user is actively chatting in is the one harness calls
   // should reach by default.
@@ -1594,10 +1700,10 @@ async function handleCommand(ws, msg) {
         const mod = await loadAdapterModule();
         const laneSession = await mod.createSession(adapterName, {
           callBrowserTool: chatScopedBrowserTool(chatId),
-          config,
+          config: sessionConfig(),
           model: requestedModel || null,
           getApiKey,
-          tools: TOOLS
+          tools: effectiveTools(config)
         });
         record.laneSessions.add(laneSession);
         return laneSession;
@@ -1782,7 +1888,19 @@ function handleHarnessToolCall(ws, msg) {
   const { id, tool } = msg;
   const args = msg.args && typeof msg.args === "object" ? msg.args : {};
   if (HUB_TRANSLATE_TOOLS.has(tool)) {
-    safeSend(ws, { type: "tool_result", id, ok: true, result: hubTranslateTool(tool, args) });
+    if (!toolVisible(tool, config)) {
+      safeSend(ws, {
+        type: "tool_result", id, ok: false,
+        error: `tool hidden by disabled plugin: ${tool}`
+      });
+      return;
+    }
+    // video_download is async; resolve before serializing or the harness
+    // gets "{}".
+    Promise.resolve(hubTranslateTool(tool, args)).then(
+      (result) => safeSend(ws, { type: "tool_result", id, ok: true, result }),
+      (err) => safeSend(ws, { type: "tool_result", id, ok: false, error: String((err && err.message) || err) })
+    );
     return;
   }
   if (tool === "browsers_list") {
@@ -1856,16 +1974,72 @@ function handleMessage(ws, msg) {
     else if (msg.type === "chat_resume") handleChatResume(ws, msg);
     else if (msg.type === "translate_request")
       handleTranslateRequest(ws, msg).catch((err) => log("translate_request failed:", err && err.message));
+    else if (msg.type === "summary_request")
+      handleSummaryRequest(ws, msg).catch((err) => log("summary_request failed:", err && err.message));
     else if (msg.type === "set_translate_config")
       handleSetTranslateConfig(ws, msg).catch((err) => log("set_translate_config failed:", err && err.message));
     else if (msg.type === "get_translate_config")
       handleGetTranslateConfig(ws).catch((err) => log("get_translate_config failed:", err && err.message));
-    else if (msg.type === "translate_stats")
-      safeSend(ws, { type: "translate_admin_result", op: "stats", result: translator.stats() });
-    else if (msg.type === "translate_recent")
-      safeSend(ws, { type: "translate_admin_result", op: "recent", result: { recent: translator.recentList(msg.n) } });
-    else if (msg.type === "translate_cache_clear")
-      safeSend(ws, { type: "translate_admin_result", op: "cache_clear", result: translator.clearCache() });
+    else if (msg.type === "translate_stats" || msg.type === "translate_recent" || msg.type === "translate_cache_clear")
+      handleTranslateAdmin(ws, msg);
+    else if (msg.type === "plugins_list") handlePluginsList(ws);
+    else if (msg.type === "plugin_set") handlePluginSet(ws, msg);
+  }
+}
+
+// Direct-wire translate admin messages (v2.15) — gated by plugin visibility
+// like the tool path; a disabled translate plugin stops these too.
+function handleTranslateAdmin(ws, msg) {
+  const ops = {
+    translate_stats: ["stats", () => translator.stats()],
+    translate_recent: ["recent", () => ({ recent: translator.recentList(msg.n) })],
+    translate_cache_clear: ["cache_clear", () => translator.clearCache()],
+  };
+  const [op, fn] = ops[msg.type];
+  if (!toolVisible(msg.type, config)) {
+    safeSend(ws, { type: "translate_admin_result", op, error: "translate plugin disabled" });
+    return;
+  }
+  safeSend(ws, { type: "translate_admin_result", op, result: fn() });
+}
+
+// Plugin layer wire messages (v2.17): list what is installed + flip enabled
+// state; plugin_set persists to config.json and re-broadcasts capabilities.
+function handlePluginsList(ws) {
+  safeSend(ws, { type: "plugins", plugins: describePlugins(config) });
+}
+
+function handlePluginSet(ws, msg) {
+  const id = msg && typeof msg.id === "string" ? msg.id : null;
+  const enabled = msg && typeof msg.enabled === "boolean" ? msg.enabled : null;
+  if (!id || enabled === null) {
+    safeSend(ws, { type: "error", error: "plugin_set needs {id, enabled}" });
+    return;
+  }
+  const r = setPluginEnabled(id, enabled);
+  if (!r.ok) {
+    safeSend(ws, { type: "error", error: r.error });
+    return;
+  }
+  safeSend(ws, { type: "plugins", plugins: describePlugins(config) });
+  broadcastCapabilities();
+}
+
+// Shared by plugin_set (wire) and the admin HTTP API (v2.17).
+function setPluginEnabled(id, enabled) {
+  const found = describePlugins(config).some((p) => p.id === id);
+  if (!found) return { ok: false, error: `unknown plugin: ${id}` };
+  config.plugins = { ...(config.plugins || {}), [id]: { enabled } };
+  persistConfig();
+  log(`plugin ${id} ${enabled ? "enabled" : "disabled"}`);
+  return { ok: true };
+}
+
+function persistConfig() {
+  try {
+    writeFileSync(path.join(__dirname, "config.json"), JSON.stringify(config, null, 2));
+  } catch (err) {
+    log("config.json persist failed:", err && err.message);
   }
 }
 
@@ -1890,10 +2064,30 @@ async function handleTranslateRequest(ws, msg) {
   }
 }
 
+// summary_request (extension -> hub, v2.18): the subtitle sidebar's AI
+// summary tab. Same implicit per-socket routing as translate_result.
+async function handleSummaryRequest(ws, msg) {
+  const id = typeof msg.id === "string" ? msg.id : null;
+  const reply = (extra) => {
+    try {
+      ws.send(JSON.stringify({ type: "summary_result", id, ...extra }));
+    } catch (err) {
+      log("summary_result send failed:", err && err.message);
+    }
+  };
+  try {
+    const r = await translator.summarize(msg);
+    reply({ summary: r.summary, provider: r.provider });
+  } catch (err) {
+    log("summary_request failed:", err && err.message);
+    reply({ error: String((err && err.message) || err) });
+  }
+}
+
 // Panel quick-config: {provider, model, targetLang} land in config.json's
 // `translate` block and rebuild the service (cache file is flushed first).
-async function handleSetTranslateConfig(ws, msg) {
-  const c = msg && typeof msg.config === "object" && msg.config ? msg.config : {};
+// Shared by set_translate_config (wire) and the admin HTTP API (v2.17).
+async function applyTranslateConfig(c) {
   const clean = {};
   for (const k of ["provider", "model", "targetLang", "mode", "wordHover"]) {
     if (c[k] !== undefined) clean[k] = c[k];
@@ -1901,14 +2095,16 @@ async function handleSetTranslateConfig(ws, msg) {
   // Merge, don't replace: config.translate may carry fields the panel form
   // doesn't model (e.g. baseUrl) — a wholesale write silently dropped them.
   config.translate = { ...(config.translate || {}), ...clean };
-  try {
-    writeFileSync(path.join(__dirname, "config.json"), JSON.stringify(config, null, 2));
-  } catch (err) {
-    log("config.json persist failed:", err.message);
-  }
+  persistConfig();
   swapTranslator(config.translate);
   log("translate config updated: " + JSON.stringify(clean));
   const provider = await Promise.resolve(translator.provider()).catch(() => "free");
+  return { ok: true, config: config.translate, provider };
+}
+
+async function handleSetTranslateConfig(ws, msg) {
+  const c = msg && typeof msg.config === "object" && msg.config ? msg.config : {};
+  const { provider } = await applyTranslateConfig(c);
   try {
     ws.send(JSON.stringify({ type: "translate_config", config: config.translate, provider }));
   } catch (err) {
@@ -1964,13 +2160,102 @@ function handleClose(ws) {
 }
 
 // ---------------------------------------------------------------------------
-// Server
+// Server — one port, two protocols: HTTP for /admin (+ /admin/api/*),
+// WebSocket upgrade for everything else (v2.17).
 
-const wss = new WebSocketServer({ host: "127.0.0.1", port: PORT }, () => {
-  log("listening on ws://127.0.0.1:" + PORT);
+import { createAdminHandler } from "./admin.mjs";
+import http from "node:http";
+
+// Admin state/actions — thin wrappers over the same internals the wire
+// messages drive, so panel and web console can never disagree.
+async function adminState() {
+  const caps = await buildCapabilities();
+  return {
+    adapters: caps.adapters,
+    keys: caps.keys,
+    browsers: caps.browsers,
+    plugins: describePlugins(config),
+    translate: config.translate || {},
+    translateProvider: await Promise.resolve(translator.provider()).catch(() => "free"),
+    translateStats: translator.stats(),
+    config,
+    port: PORT,
+  };
+}
+
+function setGeneralConfig(body) {
+  // Patch only known top-level keys; anything else is kept verbatim so the
+  // raw editor can't silently drop fields it doesn't model.
+  const ALLOWED = new Set([
+    "adapter", "model", "systemPromptExtra", "mcpServers",
+    "permissions", "proactiveAnnotation", "plugins", "translate",
+    "adapterModels", "promptBudget", "browserName"
+  ]);
+  for (const k of Object.keys(body)) {
+    if (!ALLOWED.has(k)) return { ok: false, error: `unknown config key: ${k}` };
+    if (k === "adapter" || k === "model" || k === "systemPromptExtra" || k === "browserName") {
+      if (typeof body[k] !== "string") {
+        return { ok: false, error: `${k} must be a string` };
+      }
+    } else if (k === "promptBudget") {
+      if (typeof body[k] !== "number") {
+        return { ok: false, error: `${k} must be a number` };
+      }
+    } else if (k === "translate") {
+      // translate has its own validated path with service rebuild
+      applyTranslateConfig(body.translate || {}).catch((err) =>
+        log("admin translate config failed:", err && err.message));
+      continue;
+    }
+    config[k] = body[k];
+  }
+  persistConfig();
+  return { ok: true };
+}
+
+const adminHandler = createAdminHandler({
+  state: adminState,
+  setPlugin: (id, enabled) => {
+    const r = setPluginEnabled(id, enabled);
+    if (r.ok) broadcastCapabilities();
+    return r;
+  },
+  setTranslate: (cfg) => applyTranslateConfig(cfg),
+  setKey: async (provider, key) => {
+    if (!PROVIDERS.includes(provider)) return { ok: false, error: `unknown provider: ${provider}` };
+    try {
+      await storeKey(provider, key && key.trim() !== "" ? key.trim() : null);
+      log("api key " + (key ? "stored" : "cleared") + " for provider " + provider + " (admin)");
+      broadcastCapabilities();
+      return { ok: true };
+    } catch (err) {
+      log("admin set_key failed:", err && err.message);
+      return { ok: false, error: err.message };
+    }
+  },
+  setGeneral: (cfg) => {
+    const r = setGeneralConfig(cfg);
+    if (r.ok) broadcastCapabilities();
+    return r;
+  },
+  getConfig: () => config,
 });
 
-wss.on("error", (err) => {
+const httpServer = http.createServer((req, res) => {
+  if (req.url && req.url.startsWith("/admin")) {
+    adminHandler(req, res).catch((err) => {
+      log("admin handler error:", err && err.message);
+      try { res.writeHead(500); res.end(); } catch { /* socket gone */ }
+    });
+    return;
+  }
+  res.writeHead(426, { "content-type": "text/plain" });
+  res.end("websocket endpoint — connect with a ws client; admin at /admin");
+});
+
+const wss = new WebSocketServer({ server: httpServer });
+
+httpServer.on("error", (err) => {
   if (err.code === "EADDRINUSE") {
     log(
       "port " + PORT + " is already in use." +
@@ -1980,6 +2265,10 @@ wss.on("error", (err) => {
     process.exit(1);
   }
   log("server error:", err.message);
+});
+
+httpServer.listen(PORT, "127.0.0.1", () => {
+  log("listening on ws://127.0.0.1:" + PORT + " (admin: http://127.0.0.1:" + PORT + "/admin)");
 });
 
 wss.on("connection", (ws) => {
