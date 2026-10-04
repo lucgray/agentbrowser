@@ -10,6 +10,7 @@ import * as consent from './consent.js';
 import { createPanelRouter, windowIdFromPortName } from './panel-router.js';
 import { PRELOAD_PRESETS } from './stealth.js';
 import * as translate from './translate.js';
+import * as subtitle from './subtitle.js';
 
 const DEFAULT_HUB_URL = 'ws://127.0.0.1:9010';
 
@@ -406,6 +407,9 @@ translate.wireHub({
   sendToHub: (payload) => sendToOffscreen({ target: 'offscreen', cmd: 'send', payload }),
   postToPanel: (message) => postToPanel(message),
 });
+subtitle.wireHub({
+  sendToHub: (payload) => sendToOffscreen({ target: 'offscreen', cmd: 'send', payload }),
+});
 
 function postToPanel(message) {
   for (const windowId of panelRouter.route(message)) {
@@ -563,7 +567,7 @@ function handleHubMessage(payload) {
   } else if (payload.type === 'chat_list' || payload.type === 'chat_resumed') {
     postToPanel(payload);
   } else if (payload.type === 'translate_result') {
-    translate.onResult(payload);
+    if (!subtitle.onResult(payload)) translate.onResult(payload);
   } else if (payload.type === 'translate_config') {
     postToPanel(payload);
   }
@@ -1399,6 +1403,29 @@ const TOOLS = {
   async translate_status(args) {
     const tabId = await resolveTabId(args.tabId);
     return { tabId, ...(await translate.status(tabId)) };
+  },
+
+  // --- video subtitles (v2.16) ----------------------------------------------
+
+  async subtitle_translate(args) {
+    const tabId = await resolveTabId(args.tabId);
+    const r = await subtitle.start(tabId, args);
+    return { tabId, ...(r || {}) };
+  },
+
+  async subtitle_stop(args) {
+    const tabId = await resolveTabId(args.tabId);
+    return { tabId, ...(await subtitle.stop(tabId)) };
+  },
+
+  async subtitle_status(args) {
+    const tabId = await resolveTabId(args.tabId);
+    return { tabId, ...(await subtitle.status(tabId)) };
+  },
+
+  async transcript_get(args) {
+    const tabId = await resolveTabId(args.tabId);
+    return { tabId, ...(await subtitle.transcript(tabId, args)) };
   },
 };
 
