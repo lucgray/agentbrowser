@@ -10,6 +10,7 @@ import { fileURLToPath } from "url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PAGE = readFileSync(path.join(__dirname, "admin.html"), "utf8");
+const LOGO = readFileSync(path.join(__dirname, "../../extension/icons/icon-128.png"));
 const MAX_BODY = 256 * 1024;
 
 function json(res, code, obj) {
@@ -52,6 +53,11 @@ function readBody(req) {
 export function createAdminHandler(ctx) {
   return async function handle(req, res) {
     const url = new URL(req.url || "/", "http://localhost");
+    if (req.method === "GET" && url.pathname === "/admin/logo.png") {
+      res.writeHead(200, { "content-type": "image/png", "cache-control": "public, max-age=86400" });
+      res.end(LOGO);
+      return;
+    }
     if (req.method === "GET" && (url.pathname === "/admin" || url.pathname === "/admin/")) {
       res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
       res.end(PAGE);
