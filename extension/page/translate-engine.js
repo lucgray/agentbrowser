@@ -98,6 +98,45 @@
     (document.head || document.documentElement).appendChild(styleEl);
   }
 
+  // Mask inline code/math so the provider sees "... {{1}} ..." and can
+  // neither drop nor rewrite it. Originals ride on the paragraph record and
+  // are cloned back in at render time.
+  function extractMasked(el) {
+    var protect = [];
+    var parts = [];
+    (function walk(node) {
+      for (var c = node.firstChild; c; c = c.nextSibling) {
+        if (c.nodeType === 3) { parts.push(c.nodeValue); continue; }
+        if (c.nodeType !== 1) continue;
+        if (c.hasAttribute && c.hasAttribute(UI_ATTR)) continue;
+        if (c.classList && c.classList.contains(HOST_CLASS)) continue;
+        if (PROTECT_TAGS.has(c.tagName) && protect.length < PROTECT_MAX) {
+          protect.push(c.cloneNode(true));
+          parts.push(' {{' + protect.length + '}} ');
+          continue;
+        }
+        walk(c);
+      }
+    })(el);
+    return { text: parts.join(''), protect: protect };
+  }
+
+  // Restore {{n}} placeholders into cloned originals; unmatched placeholders
+  // (provider invented one, or list overflow) render as their literal text.
+  function renderTranslated(t, text, protect) {
+    var segs = splitProtected(text);
+    for (var i = 0; i < segs.length; i++) {
+      var s = segs[i];
+      if (s.text !== undefined) {
+        t.appendChild(document.createTextNode(s.text));
+      } else {
+        var orig = protect && protect[s.idx - 1];
+        if (orig) t.appendChild(orig.cloneNode(true));
+        else t.appendChild(document.createTextNode('{{' + s.idx + '}}'));
+      }
+    }
+  }
+
   // ---------------------------------------------------------------- walker
   // Returns true when the element was labeled — a labeled paragraph owns its
   // whole subtree (its textContent is the unit), so the walk does not descend.
@@ -107,11 +146,12 @@
     if (el.closest('[' + UI_ATTR + ']') || el.closest('.' + HOST_CLASS)) return true;
     if (SKIP_TAGS.has(el.tagName) || el.isContentEditable) return true;
     if (!hasProseChild(el.childNodes)) return false;
-    var text = normalizeText(el.textContent);
+    var ex = extractMasked(el);
+    var text = normalizeText(ex.text);
     if (text.length < cfg.minChars) return false;
     var tid = nextTid++;
     el.setAttribute(TID_ATTR, String(tid));
-    paragraphs.set(tid, { el: el, text: text, state: 'pending' });
+    paragraphs.set(tid, { el: el, text: text, protect: ex.protect, state: 'pending' });
     stats.total++;
     if (cfg.mode !== 'ondemand' && io) io.observe(el);
     return true;
@@ -244,7 +284,8 @@
     }
     var t = body.querySelector('.ab-t-text');
     body.classList.remove('ab-t-loading');
-    t.textContent = text;
+    t.textContent = '';
+    renderTranslated(t, text, rec.protect);
     if (cfg.mode === 'dim') el.classList.add('ab-t-mode-dim', 'ab-src');
     if (cfg.mode === 'replace') el.classList.add('ab-t-mode-replace', 'ab-src');
     rec.state = 'done';

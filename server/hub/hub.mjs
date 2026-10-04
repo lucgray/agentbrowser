@@ -32,7 +32,7 @@ const UPLOAD_ROOT = path.join(os.tmpdir(), "agentchat-uploads");
 // How long the hub waits for the adapter's own status event before injecting one.
 const STATUS_INJECT_MS = 300;
 
-const PROVIDERS = ["anthropic", "openai"];
+const PROVIDERS = ["anthropic", "openai", "deepl"];
 
 let config = { adapter: "claude-agent-sdk", model: "claude-opus-5" };
 try {
@@ -499,8 +499,24 @@ function failPendingExtensionCalls(browserId, errorMessage) {
 // opts.browserId is the chat's bound browser; an explicit "browser" arg
 // overrides it. "browser" is a routing key the hub consumes — it is stripped
 // before the call reaches the extension, whose schemas do not know it.
+// Translation admin tools answered by the hub itself — same interception
+// pattern as browsers_list: no extension round trip, so a future web client
+// can manage the service over the same wire (v2.15).
+const HUB_TRANSLATE_TOOLS = new Set([
+  "translate_stats", "translate_recent", "translate_cache_clear",
+]);
+
+function hubTranslateTool(tool, args = {}) {
+  if (tool === "translate_stats") return translator.stats();
+  if (tool === "translate_recent") return { recent: translator.recentList(args.n) };
+  return translator.clearCache();
+}
+
 function callBrowserTool(tool, args = {}, opts = {}) {
   const boundId = opts.browserId || null;
+  if (HUB_TRANSLATE_TOOLS.has(tool)) {
+    return Promise.resolve(hubTranslateTool(tool, args));
+  }
   if (tool === "browsers_list") {
     const target = resolveBrowserTarget(args.browser, boundId);
     return Promise.resolve(browsersListResult(target.entry ? target.entry.id : null));
@@ -1142,6 +1158,9 @@ async function buildCapabilities() {
       name: e.name,
       ...(e.id === primaryBrowserId ? { default: true } : {})
     })),
+    // Keystore status for every known provider — covers key'd providers that
+    // have no adapter of their own (deepl powers the translation service).
+    keys: Object.fromEntries(PROVIDERS.map((p) => [p, hasKey(p)])),
     panelConfig: {
       proactiveAnnotation: config.proactiveAnnotation || {
         enabled: false,
@@ -1762,6 +1781,10 @@ function handleHello(ws, msg) {
 function handleHarnessToolCall(ws, msg) {
   const { id, tool } = msg;
   const args = msg.args && typeof msg.args === "object" ? msg.args : {};
+  if (HUB_TRANSLATE_TOOLS.has(tool)) {
+    safeSend(ws, { type: "tool_result", id, ok: true, result: hubTranslateTool(tool, args) });
+    return;
+  }
   if (tool === "browsers_list") {
     const target = resolveBrowserTarget(args.browser, null);
     safeSend(ws, {
@@ -1837,6 +1860,12 @@ function handleMessage(ws, msg) {
       handleSetTranslateConfig(ws, msg).catch((err) => log("set_translate_config failed:", err && err.message));
     else if (msg.type === "get_translate_config")
       handleGetTranslateConfig(ws).catch((err) => log("get_translate_config failed:", err && err.message));
+    else if (msg.type === "translate_stats")
+      safeSend(ws, { type: "translate_admin_result", op: "stats", result: translator.stats() });
+    else if (msg.type === "translate_recent")
+      safeSend(ws, { type: "translate_admin_result", op: "recent", result: { recent: translator.recentList(msg.n) } });
+    else if (msg.type === "translate_cache_clear")
+      safeSend(ws, { type: "translate_admin_result", op: "cache_clear", result: translator.clearCache() });
   }
 }
 

@@ -499,11 +499,22 @@ hover).
   place, click 原 to restore the original.
 - **Hover word lookup** — enable `wordHover` to get a tooltip
   translation for the word under the cursor.
-- **Providers** — `auto` uses your stored OpenAI key, then Anthropic,
-  then a keyless endpoint; `config.json`'s `translate` block (or the
-  settings row) pins `provider`/`model`/`targetLang`. The hub batches
-  four paragraphs per call, caches by content hash, and dedupes
-  in-flight requests.
+- **Protected inline code/math** — `code`/`kbd`/`samp`/`var`/`math`
+  spans become `{{n}}` placeholders before the text leaves the page and
+  are restored verbatim in the rendered translation; providers never see
+  or rewrite them.
+- **Providers** — `auto` prefers stored keys (OpenAI → Anthropic →
+  DeepL) and falls back to the keyless Microsoft endpoint; `free` is the
+  Google scrape endpoint. `config.json`'s `translate` block (or the
+  settings row) pins `provider`/`model`/`targetLang`; `ratePerSec`/
+  `rateBurst` pace provider calls and a 429 pauses them with
+  exponential backoff. The hub batches four paragraphs per call, caches
+  by content hash, and dedupes in-flight requests.
+- **Agent context + admin** — `translate_recent` returns what the
+  pipeline just translated (useful grounding for follow-ups);
+  `translate_stats` / `translate_cache_clear` manage the service and are
+  answered by the hub itself, so a future web client can drive the same
+  surface.
 
 ## Multiple browsers on one hub
 
@@ -551,6 +562,9 @@ agentbrowser navigate '{"url":"https://x","browser":"Edge"}'
 | `page_translate_stop` | `{tabId?}` | `{stopped}` |
 | `translate_para` | `{tid, tabId?}` | re-translates one walked paragraph |
 | `translate_status` | `{tabId?}` | `{active, mode, targetLang, total, done, translating}` |
+| `translate_recent` | `{n?}` | `{recent:[{text, translation, targetLang, provider, ts}]}` (hub-answered) |
+| `translate_stats` | `{}` | provider/cache/rate-limit state (hub-answered) |
+| `translate_cache_clear` | `{}` | clears both translation caches (hub-answered) |
 
 `tabId` omitted means the active tab. The service worker attaches the
 debugger on demand, serializes commands per tab, and re-attaches if Chrome

@@ -223,23 +223,131 @@ test('free provider uses the keyless google endpoint with per-item q params', as
   assert.ok(calls[0].includes('q=hello'));
 });
 
-test('auto provider prefers a stored openai key, then anthropic, then free', async () => {
+test('auto provider prefers openai, then anthropic, deepl, then microsoft', async () => {
   const t1 = createTranslator({ config: {}, getKey: (p) => (p === 'openai' ? 'k' : null), cacheDir: tmpCache() });
   assert.equal(await t1.provider(), 'openai');
   const t2 = createTranslator({ config: {}, getKey: (p) => (p === 'anthropic' ? 'k' : null), cacheDir: tmpCache() });
   assert.equal(await t2.provider(), 'anthropic');
-  const t3 = createTranslator({ config: {}, getKey: () => null, cacheDir: tmpCache() });
-  assert.equal(await t3.provider(), 'free');
+  const t3 = createTranslator({ config: {}, getKey: (p) => (p === 'deepl' ? 'k:fx' : null), cacheDir: tmpCache() });
+  assert.equal(await t3.provider(), 'deepl');
+  const t4 = createTranslator({ config: {}, getKey: () => null, cacheDir: tmpCache() });
+  assert.equal(await t4.provider(), 'microsoft');
 });
 
 test('provider failure yields empty results, not a thrown handleRequest', async () => {
   const tr = createTranslator({
     config: { provider: 'openai' },
-    fetchImpl: async () => ({ ok: false, status: 429, text: async () => 'rate limited' }),
+    fetchImpl: async () => ({ ok: false, status: 500, text: async () => 'server error' }),
     cacheDir: tmpCache(),
     getKey: openaiKey,
   });
   const r = await tr.handleRequest({ items: [{ tid: 1, text: 'a' }, { tid: 2, text: 'b' }] });
   assert.equal(r.results[1], '');
   assert.equal(r.results[2], '');
+});
+
+test('deepl provider posts the text array with the auth header (free key → api-free host)', async () => {
+  const calls = [];
+  const fetchImpl = async (url, init = {}) => {
+    calls.push({ url: String(url), init });
+    return {
+      ok: true,
+      json: async () => ({ translations: [{ text: '你好' }, { text: '世界' }] }),
+      text: async () => '',
+    };
+  };
+  const tr = createTranslator({
+    config: { provider: 'deepl', targetLang: 'zh' },
+    fetchImpl,
+    cacheDir: tmpCache(),
+    getKey: (p) => (p === 'deepl' ? 'abc:fx' : null),
+  });
+  const r = await tr.handleRequest({ items: [{ tid: 1, text: 'hello' }, { tid: 2, text: 'world' }] });
+  assert.deepEqual([r.results[1], r.results[2]], ['你好', '世界']);
+  assert.ok(calls[0].url.startsWith('https://api-free.deepl.com/'));
+  const body = JSON.parse(calls[0].init.body);
+  assert.deepEqual(body.text, ['hello', 'world']);
+  assert.equal(body.target_lang, 'ZH-HANS');
+  assert.equal(calls[0].init.headers.authorization, 'DeepL-Auth-Key abc:fx');
+});
+
+test('microsoft provider auths once via the edge flow and caches the token', async () => {
+  const calls = [];
+  const fetchImpl = async (url, init = {}) => {
+    const u = String(url);
+    calls.push(u);
+    if (u.includes('/translate/auth')) return { ok: true, text: async () => 'jwt-token' };
+    return {
+      ok: true,
+      json: async () => JSON.parse(init.body).map(() => ({ translations: [{ text: '翻' }] })),
+      text: async () => '',
+    };
+  };
+  const tr = createTranslator({
+    config: { provider: 'microsoft', targetLang: 'zh' },
+    fetchImpl,
+    cacheDir: tmpCache(),
+    getKey: () => null,
+  });
+  const r = await tr.handleRequest({ items: [{ tid: 1, text: 'a' }, { tid: 2, text: 'b' }] });
+  assert.deepEqual([r.results[1], r.results[2]], ['翻', '翻']);
+  assert.equal(calls.filter((u) => u.includes('/translate/auth')).length, 1);
+  assert.ok(calls.some((u) => u.includes('api-edge.cognitive.microsofttranslator.com')));
+  await tr.handleRequest({ items: [{ tid: 3, text: 'c' }] });
+  assert.equal(calls.filter((u) => u.includes('/translate/auth')).length, 1); // token reused
+});
+
+test('recent ring, stats and cache clear back the admin tools', async () => {
+  const calls = [];
+  const tr = createTranslator({
+    config: { provider: 'openai' },
+    fetchImpl: fakeFetch(calls),
+    cacheDir: tmpCache(),
+    getKey: openaiKey,
+  });
+  await tr.handleRequest({ items: [{ tid: 1, text: 'recent me' }] });
+  const rec = tr.recentList(10);
+  assert.equal(rec.length, 1);
+  assert.equal(rec[0].text, 'recent me');
+  assert.ok(rec[0].translation.startsWith('T:'));
+  assert.equal(rec[0].provider, 'openai');
+  const s = tr.stats();
+  assert.equal(s.provider, 'openai');
+  assert.equal(s.recent, 1);
+  assert.ok(s.memCache >= 1);
+  tr.clearCache();
+  assert.equal(tr.stats().memCache, 0);
+  await tr.handleRequest({ items: [{ tid: 2, text: 'recent me' }] });
+  assert.equal(calls.length, 2); // cleared cache forced a refetch
+});
+
+test('a 429 marks a cooldown window; stats exposes it (v2.15 rate limiting)', async () => {
+  const tr = createTranslator({
+    config: { provider: 'openai' },
+    fetchImpl: async () => ({ ok: false, status: 429, text: async () => 'rate limited' }),
+    cacheDir: tmpCache(),
+    getKey: openaiKey,
+  });
+  const p = tr.handleRequest({ items: [{ tid: 1, text: 'a' }] });
+  await new Promise((r) => setTimeout(r, 50)); // let the first call fail
+  assert.ok(tr.stats().rateLimit.cooldownUntil > Date.now());
+  const r = await p; // retry + single degrade ride out the cooldown
+  assert.equal(r.results[1], '');
+});
+
+test('token bucket paces provider calls at ratePerSec', async () => {
+  const calls = [];
+  const tr = createTranslator({
+    config: { provider: 'openai', ratePerSec: 50, rateBurst: 1 },
+    fetchImpl: fakeFetch(calls),
+    cacheDir: tmpCache(),
+    getKey: openaiKey,
+  });
+  const t0 = Date.now();
+  // 9 misses -> 3 provider batches (4+4+1); burst 1 means calls 2 and 3 wait
+  // ~20ms each (rps 50). Concurrency would otherwise fire them together.
+  const items = Array.from({ length: 9 }, (_, i) => ({ tid: i + 1, text: 'paced-' + i }));
+  await tr.handleRequest({ items });
+  assert.equal(calls.length, 3);
+  assert.ok(Date.now() - t0 >= 30);
 });
