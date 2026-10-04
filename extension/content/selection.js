@@ -11,6 +11,10 @@
 // adapted from that implementation; Chrome-API glue (storage, messaging,
 // side panel handoff) is ours.
 
+// All content scripts share one isolated world — wrap in an IIFE so
+// top-level identifiers can't collide with annotation.js / video-ask.js.
+(function () {
+
 const BTN_ID = "agentbrowser-ask-btn";
 const POP_ID = "agentbrowser-sel-tr-pop";
 const FLOAT_ASK_KEY = "floatingAskEnabled"; // chrome.storage.local, set by sw
@@ -545,17 +549,9 @@ function showButtonAtSelection(selection) {
       const firstRect = rects[0] || rect;
       top = firstRect.top + window.scrollY - btnHeight - 8;
     }
-    // Yield to foreign floaters: try the other side of the selection, then
-    // give up rather than stack on somebody else's overlay.
-    if (foreignBlocks(left, top)) {
-      const firstRect = rects[0] || rect;
-      const alt =
-        top > rect.top + window.scrollY
-          ? firstRect.top + window.scrollY - btnHeight - 8
-          : rect.bottom + window.scrollY + 8;
-      if (foreignBlocks(left, alt)) return;
-      top = alt;
-    }
+    // Yield to foreign floaters entirely: another extension's overlay at the
+    // spot means we stay hidden — never stack on or crowd somebody else's UI.
+    if (foreignBlocks(left, top)) return;
 
     btn.style.left = `${left}px`;
     btn.style.top = `${top}px`;
@@ -848,3 +844,5 @@ document.addEventListener("keyup", handleKeyUp);
 document.addEventListener("mousedown", handleMouseDown);
 document.addEventListener("contextmenu", handleContextMenu, true);
 window.addEventListener("scroll", handleScroll, { passive: true });
+
+})();

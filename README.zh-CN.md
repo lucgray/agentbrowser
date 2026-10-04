@@ -156,6 +156,12 @@ npm start          # 监听 ws://127.0.0.1:9010
   它们的。可在设置里关掉（持久化在 `chrome.storage.local`，立即
   生效；Esc 也可临时关闭当前这一次）。同一套主题也应用在视频/图片
   的「@ 引用」键上。
+- **视频/图片菜单** — 悬停媒体弹出 @ 键；在 YouTube/bilibili 上图标
+  直接嵌进播放器控制栏（read-frog 同款位置），识别不了的站点
+  （X、自托管播放器）退回媒体左上角的浮动 @。点开菜单：
+  **引用到 AgentBrowser**（标题+播放头±90s 字幕窗/图片 src+尺寸进
+  面板暂存，暂停视频附截帧、图片附原图）、**下载视频**（hub 侧
+  yt-dlp 存到 `~/.agentchat/downloads`，结果在图标旁 toast 回显）。
 - **右键菜单** — 右键点击选中区域，选择 **Ask AgentBrowser**。
 - **自动补富上下文** — 下一条消息携带 `context.selection`（协议
   v1.4）：选中文本 + 语义化 DOM 路径（如 `article > section > pre`）、

@@ -207,3 +207,117 @@
   border: 1px solid rgba(28, 25, 23, 0.12) !important;
   box-shadow: 0 2px 0 rgba(28, 25, 23, 0.08), 0 12px 32px -8px rgba(28, 25, 23, 0.3) !important;
 }
+
+/* ---------- media control-bar icon + menu + toast ---------- */
+button.ab-media-cb {
+  all: unset;
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  color: #fff;
+  cursor: pointer;
+  opacity: 0.9;
+  transition: opacity 0.12s ease, transform 0.1s ease;
+  flex: none;
+}
+button.ab-media-cb:hover { opacity: 1 !important; }
+button.ab-media-cb:active { transform: scale(0.92) !important; }
+button.ab-media-cb svg { display: block; pointer-events: none; }
+
+#agentbrowser-media-menu {
+  all: initial;
+  position: fixed;
+  z-index: 2147483647;
+  display: none;
+  min-width: 168px;
+  padding: 5px;
+  font-family: ui-sans-serif, system-ui, "PingFang SC", "Microsoft YaHei", sans-serif;
+  border-radius: 12px;
+  opacity: 0;
+  transform: translateY(5px) scale(0.96);
+  transition: opacity 0.15s ease, transform 0.18s cubic-bezier(0.3, 1.2, 0.4, 1);
+}
+#agentbrowser-media-menu.ab-show {
+  opacity: 1 !important;
+  transform: translateY(0) scale(1) !important;
+}
+#agentbrowser-media-menu .ab-menu-item {
+  all: unset;
+  display: flex !important;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 9px 11px;
+  font: 500 12.5px/1 ui-sans-serif, system-ui, sans-serif;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.1s ease;
+}
+#agentbrowser-media-menu .ab-menu-item svg { flex: none; }
+#agentbrowser-media-menu .ab-menu-item.ab-busy { opacity: 0.55; pointer-events: none; }
+#agentbrowser-media-menu[data-abtheme="frost"] {
+  background: rgba(255, 255, 255, 0.92) !important;
+  color: #292524 !important;
+  border: 1px solid rgba(28, 25, 23, 0.1) !important;
+  backdrop-filter: blur(16px) !important;
+  -webkit-backdrop-filter: blur(16px) !important;
+  box-shadow: 0 12px 32px -8px rgba(28, 25, 23, 0.28) !important;
+}
+#agentbrowser-media-menu[data-abtheme="frost"] .ab-menu-item:hover { background: rgba(28, 25, 23, 0.06) !important; }
+#agentbrowser-media-menu[data-abtheme="ink"] {
+  background: rgba(28, 25, 23, 0.92) !important;
+  color: #e7e5e4 !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  backdrop-filter: blur(16px) !important;
+  -webkit-backdrop-filter: blur(16px) !important;
+  box-shadow: 0 12px 32px -8px rgba(0, 0, 0, 0.6) !important;
+}
+#agentbrowser-media-menu[data-abtheme="ink"] .ab-menu-item:hover { background: rgba(255, 255, 255, 0.09) !important; }
+#agentbrowser-media-menu[data-abtheme="paper"] {
+  background: #fff !important;
+  color: #292524 !important;
+  border: 1px solid rgba(28, 25, 23, 0.12) !important;
+  box-shadow: 0 2px 0 rgba(28, 25, 23, 0.08), 0 12px 32px -8px rgba(28, 25, 23, 0.3) !important;
+}
+#agentbrowser-media-menu[data-abtheme="paper"] .ab-menu-item:hover { background: rgba(28, 25, 23, 0.06) !important; }
+
+#agentbrowser-media-toast {
+  all: initial;
+  position: fixed;
+  z-index: 2147483647;
+  display: none;
+  max-width: 300px;
+  padding: 8px 12px;
+  font: 500 12px/1.5 ui-sans-serif, system-ui, "PingFang SC", sans-serif;
+  border-radius: 9px;
+  opacity: 0;
+  transform: translateY(3px);
+  transition: opacity 0.15s ease, transform 0.18s ease;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#agentbrowser-media-toast.ab-show { opacity: 1 !important; transform: translateY(0) !important; }
+#agentbrowser-media-toast[data-abtheme="frost"] {
+  background: rgba(255, 255, 255, 0.94) !important;
+  color: #292524 !important;
+  border: 1px solid rgba(28, 25, 23, 0.1) !important;
+  backdrop-filter: blur(14px) !important;
+  box-shadow: 0 8px 24px -6px rgba(28, 25, 23, 0.28) !important;
+}
+#agentbrowser-media-toast[data-abtheme="ink"] {
+  background: rgba(28, 25, 23, 0.94) !important;
+  color: #e7e5e4 !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  backdrop-filter: blur(14px) !important;
+  box-shadow: 0 8px 24px -6px rgba(0, 0, 0, 0.6) !important;
+}
+#agentbrowser-media-toast[data-abtheme="paper"] {
+  background: #fff !important;
+  color: #292524 !important;
+  border: 1px solid rgba(28, 25, 23, 0.12) !important;
+  box-shadow: 0 8px 24px -6px rgba(28, 25, 23, 0.3) !important;
+}
+#agentbrowser-media-toast[data-err="1"] { color: #b91c1c !important; }

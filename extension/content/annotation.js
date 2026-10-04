@@ -11,6 +11,10 @@
 // highlight are styled spans; circle is an ellipse on a full-page SVG layer.
 // No code here is derived from ContextLens — the anchor-by-quote approach is
 // original to this file (their content.js is only the selection source).
+//
+// All content scripts share one isolated world — wrap in an IIFE so
+// top-level identifiers can't collide with selection.js / video-ask.js.
+(function () {
 
 const LAYER_ID = "agentbrowser-ann-layer";
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -597,3 +601,5 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
   return true;
 });
+
+})();

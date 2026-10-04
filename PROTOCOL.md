@@ -1432,6 +1432,34 @@ as a floating window instead:
   `record.tabId === boundTabId`. Port naming and chat routing are
   unchanged — the port still carries the popup's own `windowId`.
 
+## Media control-bar icon + download, v2.20
+
+The media affordance is a menu, not a bare ask: one icon, two actions
+(引用到 AgentBrowser / 下载视频).
+
+- **Control-bar injection**: on YouTube (`*.youtube.com`,
+  `youtube-nocookie.com`) the icon mounts into `.ytp-right-controls`; on
+  bilibili into `.bpx-player-control-bottom-right` (or the legacy
+  `.bilibili-player-video-control-bottom-right`). The hovered `<video>`'s
+  ancestors are probed for the site's bar selector; the icon is a plain
+  button (`button.ab-media-cb`) prepended into the right-controls group.
+  Sites without a recognized control bar (X, self-hosted players) and
+  images keep the floating `@` chip at the media's top-left — same menu.
+
+- **`video_download` (content → SW)**: `{target:'sw', cmd:'video_download',
+  id, url}`. SW acks `sendResponse` immediately (`{started:true}`), maps
+  `id -> tabId` in `mediaDlTabs`, and relays to the hub as
+  `{type:'media_download', id, url}`.
+
+- **`media_download` / `media_download_result` (extension ↔ hub)**: the
+  hub runs `runVideoDownload({url})` (yt-dlp into `~/.agentchat/downloads`)
+  and replies `{type:'media_download_result', id, ok, file?|error?}` on
+  the same socket. SW resolves the tabId from `mediaDlTabs` and pushes
+  `{target:'video-ask', cmd:'download_result', ok, file, error}` to that
+  tab, where the menu item flips 下载中… → 已保存/下载失败 and a toast
+  shows the path or error. Fire-and-forget end to end: no sendResponse is
+  held across a download that can take minutes.
+
 ## mcp-proxy.mjs
 
 Stdio MCP server (use `@modelcontextprotocol/sdk`, installed) exposing the ten
