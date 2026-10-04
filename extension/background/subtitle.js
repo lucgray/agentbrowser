@@ -118,6 +118,21 @@ async function fetchJson(url) {
   return res.json();
 }
 
+// Resolved cid for a probed bilibili page. Page globals only supply cid when
+// videoData matched the URL bvid; otherwise the pagelist answers it, picking
+// the part the URL is watching (?p=N, 1-indexed) instead of always P1.
+async function bilibiliCid(p) {
+  if (!p.bvid) throw new Error('bilibili video id not found');
+  if (p.cid) return p.cid;
+  const list = await fetchJson(
+    `https://api.bilibili.com/x/player/pagelist?bvid=${encodeURIComponent(p.bvid)}`
+  );
+  const pages = (list && list.data) || [];
+  const part = pages.find((d) => d && d.page === p.page) || pages[0];
+  if (!part || !part.cid) throw new Error('bilibili cid not found');
+  return part.cid;
+}
+
 // {cues, track:{lang,name}} for the probed page.
 async function loadCues(p, lang) {
   if (p.site === 'youtube') {
@@ -130,15 +145,7 @@ async function loadCues(p, lang) {
     return { cues, track: { lang: track.lang, name: track.name } };
   }
   if (p.site === 'bilibili') {
-    if (!p.bvid) throw new Error('bilibili video id not found');
-    let cid = p.cid;
-    if (!cid) {
-      const list = await fetchJson(
-        `https://api.bilibili.com/x/player/pagelist?bvid=${encodeURIComponent(p.bvid)}`
-      );
-      cid = list && list.data && list.data[0] && list.data[0].cid;
-    }
-    if (!cid) throw new Error('bilibili cid not found');
+    const cid = await bilibiliCid(p);
     let raw = [];
     // The signed wbi route is what the web player actually calls; the legacy
     // v2 route still answers anonymous requests. Try both — a logged-in
@@ -280,15 +287,7 @@ export async function transcript(tabId, args) {
 // Raw bilibili danmaku XML for a probed page (cid comes from the probe or a
 // pagelist lookup).
 async function danmakuXml(p) {
-  if (!p.bvid) throw new Error('bilibili video id not found');
-  let cid = p.cid;
-  if (!cid) {
-    const list = await fetchJson(
-      `https://api.bilibili.com/x/player/pagelist?bvid=${encodeURIComponent(p.bvid)}`
-    );
-    cid = list && list.data && list.data[0] && list.data[0].cid;
-  }
-  if (!cid) throw new Error('bilibili cid not found');
+  const cid = await bilibiliCid(p);
   const res = await fetch(
     `https://api.bilibili.com/x/v1/dm/list.so?oid=${encodeURIComponent(cid)}`
   );
