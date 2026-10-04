@@ -2086,7 +2086,15 @@ function setGeneralConfig(body) {
   ]);
   for (const k of Object.keys(body)) {
     if (!ALLOWED.has(k)) return { ok: false, error: `unknown config key: ${k}` };
-    if (k === "translate") {
+    if (k === "adapter" || k === "model" || k === "systemPromptExtra" || k === "browserName") {
+      if (typeof body[k] !== "string") {
+        return { ok: false, error: `${k} must be a string` };
+      }
+    } else if (k === "promptBudget") {
+      if (typeof body[k] !== "number") {
+        return { ok: false, error: `${k} must be a number` };
+      }
+    } else if (k === "translate") {
       // translate has its own validated path with service rebuild
       applyTranslateConfig(body.translate || {}).catch((err) =>
         log("admin translate config failed:", err && err.message));
