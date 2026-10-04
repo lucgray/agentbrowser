@@ -695,30 +695,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     handleTranslateAsk(tabId, message.text, sendResponse);
     return true;
   }
-  if (message.cmd === 'translate_toggle') {
-    // Triple-space in selection.js: same pipeline the panel 译 button drives,
-    // with the stored abTranslate prefs (translate.start merges loadPrefs).
-    const tabId = sender && sender.tab && sender.tab.id;
-    if (tabId == null) {
-      sendResponse({ success: false, error: 'no tab' });
-      return true;
-    }
-    (async () => {
-      try {
-        const st = await translate.status(tabId);
-        if (st && st.active) {
-          await translate.stop(tabId);
-          sendResponse({ success: true, active: false });
-        } else {
-          await translate.start(tabId, {});
-          sendResponse({ success: true, active: true });
-        }
-      } catch (err) {
-        sendResponse({ success: false, error: String((err && err.message) || err) });
-      }
-    })();
-    return true;
-  }
   if (message.cmd === 'video_ask') {
     const tabId = sender && sender.tab && sender.tab.id;
     const video = message.video;

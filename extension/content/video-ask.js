@@ -346,7 +346,16 @@ function toggleMenu(anchorRect) {
       onAsk();
     })
   );
-  if (hoverKind === "video") {
+  // Subtitle-backed items (learn popup, 获取字幕/弹幕) only exist on the
+  // video pages our subtitle pipeline supports — same sites detectSite in
+  // page/subtitle-core.js probes. A random article's embedded video gets
+  // neither.
+  const vidSite =
+    (/youtube\.com\/watch|youtu\.be\//.test(location.href) && "youtube") ||
+    (/bilibili\.com\/video\/|b23\.tv\//.test(location.href) && "bilibili") ||
+    (/\/\/(?:[a-z0-9-]+\.)*(x|twitter)\.com\//.test(location.href) && "x") ||
+    null;
+  if (hoverKind === "video" && vidSite) {
     m.appendChild(
       menuItem(BOOK_PATHS, "学习弹窗", () => {
         closeMenu();
@@ -366,7 +375,7 @@ function toggleMenu(anchorRect) {
       });
     });
     m.appendChild(sub);
-    if (/(^|\.)bilibili\.com$/.test(location.hostname)) {
+    if (vidSite === "bilibili") {
       m.appendChild(
         menuItem(DM_PATHS, "获取弹幕", (it, t) => {
           if (it.dataset.busy) return;

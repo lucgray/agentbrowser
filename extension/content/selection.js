@@ -21,7 +21,7 @@ const FLOAT_ASK_KEY = "floatingAskEnabled"; // chrome.storage.local, set by sw
 const AUTO_SEL_KEY = "autoSelectionEnabled"; // chrome.storage.local, set by the panel settings
 const FLOAT_THEME_KEY = "floatTheme"; // chrome.storage.local, frost | ink | paper
 const FLOAT_THEMES = new Set(["frost", "ink", "paper"]);
-const SPACE_TR_KEY = "abSpaceTranslate"; // triple-space page-translate toggle
+const SPACE_TR_KEY = "abSpaceTranslate"; // triple-space input-translation toggle
 
 let floatBtn = null;
 let trPop = null;
@@ -35,6 +35,59 @@ let floatTheme = "frost"; // cached; settings select
 let spaceTrEnabled = true; // cached; settings checkbox
 let spaceRun = 0;
 let spaceTimer = null;
+
+// Editable field the triple-space input translation acts on — input/textarea
+// (except passwords) or any contentEditable host.
+function editableAt(target) {
+  if (!target) return null;
+  if (target.isContentEditable) return target;
+  const tag = String(target.tagName || "");
+  if (tag === "TEXTAREA") return target;
+  if (tag === "INPUT" && String(target.type || "").toLowerCase() !== "password") {
+    return target;
+  }
+  return null;
+}
+
+function replaceInputText(el, text) {
+  try {
+    el.focus();
+    if (el.isContentEditable) {
+      const sel = window.getSelection();
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      sel.removeAllRanges();
+      sel.addRange(range);
+      if (!document.execCommand("insertText", false, text)) el.innerText = text;
+    } else {
+      el.setSelectionRange(0, String(el.value || "").length);
+      // execCommand keeps the edit undoable; direct assignment is the fallback.
+      if (!document.execCommand("insertText", false, text)) el.value = text;
+    }
+  } catch (err) {
+    logWarn("input translate replace failed", err);
+  }
+}
+
+async function translateInput(el) {
+  const raw = el.isContentEditable ? el.innerText : el.value;
+  const text = String(raw || "").replace(/\s+$/, "");
+  if (!text) return;
+  try {
+    const response = await chrome.runtime.sendMessage({
+      target: "sw",
+      cmd: "translate_ask",
+      text,
+    });
+    if (response && response.success && response.text) {
+      replaceInputText(el, String(response.text));
+    } else {
+      logWarn("input translate failed", response && response.error);
+    }
+  } catch (err) {
+    logWarn("input translate send failed", err);
+  }
+}
 
 // The floating button can clash with other overlays, so it obeys a
 // persistent user setting flipped from the right-click menu. Read it once
@@ -735,15 +788,11 @@ function handleKeyDown(e) {
     hideTrPop();
     return;
   }
-  // Triple-space toggles page translation (immersive-style). Skips editable
-  // targets — three spaces in a text field is input, not a command.
+  // Triple-space inside an editable field translates what was typed, in
+  // place. Space anywhere else is not a command.
   if (e.code !== "Space" || e.repeat || !spaceTrEnabled) return;
-  const t = e.target;
-  if (
-    t &&
-    (t.isContentEditable ||
-      /^(INPUT|TEXTAREA|SELECT)$/.test(String(t.tagName || "")))
-  ) {
+  const field = editableAt(e.target);
+  if (!field) {
     spaceRun = 0;
     return;
   }
@@ -751,16 +800,11 @@ function handleKeyDown(e) {
   clearTimeout(spaceTimer);
   spaceTimer = setTimeout(() => {
     spaceRun = 0;
-  }, 650);
+  }, 800);
   if (spaceRun >= 3) {
     spaceRun = 0;
     e.preventDefault();
-    chrome.runtime
-      .sendMessage({ target: "sw", cmd: "translate_toggle" })
-      .then((res) => {
-        if (!(res && res.success)) logWarn("translate_toggle rejected", res && res.error);
-      })
-      .catch((err) => logWarn("translate_toggle send failed", err));
+    translateInput(field);
   }
 }
 
