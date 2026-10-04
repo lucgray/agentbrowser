@@ -6,125 +6,143 @@
 <title>AgentBrowser — Console</title>
 <style>
 :root{
-  --bg:#f6f4ef; --paper:#fffdf9; --ink:#1c1a15; --mut:#8a8577; --line:#e6e0d3;
-  --acc:#c2410c; --acc-soft:#fdf0e7; --on:#0f7b4d; --on-soft:#e8f6ef;
-  --off:#b91c1c; --off-soft:#fdeceb;
+  --bg:#f7f7f8; --card:#ffffff; --ink:#18181b; --mut:#71717a; --line:#e4e4e7;
+  --acc:#4f46e5; --acc-soft:#eef2ff;
+  --on:#16a34a; --on-soft:#f0fdf4; --on-line:#bbf7d0;
+  --off:#dc2626; --off-soft:#fef2f2; --off-line:#fecaca;
 }
 *{box-sizing:border-box}
-body{margin:0;font:15px/1.6 "Avenir Next",Avenir,"Segoe UI",system-ui,sans-serif;color:var(--ink);background:var(--bg)}
-.shell{display:flex;min-height:100vh}
+body{margin:0;font:14px/1.55 "Inter",-apple-system,"Segoe UI",system-ui,sans-serif;color:var(--ink);background:var(--bg);-webkit-font-smoothing:antialiased}
 
-/* ——— left rail ——— */
-.rail{width:200px;flex:none;padding:34px 22px;border-right:1px solid var(--line);position:sticky;top:0;height:100vh}
-.logo{font-family:Georgia,"Times New Roman",serif;font-size:22px;font-style:italic;margin-bottom:4px}
-.logo b{font-style:normal;color:var(--acc)}
-.hub-line{font-size:12px;color:var(--mut);font-family:ui-monospace,Menlo,monospace;margin-bottom:38px}
-.nav a{display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:9px;color:var(--mut);text-decoration:none;font-size:13.5px;margin-bottom:2px}
-.nav a:hover{background:#efece4;color:var(--ink)}
-.nav a.act{background:var(--ink);color:var(--bg)}
-.dot{width:7px;height:7px;border-radius:50%;background:#d8d2c4;flex:none}
-.dot.live{background:var(--on);box-shadow:0 0 0 0 rgba(15,123,77,.4);animation:pulse 2s infinite}
-@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(15,123,77,.35)}70%{box-shadow:0 0 0 7px rgba(15,123,77,0)}100%{box-shadow:0 0 0 0 rgba(15,123,77,0)}}
-.rail .foot{position:absolute;bottom:26px;font-size:11.5px;color:var(--mut);font-family:ui-monospace,monospace}
+/* ——— top bar ——— */
+.topbar{position:sticky;top:0;z-index:10;display:flex;align-items:center;gap:12px;height:56px;padding:0 24px;background:rgba(255,255,255,.85);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+.mark{width:28px;height:28px;border-radius:8px;background:linear-gradient(135deg,#4f46e5,#7c3aed);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:12px;letter-spacing:-.02em}
+.wordmark{font-weight:600;font-size:15px;letter-spacing:-.01em}
+.wordmark span{color:var(--mut);font-weight:400}
+.topbar .sp{flex:1}
+.hostchip{font-family:ui-monospace,"SF Mono",Menlo,monospace;font-size:12px;color:var(--mut);background:#f4f4f5;border:1px solid var(--line);border-radius:99px;padding:4px 12px}
+.status{display:inline-flex;align-items:center;gap:7px;font-size:12.5px;font-weight:500;padding:5px 13px;border-radius:99px;border:1px solid var(--line);background:#fff;color:var(--mut)}
+.status.on{background:var(--on-soft);border-color:var(--on-line);color:var(--on)}
+.status .d{width:7px;height:7px;border-radius:50%;background:currentColor}
+.status.on .d{animation:pulse 2s infinite}
+@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(22,163,74,.4)}70%{box-shadow:0 0 0 6px rgba(22,163,74,0)}100%{box-shadow:0 0 0 0 rgba(22,163,74,0)}}
 
-/* ——— main ——— */
-main{flex:1;padding:40px 48px}
-header.hero{margin-bottom:30px}
-.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(380px,1fr));gap:26px 32px;align-items:start}
-@media(max-width:880px){.grid{grid-template-columns:1fr}}
-.hero h1{font-family:Georgia,serif;font-size:38px;font-weight:400;margin:0;letter-spacing:-.5px}
-.hero .sub{color:var(--mut);font-size:13.5px;margin-top:4px}
-section{scroll-margin-top:20px}
-section h2{font-size:11px;text-transform:uppercase;letter-spacing:.22em;color:var(--acc);margin:0 0 4px;font-weight:600}
-section .hint{color:var(--mut);font-size:13px;margin-bottom:12px}
-.card{background:var(--paper);border:1px solid var(--line);border-radius:16px;padding:18px 20px;box-shadow:0 1px 2px rgba(60,50,20,.04)}
+/* ——— layout ——— */
+.wrap{max-width:1480px;margin:0 auto;padding:28px 24px 60px}
+.pagehead{display:flex;align-items:baseline;gap:14px;margin-bottom:22px}
+.pagehead h1{font-size:22px;font-weight:650;letter-spacing:-.02em;margin:0}
+.pagehead .sub{color:var(--mut);font-size:13px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(420px,1fr));gap:18px}
+@media(max-width:960px){.grid{grid-template-columns:1fr}}
+.wide{grid-column:1/-1}
+
+/* ——— cards ——— */
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:0 1px 2px rgba(0,0,0,.03)}
+.chead{display:flex;align-items:center;gap:10px;padding:15px 18px 0}
+.chead .ic{width:28px;height:28px;border-radius:8px;background:var(--acc-soft);color:var(--acc);display:flex;align-items:center;justify-content:center;flex:none}
+.chead .ic svg{width:15px;height:15px}
+.chead .t{font-weight:600;font-size:14px;letter-spacing:-.01em}
+.chead .h{margin-left:auto;font-size:12px;color:var(--mut)}
+.cbody{padding:12px 18px 18px}
+.cdesc{font-size:12.5px;color:var(--mut);padding:0 18px;margin-top:-4px}
+.card .sub{color:var(--mut);font-size:12.5px}
 
 /* browsers */
-#browsers{display:flex;gap:10px;flex-wrap:wrap}
-.bchip{display:flex;align-items:center;gap:8px;background:#f4f1ea;border:1px solid var(--line);border-radius:99px;padding:7px 14px;font-size:13.5px}
-.bchip.primary{background:var(--on-soft);border-color:#bfe3d1;color:var(--on)}
-.bchip .prim{font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;opacity:.75}
+#browsers{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.bchip{display:inline-flex;align-items:center;gap:8px;background:#f4f4f5;border:1px solid var(--line);border-radius:99px;padding:6px 14px;font-size:13px;font-weight:500}
+.bchip .d{width:7px;height:7px;border-radius:50%;background:#a1a1aa}
+.bchip.primary{background:var(--on-soft);border-color:var(--on-line);color:var(--on)}
+.bchip.primary .d{background:var(--on);animation:pulse 2s infinite}
+.bchip .prim{font-size:10px;letter-spacing:.06em;text-transform:uppercase;opacity:.7}
 
 /* fields */
 .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 label{font-size:12px;color:var(--mut)}
-input,select,textarea{font:inherit;color:var(--ink);background:#fff;border:1px solid var(--line);border-radius:9px;padding:7px 11px;outline:none;transition:border-color .15s,box-shadow .15s}
+input,select,textarea{font:inherit;font-size:13.5px;color:var(--ink);background:#fff;border:1px solid var(--line);border-radius:8px;padding:7px 10px;outline:none;transition:border-color .15s,box-shadow .15s}
 input:focus,select:focus,textarea:focus{border-color:var(--acc);box-shadow:0 0 0 3px var(--acc-soft)}
-input[type=text],input[type=password]{width:200px}
-button{font:inherit;font-size:13.5px;background:var(--ink);color:var(--bg);border:0;border-radius:99px;padding:8px 18px;cursor:pointer;transition:transform .1s,opacity .15s}
-button:hover{transform:translateY(-1px)}
-button.ghost{background:none;color:var(--ink);border:1px solid var(--line)}
-button:disabled{opacity:.45;cursor:default;transform:none}
-.pill{display:inline-flex;align-items:center;gap:6px;padding:3px 11px;border-radius:99px;font-size:12px;border:1px solid var(--line);color:var(--mut);background:#f4f1ea}
-.pill.on{background:var(--on-soft);border-color:#bfe3d1;color:var(--on)}
-.pill.bad{background:var(--off-soft);border-color:#f3c5c0;color:var(--off)}
+input[type=text],input[type=password]{width:180px}
+input[type=checkbox]{accent-color:var(--acc)}
+button{font:inherit;font-size:13px;font-weight:500;background:var(--ink);color:#fff;border:0;border-radius:8px;padding:7px 14px;cursor:pointer;transition:background .15s,opacity .15s}
+button:hover{background:#27272a}
+button.ghost{background:#fff;color:var(--ink);border:1px solid var(--line)}
+button.ghost:hover{background:#f4f4f5}
+button:disabled{opacity:.45;cursor:default}
+button.link{background:none;color:var(--acc);padding:2px 4px;border:0;font-size:12px}
+.pill{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:99px;font-size:12px;font-weight:500;border:1px solid var(--line);color:var(--mut);background:#f4f4f5}
+.pill.on{background:var(--on-soft);border-color:var(--on-line);color:var(--on)}
+.pill.bad{background:var(--off-soft);border-color:var(--off-line);color:var(--off)}
 
-/* keys */
+/* tables */
 table{border-collapse:collapse;width:100%}
-td,th{text-align:left;padding:9px 8px;font-size:14px}
-th{color:var(--mut);font-weight:500;font-size:11px;text-transform:uppercase;letter-spacing:.12em;border-bottom:1px solid var(--line)}
-tr td{border-bottom:1px solid #f0ece1}
+td,th{text-align:left;padding:10px 8px;font-size:13.5px}
+th{color:var(--mut);font-weight:500;font-size:11px;letter-spacing:.06em;text-transform:uppercase;border-bottom:1px solid var(--line)}
+tr td{border-bottom:1px solid #f4f4f5}
 tr:last-child td{border-bottom:0}
 
-/* plugins */
-.plug{display:flex;justify-content:space-between;gap:16px;padding:15px 0;border-bottom:1px solid #f0ece1}
-.plug:last-child{border-bottom:0;padding-bottom:2px}
-.plug:first-child{padding-top:2px}
-.plug .pname{font-size:15px;font-weight:600;display:flex;align-items:center;gap:9px}
-.plug .pmeta{font-size:12px;color:var(--mut);font-family:ui-monospace,monospace}
-.plug .pdesc{font-size:13px;color:var(--mut);margin:3px 0 6px}
-.plug .ptools{font-size:11.5px;color:var(--mut);font-family:ui-monospace,monospace}
-.plug .pview{margin-top:10px}
-/* toggle */
-.sw{position:relative;width:44px;height:24px;flex:none;cursor:pointer}
-.sw input{opacity:0;width:0;height:0}
-.sw .tr{position:absolute;inset:0;background:#ddd6c7;border-radius:99px;transition:.2s}
-.sw .tr:before{content:"";position:absolute;width:18px;height:18px;left:3px;top:3px;background:#fff;border-radius:50%;transition:.2s;box-shadow:0 1px 3px rgba(0,0,0,.2)}
-.sw input:checked+.tr{background:var(--on)}
-.sw input:checked+.tr:before{transform:translateX(20px)}
-.plug .ctl{display:flex;flex-direction:column;align-items:flex-end;gap:8px;flex:none}
+/* adapters */
+.adrow{display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid #f4f4f5;font-size:13px}
+.adrow:last-child{border-bottom:0}
+.adrow .n{font-family:ui-monospace,Menlo,monospace;font-size:12px;color:var(--ink);width:140px;flex:none}
+.adrow .l{color:var(--mut);flex:1}
+.adrow .st{font-size:11.5px;color:var(--mut)}
 
-pre{background:#f4f1ea;border:1px solid var(--line);border-radius:12px;padding:12px 14px;overflow:auto;font-size:12px;max-height:240px;white-space:pre-wrap;word-break:break-all;font-family:ui-monospace,Menlo,monospace}
-#raw-config{width:100%;height:200px;font-family:ui-monospace,Menlo,monospace;font-size:12.5px;background:#f4f1ea;border-radius:12px;padding:14px}
-.sub{color:var(--mut);font-size:13px}
-.toast{position:fixed;bottom:22px;left:50%;transform:translate(-50%,20px);background:var(--ink);color:var(--bg);padding:10px 22px;border-radius:99px;font-size:13.5px;opacity:0;transition:all .25s;pointer-events:none}
-.toast.show{opacity:.95;transform:translate(-50%,0)}
-@media(max-width:760px){.rail{display:none}main{padding:28px 20px}}
+/* plugins */
+.plug{display:flex;justify-content:space-between;gap:16px;padding:14px 0;border-bottom:1px solid #f4f4f5}
+.plug:first-child{padding-top:2px}
+.plug:last-child{border-bottom:0;padding-bottom:2px}
+.plug .pname{font-size:14px;font-weight:600;display:flex;align-items:center;gap:8px}
+.plug .pmeta{font-size:11.5px;color:var(--mut);font-family:ui-monospace,Menlo,monospace;font-weight:400}
+.plug .pdesc{font-size:12.5px;color:var(--mut);margin:4px 0 6px}
+.plug .ptools{font-size:11px;color:var(--mut);font-family:ui-monospace,Menlo,monospace}
+.plug .pview{margin-top:10px}
+.plug .ctl{display:flex;align-items:center;gap:10px;flex:none}
+/* toggle */
+.sw{position:relative;width:40px;height:22px;flex:none;cursor:pointer}
+.sw input{opacity:0;width:0;height:0}
+.sw .tr{position:absolute;inset:0;background:#d4d4d8;border-radius:99px;transition:.18s}
+.sw .tr:before{content:"";position:absolute;width:16px;height:16px;left:3px;top:3px;background:#fff;border-radius:50%;transition:.18s;box-shadow:0 1px 2px rgba(0,0,0,.25)}
+.sw input:checked+.tr{background:var(--on)}
+.sw input:checked+.tr:before{transform:translateX(18px)}
+
+pre{background:#fafafa;border:1px solid var(--line);border-radius:10px;padding:12px 14px;overflow:auto;font-size:12px;max-height:240px;white-space:pre-wrap;word-break:break-all;font-family:ui-monospace,"SF Mono",Menlo,monospace}
+#raw-config{width:100%;height:220px;font-family:ui-monospace,"SF Mono",Menlo,monospace;font-size:12.5px;background:#fafafa;border-radius:10px;padding:14px;border-color:var(--line)}
+.toast{position:fixed;bottom:22px;left:50%;transform:translate(-50%,16px);background:var(--ink);color:#fff;padding:9px 18px;border-radius:8px;font-size:13px;opacity:0;transition:all .22s;pointer-events:none;box-shadow:0 4px 16px rgba(0,0,0,.18)}
+.toast.show{opacity:.97;transform:translate(-50%,0)}
 </style>
 </head>
 <body>
-<div class="shell">
-<nav class="rail">
-  <div class="logo">Agent<b>Browser</b></div>
-  <div class="hub-line">hub <span id="hub-port"></span></div>
-  <div class="nav" id="nav">
-    <a href="#browsers-sec"><span class="dot" id="nav-dot"></span>Overview</a>
-    <a href="#backend-sec">Backend</a>
-    <a href="#keys-sec">API keys</a>
-    <a href="#plugins-sec">Plugins</a>
-    <a href="#translate-sec">Translation</a>
-    <a href="#raw-sec">Config</a>
-  </div>
-  <div class="foot">protocol v2.17</div>
-</nav>
+<div class="topbar">
+  <div class="mark">AB</div>
+  <div class="wordmark">AgentBrowser <span>Console</span></div>
+  <div class="sp"></div>
+  <span class="hostchip" id="hub-port"></span>
+  <span class="status" id="status"><span class="d"></span><span id="status-txt">connecting</span></span>
+</div>
 
-<main>
-<header class="hero">
-  <h1>Console<span style="color:var(--acc)">.</span></h1>
+<div class="wrap">
+<header class="pagehead">
+  <h1>Overview</h1>
   <div class="sub" id="hero-line">connecting to hub…</div>
 </header>
 
 <div class="grid">
-<section id="browsers-sec">
-  <h2>Browsers</h2>
-  <div class="hint">extensions connected to this hub — the primary one answers unscoped calls</div>
-  <div class="card"><div id="browsers"></div></div>
-</section>
 
-<section id="backend-sec">
-  <h2>Backend</h2>
-  <div class="hint">adapter + model for new chat sessions</div>
-  <div class="card">
+<div class="card">
+  <div class="chead">
+    <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="14" rx="2"/><path d="M8 21h8M12 18v3"/></svg></div>
+    <div class="t">Browsers</div>
+    <div class="h" id="browsers-count"></div>
+  </div>
+  <div class="cbody"><div id="browsers"></div></div>
+</div>
+
+<div class="card">
+  <div class="chead">
+    <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M9 9h6v6H9zM4 10h-2M4 14h-2M22 10h-2M22 14h-2M10 4V2M14 4V2M10 22v-2M14 22v-2"/></svg></div>
+    <div class="t">Backend</div>
+    <div class="h">next session</div>
+  </div>
+  <div class="cbody">
     <div class="row">
       <label>adapter</label><select id="adapter"></select>
       <label>model</label><select id="model"></select>
@@ -132,31 +150,41 @@ pre{background:#f4f1ea;border:1px solid var(--line);border-radius:12px;padding:1
     </div>
     <div id="adapter-list" style="margin-top:12px"></div>
   </div>
-</section>
+</div>
 
-<section id="keys-sec">
-  <h2>API keys</h2>
-  <div class="hint">stored in the keystore — values are never read back</div>
-  <div class="card"><table id="keys"><tr><th>provider</th><th>status</th><th></th></tr></table></div>
-</section>
+<div class="card">
+  <div class="chead">
+    <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2l-2 2m-7.6 7.6a5.5 5.5 0 1 1-7.8 7.8 5.5 5.5 0 0 1 7.8-7.8zm0 0L19 3m-4 4 3 3"/></svg></div>
+    <div class="t">API keys</div>
+    <div class="h">keystore, write-only</div>
+  </div>
+  <div class="cbody"><table id="keys"><tr><th>provider</th><th>status</th><th style="width:1%"></th></tr></table></div>
+</div>
 
-<section id="plugins-sec">
-  <h2>Plugins</h2>
-  <div class="hint">plugin.json packs — enabled ones inject prompts and gate tools per session</div>
-  <div class="card"><div id="plugins"></div></div>
-</section>
+<div class="card">
+  <div class="chead">
+    <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 7V4a2 2 0 0 0-4 0v3M10 7h4l2 3v9a2 2 0 0 1-2 2h-4a2 2 0 0 1-2-2v-9z"/><path d="M4 10h4M16 10h4" transform="translate(0,-3)"/></svg></div>
+    <div class="t">Plugins</div>
+    <div class="h" id="plugins-count"></div>
+  </div>
+  <div class="cdesc">enabled plugins inject prompts and gate tools per session</div>
+  <div class="cbody"><div id="plugins"></div></div>
+</div>
 
-<section id="translate-sec">
-  <h2>Translation</h2>
-  <div class="hint">page-translation pipeline defaults</div>
-  <div class="card">
+<div class="card">
+  <div class="chead">
+    <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 8h9m0 0-3-3m3 3-3 3M19 16h-9m0 0 3-3m-3 3 3 3"/><path d="M12 21v-2M12 5V3"/></svg></div>
+    <div class="t">Translation</div>
+    <div class="h" id="tr-active-h">active: ?</div>
+  </div>
+  <div class="cbody">
     <div class="row">
       <label>provider</label><select id="tr-provider">
         <option>auto</option><option>openai</option><option>anthropic</option>
         <option>deepl</option><option>microsoft</option><option>free</option>
       </select>
       <label>model</label><input type="text" id="tr-model" placeholder="provider default">
-      <label>target</label><input type="text" id="tr-lang" style="width:76px">
+      <label>target</label><input type="text" id="tr-lang" style="width:70px">
       <label>mode</label><select id="tr-mode">
         <option>bilingual</option><option>card</option><option>dim</option>
         <option>replace</option><option>ondemand</option>
@@ -164,20 +192,22 @@ pre{background:#f4f1ea;border:1px solid var(--line);border-radius:12px;padding:1
       <label><input type="checkbox" id="tr-hover"> word hover</label>
       <button id="save-translate">Save</button>
     </div>
-    <div class="sub" style="margin-top:10px">active provider: <b id="tr-active">?</b></div>
   </div>
-</section>
-
 </div>
-<section id="raw-sec">
-  <h2>config.json</h2>
-  <div class="hint">raw editor — invalid JSON rejected before saving</div>
-  <div class="card">
+
+<div class="card wide">
+  <div class="chead">
+    <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg></div>
+    <div class="t">config.json</div>
+    <div class="h">invalid JSON is rejected before saving</div>
+  </div>
+  <div class="cbody">
     <textarea id="raw-config"></textarea>
     <div class="row" style="margin-top:10px"><button id="save-config">Save config</button></div>
   </div>
-</section>
-</main>
+</div>
+
+</div>
 </div>
 
 <div class="toast" id="toast"></div>
@@ -197,18 +227,18 @@ async function refresh() {
   state = await api('state');
   $('hub-port').textContent = location.host;
   const n = (state.browsers || []).length;
-  $('nav-dot').className = 'dot' + (n ? ' live' : '');
-  $('hero-line').textContent = n
-    ? `${n} browser${n > 1 ? 's' : ''} online · adapter ${state.config.adapter || '?'} · ${(state.plugins || []).filter(p => p.enabled).length}/${(state.plugins || []).length} plugins on`
-    : 'hub is up — no browsers connected yet';
+  $('status').className = 'status' + (n ? ' on' : '');
+  $('status-txt').textContent = n ? `${n} browser${n > 1 ? 's' : ''} connected` : 'hub online · no browsers';
+  $('hero-line').textContent = `adapter ${state.config.adapter || '?'} · ${(state.plugins || []).filter(p => p.enabled).length}/${(state.plugins || []).length} plugins enabled`;
   renderBrowsers(); renderBackend(); renderKeys(); renderPlugins(); renderTranslate(); renderRaw();
 }
 
 function renderBrowsers() {
   const el = $('browsers');
   const list = state.browsers || [];
-  el.innerHTML = list.length === 0 ? '<span class="sub">none connected — install the extension to link a browser</span>'
-    : list.map(b => `<span class="bchip ${b.default ? 'primary' : ''}"><span class="dot ${b.default ? 'live' : ''}"></span>${esc(b.name)}${b.default ? '<span class="prim">primary</span>' : ''}</span>`).join('');
+  $('browsers-count').textContent = list.length ? `${list.length} online` : 'none';
+  el.innerHTML = list.length === 0 ? '<span class="sub">No browsers connected — install the extension to link one.</span>'
+    : list.map(b => `<span class="bchip ${b.default ? 'primary' : ''}"><span class="d"></span>${esc(b.name)}${b.default ? '<span class="prim">primary</span>' : ''}</span>`).join('');
 }
 
 function renderBackend() {
@@ -224,24 +254,27 @@ function renderBackend() {
     msel.innerHTML = '';
     const a = (state.adapters || []).find(x => x.name === sel.value);
     for (const m of (a && a.models) || []) {
-      const o = document.createElement('option'); o.value = o.textContent = m; msel.appendChild(o);
+      const o = document.createElement('option');
+      o.value = typeof m === 'string' ? m : (m.id ?? m.name ?? '');
+      o.textContent = typeof m === 'string' ? m : (m.label ?? m.id ?? m.name ?? '');
+      msel.appendChild(o);
     }
     if (!msel.options.length) { const o = document.createElement('option'); o.value = o.textContent = ''; msel.appendChild(o); }
-    msel.value = state.config.model || '';
+    msel.value = state.config.model || (a && a.defaultModel) || '';
   };
   sel.onchange = fillModels; fillModels();
   $('adapter-list').innerHTML = (state.adapters || []).map(a =>
-    `<div class="sub" style="padding:3px 0"><span class="pill ${a.keyConfigured ? 'on' : ''}">${esc(a.name)}</span> ${esc(a.label)}${a.ready === false ? ' · not ready' : ''}</div>`).join('');
+    `<div class="adrow"><span class="n">${esc(a.name)}</span><span class="l">${esc(a.label)}</span><span class="st">${a.ready === false ? 'not ready' : a.keyConfigured ? 'key set' : ''}</span></div>`).join('');
 }
 
 function renderKeys() {
   const t = $('keys');
-  t.innerHTML = '<tr><th>provider</th><th>status</th><th></th></tr>';
+  t.innerHTML = '<tr><th>provider</th><th>status</th><th style="width:1%"></th></tr>';
   for (const p of Object.keys(state.keys || {})) {
     const tr = document.createElement('tr');
     tr.innerHTML = `<td style="font-weight:500">${esc(p)}</td><td>${state.keys[p] ? '<span class="pill on">configured</span>' : '<span class="pill bad">missing</span>'}</td><td></td>`;
     const td = tr.lastChild, inp = document.createElement('input');
-    inp.type = 'password'; inp.placeholder = state.keys[p] ? 'replace key' : 'paste key'; inp.style.width = '180px';
+    inp.type = 'password'; inp.placeholder = state.keys[p] ? 'replace key' : 'paste key'; inp.style.width = '170px';
     const b1 = document.createElement('button'); b1.textContent = 'Save';
     b1.onclick = async () => { const r = await api('key', { provider: p, key: inp.value }); toast(r.error || 'saved'); refresh(); };
     const b2 = document.createElement('button'); b2.textContent = 'Clear'; b2.className = 'ghost';
@@ -252,7 +285,9 @@ function renderKeys() {
 
 function renderPlugins() {
   const el = $('plugins'); el.innerHTML = '';
-  for (const p of state.plugins || []) {
+  const list = state.plugins || [];
+  $('plugins-count').textContent = `${list.filter(p => p.enabled).length}/${list.length} enabled`;
+  for (const p of list) {
     const plug = document.createElement('div');
     plug.className = 'plug';
     const left = document.createElement('div');
@@ -260,6 +295,10 @@ function renderPlugins() {
       <div class="pdesc">${esc(p.description)}</div>
       <div class="ptools">${esc((p.tools || []).join(', ') || 'no tools')}</div>`;
     const ctl = document.createElement('div'); ctl.className = 'ctl';
+    const pv = document.createElement('button'); pv.textContent = 'prompt'; pv.className = 'link';
+    pv.onclick = () => { const d = left.querySelector('.pview'); if (d) { d.remove(); return; }
+      const pre = document.createElement('pre'); pre.className = 'pview'; pre.textContent = p.prompt || '(no prompt)';
+      left.appendChild(pre); };
     const sw = document.createElement('label'); sw.className = 'sw';
     const cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = !!p.enabled;
     cb.onchange = async () => {
@@ -267,12 +306,7 @@ function renderPlugins() {
       toast(r.error || (cb.checked ? 'enabled' : 'disabled')); refresh();
     };
     const trk = document.createElement('span'); trk.className = 'tr';
-    sw.append(cb, trk); ctl.appendChild(sw);
-    const pv = document.createElement('button'); pv.textContent = 'prompt'; pv.className = 'ghost'; pv.style.fontSize = '12px'; pv.style.padding = '4px 12px';
-    pv.onclick = () => { const d = left.querySelector('.pview'); if (d) { d.remove(); return; }
-      const pre = document.createElement('pre'); pre.className = 'pview'; pre.textContent = p.prompt || '(no prompt)';
-      left.appendChild(pre); };
-    ctl.appendChild(pv);
+    sw.append(cb, trk); ctl.append(pv, sw);
     plug.append(left, ctl); el.appendChild(plug);
   }
 }
@@ -284,7 +318,7 @@ function renderTranslate() {
   $('tr-lang').value = t.targetLang || 'zh';
   $('tr-mode').value = t.mode || 'bilingual';
   $('tr-hover').checked = !!t.wordHover;
-  $('tr-active').textContent = state.translateProvider || '?';
+  $('tr-active-h').textContent = 'active: ' + (state.translateProvider || '?');
 }
 
 function renderRaw() { $('raw-config').value = JSON.stringify(state.config, null, 2); }
