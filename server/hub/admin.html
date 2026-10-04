@@ -3,83 +3,177 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>AgentBrowser admin</title>
+<title>AgentBrowser — Console</title>
 <style>
-:root{color-scheme:light dark;--fg:#1a1a1a;--mut:#666;--line:#ddd;--acc:#0b5fff;--bg:#fff;--card:#fafafa}
-@media(prefers-color-scheme:dark){:root{--fg:#e6e6e6;--mut:#999;--line:#3a3a3a;--acc:#5b93ff;--bg:#141414;--card:#1d1d1d}}
+:root{
+  --bg:#f6f4ef; --paper:#fffdf9; --ink:#1c1a15; --mut:#8a8577; --line:#e6e0d3;
+  --acc:#c2410c; --acc-soft:#fdf0e7; --on:#0f7b4d; --on-soft:#e8f6ef;
+  --off:#b91c1c; --off-soft:#fdeceb;
+}
 *{box-sizing:border-box}
-body{font:14px/1.5 system-ui,sans-serif;color:var(--fg);background:var(--bg);margin:0;padding:24px;max-width:960px}
-h1{font-size:18px;margin:0 0 4px}
-h2{font-size:14px;margin:24px 0 8px;text-transform:uppercase;letter-spacing:.06em;color:var(--mut)}
-.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px;margin:8px 0}
-.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-label{color:var(--mut);font-size:12px}
-input,select,textarea{font:inherit;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:5px 8px}
-input[type=text],input[type=password]{width:220px}
-button{font:inherit;background:var(--acc);color:#fff;border:0;border-radius:6px;padding:6px 12px;cursor:pointer}
-button.ghost{background:none;color:var(--acc);border:1px solid var(--line)}
-button:disabled{opacity:.5;cursor:default}
-.pill{display:inline-block;padding:2px 8px;border-radius:99px;font-size:12px;border:1px solid var(--line);color:var(--mut)}
-.pill.on{border-color:var(--acc);color:var(--acc)}
-pre{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px;overflow:auto;font-size:12px;max-height:260px;white-space:pre-wrap;word-break:break-all}
-.toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:8px 16px;border-radius:8px;opacity:0;transition:opacity .2s;pointer-events:none}
-.toast.show{opacity:.9}
+body{margin:0;font:15px/1.6 "Avenir Next",Avenir,"Segoe UI",system-ui,sans-serif;color:var(--ink);background:var(--bg)}
+.shell{display:flex;min-height:100vh}
+
+/* ——— left rail ——— */
+.rail{width:200px;flex:none;padding:34px 22px;border-right:1px solid var(--line);position:sticky;top:0;height:100vh}
+.logo{font-family:Georgia,"Times New Roman",serif;font-size:22px;font-style:italic;margin-bottom:4px}
+.logo b{font-style:normal;color:var(--acc)}
+.hub-line{font-size:12px;color:var(--mut);font-family:ui-monospace,Menlo,monospace;margin-bottom:38px}
+.nav a{display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:9px;color:var(--mut);text-decoration:none;font-size:13.5px;margin-bottom:2px}
+.nav a:hover{background:#efece4;color:var(--ink)}
+.nav a.act{background:var(--ink);color:var(--bg)}
+.dot{width:7px;height:7px;border-radius:50%;background:#d8d2c4;flex:none}
+.dot.live{background:var(--on);box-shadow:0 0 0 0 rgba(15,123,77,.4);animation:pulse 2s infinite}
+@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(15,123,77,.35)}70%{box-shadow:0 0 0 7px rgba(15,123,77,0)}100%{box-shadow:0 0 0 0 rgba(15,123,77,0)}}
+.rail .foot{position:absolute;bottom:26px;font-size:11.5px;color:var(--mut);font-family:ui-monospace,monospace}
+
+/* ——— main ——— */
+main{flex:1;padding:40px 48px;max-width:880px}
+header.hero{margin-bottom:34px}
+.hero h1{font-family:Georgia,serif;font-size:38px;font-weight:400;margin:0;letter-spacing:-.5px}
+.hero .sub{color:var(--mut);font-size:13.5px;margin-top:4px}
+section{margin-bottom:34px;scroll-margin-top:20px}
+section h2{font-size:11px;text-transform:uppercase;letter-spacing:.22em;color:var(--acc);margin:0 0 4px;font-weight:600}
+section .hint{color:var(--mut);font-size:13px;margin-bottom:12px}
+.card{background:var(--paper);border:1px solid var(--line);border-radius:16px;padding:18px 20px;box-shadow:0 1px 2px rgba(60,50,20,.04)}
+
+/* browsers */
+#browsers{display:flex;gap:10px;flex-wrap:wrap}
+.bchip{display:flex;align-items:center;gap:8px;background:#f4f1ea;border:1px solid var(--line);border-radius:99px;padding:7px 14px;font-size:13.5px}
+.bchip.primary{background:var(--on-soft);border-color:#bfe3d1;color:var(--on)}
+.bchip .prim{font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;opacity:.75}
+
+/* fields */
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+label{font-size:12px;color:var(--mut)}
+input,select,textarea{font:inherit;color:var(--ink);background:#fff;border:1px solid var(--line);border-radius:9px;padding:7px 11px;outline:none;transition:border-color .15s,box-shadow .15s}
+input:focus,select:focus,textarea:focus{border-color:var(--acc);box-shadow:0 0 0 3px var(--acc-soft)}
+input[type=text],input[type=password]{width:200px}
+button{font:inherit;font-size:13.5px;background:var(--ink);color:var(--bg);border:0;border-radius:99px;padding:8px 18px;cursor:pointer;transition:transform .1s,opacity .15s}
+button:hover{transform:translateY(-1px)}
+button.ghost{background:none;color:var(--ink);border:1px solid var(--line)}
+button:disabled{opacity:.45;cursor:default;transform:none}
+.pill{display:inline-flex;align-items:center;gap:6px;padding:3px 11px;border-radius:99px;font-size:12px;border:1px solid var(--line);color:var(--mut);background:#f4f1ea}
+.pill.on{background:var(--on-soft);border-color:#bfe3d1;color:var(--on)}
+.pill.bad{background:var(--off-soft);border-color:#f3c5c0;color:var(--off)}
+
+/* keys */
 table{border-collapse:collapse;width:100%}
-td,th{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);font-size:13px}
-th{color:var(--mut);font-weight:500;font-size:12px}
-.sub{color:var(--mut);font-size:12px}
+td,th{text-align:left;padding:9px 8px;font-size:14px}
+th{color:var(--mut);font-weight:500;font-size:11px;text-transform:uppercase;letter-spacing:.12em;border-bottom:1px solid var(--line)}
+tr td{border-bottom:1px solid #f0ece1}
+tr:last-child td{border-bottom:0}
+
+/* plugins */
+.plug{display:flex;justify-content:space-between;gap:16px;padding:15px 0;border-bottom:1px solid #f0ece1}
+.plug:last-child{border-bottom:0;padding-bottom:2px}
+.plug:first-child{padding-top:2px}
+.plug .pname{font-size:15px;font-weight:600;display:flex;align-items:center;gap:9px}
+.plug .pmeta{font-size:12px;color:var(--mut);font-family:ui-monospace,monospace}
+.plug .pdesc{font-size:13px;color:var(--mut);margin:3px 0 6px}
+.plug .ptools{font-size:11.5px;color:var(--mut);font-family:ui-monospace,monospace}
+.plug .pview{margin-top:10px}
+/* toggle */
+.sw{position:relative;width:44px;height:24px;flex:none;cursor:pointer}
+.sw input{opacity:0;width:0;height:0}
+.sw .tr{position:absolute;inset:0;background:#ddd6c7;border-radius:99px;transition:.2s}
+.sw .tr:before{content:"";position:absolute;width:18px;height:18px;left:3px;top:3px;background:#fff;border-radius:50%;transition:.2s;box-shadow:0 1px 3px rgba(0,0,0,.2)}
+.sw input:checked+.tr{background:var(--on)}
+.sw input:checked+.tr:before{transform:translateX(20px)}
+.plug .ctl{display:flex;flex-direction:column;align-items:flex-end;gap:8px;flex:none}
+
+pre{background:#f4f1ea;border:1px solid var(--line);border-radius:12px;padding:12px 14px;overflow:auto;font-size:12px;max-height:240px;white-space:pre-wrap;word-break:break-all;font-family:ui-monospace,Menlo,monospace}
+#raw-config{width:100%;height:200px;font-family:ui-monospace,Menlo,monospace;font-size:12.5px;background:#f4f1ea;border-radius:12px;padding:14px}
+.sub{color:var(--mut);font-size:13px}
+.toast{position:fixed;bottom:22px;left:50%;transform:translate(-50%,20px);background:var(--ink);color:var(--bg);padding:10px 22px;border-radius:99px;font-size:13.5px;opacity:0;transition:all .25s;pointer-events:none}
+.toast.show{opacity:.95;transform:translate(-50%,0)}
+@media(max-width:760px){.rail{display:none}main{padding:28px 20px}}
 </style>
 </head>
 <body>
-<h1>AgentBrowser admin</h1>
-<div class="sub" id="hub-line">hub <span id="hub-port"></span></div>
-
-<h2>Browsers</h2>
-<div class="card"><div id="browsers" class="sub">none connected</div></div>
-
-<h2>Backend</h2>
-<div class="card">
-  <div class="row">
-    <label>adapter</label><select id="adapter"></select>
-    <label>model</label><select id="model"></select>
-    <button id="save-backend">Save</button>
-    <span class="sub">applies to the next chat session</span>
+<div class="shell">
+<nav class="rail">
+  <div class="logo">Agent<b>Browser</b></div>
+  <div class="hub-line">hub <span id="hub-port"></span></div>
+  <div class="nav" id="nav">
+    <a href="#browsers-sec"><span class="dot" id="nav-dot"></span>Overview</a>
+    <a href="#backend-sec">Backend</a>
+    <a href="#keys-sec">API keys</a>
+    <a href="#plugins-sec">Plugins</a>
+    <a href="#translate-sec">Translation</a>
+    <a href="#raw-sec">Config</a>
   </div>
-  <div id="adapter-list" style="margin-top:10px"></div>
-</div>
+  <div class="foot">protocol v2.17</div>
+</nav>
 
-<h2>API keys</h2>
-<div class="card"><table id="keys"><tr><th>provider</th><th>status</th><th></th></tr></table></div>
+<main>
+<header class="hero">
+  <h1>Console<span style="color:var(--acc)">.</span></h1>
+  <div class="sub" id="hero-line">connecting to hub…</div>
+</header>
 
-<h2>Plugins</h2>
-<div class="card"><div id="plugins"></div></div>
+<section id="browsers-sec">
+  <h2>Browsers</h2>
+  <div class="hint">extensions connected to this hub — the primary one answers unscoped calls</div>
+  <div class="card"><div id="browsers"></div></div>
+</section>
 
-<h2>Translation</h2>
-<div class="card">
-  <div class="row">
-    <label>provider</label><select id="tr-provider">
-      <option>auto</option><option>openai</option><option>anthropic</option>
-      <option>deepl</option><option>microsoft</option><option>free</option>
-    </select>
-    <label>model</label><input type="text" id="tr-model" placeholder="provider default">
-    <label>target</label><input type="text" id="tr-lang" style="width:80px">
-    <label>mode</label><select id="tr-mode">
-      <option>bilingual</option><option>card</option><option>dim</option>
-      <option>replace</option><option>ondemand</option>
-    </select>
-    <label><input type="checkbox" id="tr-hover"> word hover</label>
-    <button id="save-translate">Save</button>
+<section id="backend-sec">
+  <h2>Backend</h2>
+  <div class="hint">adapter + model for new chat sessions</div>
+  <div class="card">
+    <div class="row">
+      <label>adapter</label><select id="adapter"></select>
+      <label>model</label><select id="model"></select>
+      <button id="save-backend">Save</button>
+    </div>
+    <div id="adapter-list" style="margin-top:12px"></div>
   </div>
-  <div class="sub" style="margin-top:6px">active provider: <span id="tr-active">?</span></div>
-</div>
+</section>
 
-<h2>config.json</h2>
-<div class="card">
-  <textarea id="raw-config" style="width:100%;height:180px;font-family:ui-monospace,monospace;font-size:12px"></textarea>
-  <div class="row" style="margin-top:8px">
-    <button id="save-config">Save config</button>
-    <span class="sub">raw edit — invalid JSON is rejected before saving</span>
+<section id="keys-sec">
+  <h2>API keys</h2>
+  <div class="hint">stored in the keystore — values are never read back</div>
+  <div class="card"><table id="keys"><tr><th>provider</th><th>status</th><th></th></tr></table></div>
+</section>
+
+<section id="plugins-sec">
+  <h2>Plugins</h2>
+  <div class="hint">plugin.json packs — enabled ones inject prompts and gate tools per session</div>
+  <div class="card"><div id="plugins"></div></div>
+</section>
+
+<section id="translate-sec">
+  <h2>Translation</h2>
+  <div class="hint">page-translation pipeline defaults</div>
+  <div class="card">
+    <div class="row">
+      <label>provider</label><select id="tr-provider">
+        <option>auto</option><option>openai</option><option>anthropic</option>
+        <option>deepl</option><option>microsoft</option><option>free</option>
+      </select>
+      <label>model</label><input type="text" id="tr-model" placeholder="provider default">
+      <label>target</label><input type="text" id="tr-lang" style="width:76px">
+      <label>mode</label><select id="tr-mode">
+        <option>bilingual</option><option>card</option><option>dim</option>
+        <option>replace</option><option>ondemand</option>
+      </select>
+      <label><input type="checkbox" id="tr-hover"> word hover</label>
+      <button id="save-translate">Save</button>
+    </div>
+    <div class="sub" style="margin-top:10px">active provider: <b id="tr-active">?</b></div>
   </div>
+</section>
+
+<section id="raw-sec">
+  <h2>config.json</h2>
+  <div class="hint">raw editor — invalid JSON rejected before saving</div>
+  <div class="card">
+    <textarea id="raw-config"></textarea>
+    <div class="row" style="margin-top:10px"><button id="save-config">Save config</button></div>
+  </div>
+</section>
+</main>
 </div>
 
 <div class="toast" id="toast"></div>
@@ -98,14 +192,19 @@ const esc = (s) => String(s ?? '').replace(/[&<>]/g, (c) => ({'&':'&amp;','<':'&
 async function refresh() {
   state = await api('state');
   $('hub-port').textContent = location.host;
+  const n = (state.browsers || []).length;
+  $('nav-dot').className = 'dot' + (n ? ' live' : '');
+  $('hero-line').textContent = n
+    ? `${n} browser${n > 1 ? 's' : ''} online · adapter ${state.config.adapter || '?'} · ${(state.plugins || []).filter(p => p.enabled).length}/${(state.plugins || []).length} plugins on`
+    : 'hub is up — no browsers connected yet';
   renderBrowsers(); renderBackend(); renderKeys(); renderPlugins(); renderTranslate(); renderRaw();
 }
 
 function renderBrowsers() {
   const el = $('browsers');
   const list = state.browsers || [];
-  el.innerHTML = list.length === 0 ? 'none connected'
-    : list.map(b => `<span class="pill ${b.default ? 'on' : ''}">${esc(b.name)}${b.default ? ' · primary' : ''}</span>`).join(' ');
+  el.innerHTML = list.length === 0 ? '<span class="sub">none connected — install the extension to link a browser</span>'
+    : list.map(b => `<span class="bchip ${b.default ? 'primary' : ''}"><span class="dot ${b.default ? 'live' : ''}"></span>${esc(b.name)}${b.default ? '<span class="prim">primary</span>' : ''}</span>`).join('');
 }
 
 function renderBackend() {
@@ -128,7 +227,7 @@ function renderBackend() {
   };
   sel.onchange = fillModels; fillModels();
   $('adapter-list').innerHTML = (state.adapters || []).map(a =>
-    `<div class="sub">${esc(a.name)} — ${esc(a.label)}${a.keyConfigured ? ' · key set' : ''}${a.ready === false ? ' · not ready' : ''}</div>`).join('');
+    `<div class="sub" style="padding:3px 0"><span class="pill ${a.keyConfigured ? 'on' : ''}">${esc(a.name)}</span> ${esc(a.label)}${a.ready === false ? ' · not ready' : ''}</div>`).join('');
 }
 
 function renderKeys() {
@@ -136,7 +235,7 @@ function renderKeys() {
   t.innerHTML = '<tr><th>provider</th><th>status</th><th></th></tr>';
   for (const p of Object.keys(state.keys || {})) {
     const tr = document.createElement('tr');
-    tr.innerHTML = `<td>${esc(p)}</td><td>${state.keys[p] ? '<span class="pill on">configured</span>' : '<span class="pill">missing</span>'}</td><td></td>`;
+    tr.innerHTML = `<td style="font-weight:500">${esc(p)}</td><td>${state.keys[p] ? '<span class="pill on">configured</span>' : '<span class="pill bad">missing</span>'}</td><td></td>`;
     const td = tr.lastChild, inp = document.createElement('input');
     inp.type = 'password'; inp.placeholder = state.keys[p] ? 'replace key' : 'paste key'; inp.style.width = '180px';
     const b1 = document.createElement('button'); b1.textContent = 'Save';
@@ -150,20 +249,27 @@ function renderKeys() {
 function renderPlugins() {
   const el = $('plugins'); el.innerHTML = '';
   for (const p of state.plugins || []) {
-    const card = document.createElement('div');
-    card.style.cssText = 'border:1px solid var(--line);border-radius:8px;padding:10px;margin:6px 0';
-    card.innerHTML = `<div class="row"><b>${esc(p.name)}</b><span class="pill ${p.enabled ? 'on' : ''}">${p.enabled ? 'on' : 'off'}</span>
-      <span class="sub">v${esc(p.version)}${p.builtin ? ' · built-in' : ''}</span></div>
-      <div class="sub" style="margin:6px 0">${esc(p.description)}</div>
-      <div class="sub">tools: ${esc((p.tools || []).join(', ') || 'none')}</div>`;
-    const row = document.createElement('div'); row.className = 'row'; row.style.marginTop = '8px';
-    const b = document.createElement('button'); b.textContent = p.enabled ? 'Disable' : 'Enable';
-    b.onclick = async () => { const r = await api('plugin', { id: p.id, enabled: !p.enabled }); toast(r.error || 'saved'); refresh(); };
-    const pv = document.createElement('button'); pv.textContent = 'prompt'; pv.className = 'ghost';
-    pv.onclick = () => { const d = card.querySelector('.pview'); if (d) { d.remove(); return; }
+    const plug = document.createElement('div');
+    plug.className = 'plug';
+    const left = document.createElement('div');
+    left.innerHTML = `<div class="pname">${esc(p.name)} <span class="pmeta">v${esc(p.version)}${p.builtin ? ' · built-in' : ''}</span></div>
+      <div class="pdesc">${esc(p.description)}</div>
+      <div class="ptools">${esc((p.tools || []).join(', ') || 'no tools')}</div>`;
+    const ctl = document.createElement('div'); ctl.className = 'ctl';
+    const sw = document.createElement('label'); sw.className = 'sw';
+    const cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = !!p.enabled;
+    cb.onchange = async () => {
+      const r = await api('plugin', { id: p.id, enabled: cb.checked });
+      toast(r.error || (cb.checked ? 'enabled' : 'disabled')); refresh();
+    };
+    const trk = document.createElement('span'); trk.className = 'tr';
+    sw.append(cb, trk); ctl.appendChild(sw);
+    const pv = document.createElement('button'); pv.textContent = 'prompt'; pv.className = 'ghost'; pv.style.fontSize = '12px'; pv.style.padding = '4px 12px';
+    pv.onclick = () => { const d = left.querySelector('.pview'); if (d) { d.remove(); return; }
       const pre = document.createElement('pre'); pre.className = 'pview'; pre.textContent = p.prompt || '(no prompt)';
-      card.appendChild(pre); };
-    row.append(b, ' ', pv); card.appendChild(row); el.appendChild(card);
+      left.appendChild(pre); };
+    ctl.appendChild(pv);
+    plug.append(left, ctl); el.appendChild(plug);
   }
 }
 
