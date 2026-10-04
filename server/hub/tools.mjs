@@ -929,6 +929,54 @@ export const TOOLS = [
     name: "translate_cache_clear",
     description: "Clear both translation caches (in-memory LRU and the persisted ~/.agentchat/translate-cache.json) (v2.15). Subsequent paragraphs re-translate. Answered by the hub — no tab needed.",
     args: { type: "object", properties: {}, required: [] }
+  },
+  {
+    name: "subtitle_translate",
+    description: "Bilingual subtitle overlay on YouTube / bilibili videos (v2.16): fetches the video's caption track, translates it through the page-translation pipeline, and renders the original line plus the translation over the player, synced to playback. The call returns once the overlay is running.",
+    args: {
+      type: "object",
+      properties: {
+        targetLang: { type: "string", description: "Language code for the translation line (default zh)" },
+        trackLang: { type: "string", description: "Preferred source caption language code when the video has several tracks" },
+        tabId: { type: "number", description: "Target tab id; omit for the active tab" }
+      },
+      required: []
+    }
+  },
+  {
+    name: "subtitle_stop",
+    description: "Remove the bilingual subtitle overlay from the tab (v2.16).",
+    args: {
+      type: "object",
+      properties: {
+        tabId: { type: "number", description: "Target tab id; omit for the active tab" }
+      },
+      required: []
+    }
+  },
+  {
+    name: "subtitle_status",
+    description: "Subtitle overlay state on a tab (v2.16): {running, cues, translated, queue, inflight, activeCue}.",
+    args: {
+      type: "object",
+      properties: {
+        tabId: { type: "number", description: "Target tab id; omit for the active tab" }
+      },
+      required: []
+    }
+  },
+  {
+    name: "transcript_get",
+    description: "Caption transcript of the YouTube / bilibili video in the tab (v2.16): {site, videoId, track:{lang,name}, total, cues:[{start,end,text}]} — ground answers about what the user is watching without downloading the video. aroundSec narrows to a window around the playhead (e.g. 'what is it saying right now').",
+    args: {
+      type: "object",
+      properties: {
+        lang: { type: "string", description: "Preferred caption language code when the video has several tracks" },
+        aroundSec: { type: "number", description: "Only cues within ±seconds of the current playhead" },
+        tabId: { type: "number", description: "Target tab id; omit for the active tab" }
+      },
+      required: []
+    }
   }
 ];
 

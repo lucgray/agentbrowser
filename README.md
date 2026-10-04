@@ -516,6 +516,24 @@ hover).
   answered by the hub itself, so a future web client can drive the same
   surface.
 
+### Video subtitles
+
+`subtitle_translate` brings the same pipeline to YouTube and bilibili
+watch pages: the video's caption track is fetched in the background,
+translated, and shown as a bilingual overlay synced to playback.
+`transcript_get` hands the agent the transcript itself — it can answer
+"what is this video saying" (or `aroundSec` → "what did it just say")
+without touching the page DOM.
+
+> Design credit: the bilingual-in-player approach follows
+> [mengxi-ream/read-frog](https://github.com/mengxi-ream/read-frog)'s
+> subtitle idea, and the bilibili track discovery
+> (`pagelist` → `x/player/v2` → `subtitle_url`) mirrors the route
+> community subtitle extensions take. Both were reimplemented here —
+> fetches run in the service worker (no page-context CORS dance) and
+> cues flow through our own batching/cache/rate-limit pipeline instead
+> of a per-site translator.
+
 ## Multiple browsers on one hub
 
 Several Chrome-family browsers or profiles can run the extension against
@@ -565,6 +583,10 @@ agentbrowser navigate '{"url":"https://x","browser":"Edge"}'
 | `translate_recent` | `{n?}` | `{recent:[{text, translation, targetLang, provider, ts}]}` (hub-answered) |
 | `translate_stats` | `{}` | provider/cache/rate-limit state (hub-answered) |
 | `translate_cache_clear` | `{}` | clears both translation caches (hub-answered) |
+| `subtitle_translate` | `{targetLang?, trackLang?, tabId?}` | bilingual subtitle overlay on YouTube/bilibili |
+| `subtitle_stop` | `{tabId?}` | removes the overlay |
+| `subtitle_status` | `{tabId?}` | `{running, cues, translated, queue, inflight}` |
+| `transcript_get` | `{lang?, aroundSec?, tabId?}` | `{site, videoId, track, cues:[{start,end,text}]}` |
 
 `tabId` omitted means the active tab. The service worker attaches the
 debugger on demand, serializes commands per tab, and re-attaches if Chrome
