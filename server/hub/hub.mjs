@@ -11,6 +11,12 @@ import os from "node:os";
 import path from "node:path";
 import { WebSocketServer } from "ws";
 import { TOOLS } from "./tools.mjs";
+import {
+  describePlugins,
+  effectiveTools,
+  pluginPrompt,
+  toolVisible
+} from "./plugins.mjs";
 import { createTranslator } from "./translate.mjs";
 import { loadCatalog } from "../adapters/model-catalog.mjs";
 import {
@@ -506,6 +512,17 @@ const HUB_TRANSLATE_TOOLS = new Set([
   "translate_stats", "translate_recent", "translate_cache_clear",
 ]);
 
+// Config handed to adapters at session creation: plugin prompt fragments are
+// appended after the user's own systemPromptExtra (v2.17).
+function sessionConfig() {
+  const plugin = pluginPrompt(config);
+  if (!plugin) return config;
+  const extra = config.systemPromptExtra
+    ? `${config.systemPromptExtra}\n\n${plugin}`
+    : plugin;
+  return { ...config, systemPromptExtra: extra };
+}
+
 function hubTranslateTool(tool, args = {}) {
   if (tool === "translate_stats") return translator.stats();
   if (tool === "translate_recent") return { recent: translator.recentList(args.n) };
@@ -515,7 +532,13 @@ function hubTranslateTool(tool, args = {}) {
 function callBrowserTool(tool, args = {}, opts = {}) {
   const boundId = opts.browserId || null;
   if (HUB_TRANSLATE_TOOLS.has(tool)) {
-    return Promise.resolve(hubTranslateTool(tool, args));
+    // A disabled plugin hides its tools from agents AND stops the hub from
+    // answering them — fall through to the extension path for a clean
+    // "unknown tool" instead of a phantom success.
+    if (toolVisible(tool, config)) {
+      return Promise.resolve(hubTranslateTool(tool, args));
+    }
+    return Promise.reject(new Error(`tool hidden by disabled plugin: ${tool}`));
   }
   if (tool === "browsers_list") {
     const target = resolveBrowserTarget(args.browser, boundId);
@@ -1167,7 +1190,10 @@ async function buildCapabilities() {
         adapter: null,
         prompt: null
       }
-    }
+    },
+    // Plugin layer (v2.17): enabled state + what each plugin exposes, so the
+    // panel (and later the web admin) can render on/off controls.
+    plugins: describePlugins(config)
   };
 }
 
@@ -1296,10 +1322,10 @@ async function getSessionEntry(chatId, adapterName, model, emit, { abortRunning 
     : model || descriptor.defaultModel || null;
   const session = await mod.createSession(adapterName, {
     callBrowserTool: chatScopedBrowserTool(chatId),
-    config,
+    config: sessionConfig(),
     model: model || null,
     getApiKey,
-    tools: TOOLS
+    tools: effectiveTools(config)
   });
   entry = { session, adapterName, model: resolvedModel, lastUsed: Date.now() };
   sessions.set(chatId, entry);
@@ -1594,10 +1620,10 @@ async function handleCommand(ws, msg) {
         const mod = await loadAdapterModule();
         const laneSession = await mod.createSession(adapterName, {
           callBrowserTool: chatScopedBrowserTool(chatId),
-          config,
+          config: sessionConfig(),
           model: requestedModel || null,
           getApiKey,
-          tools: TOOLS
+          tools: effectiveTools(config)
         });
         record.laneSessions.add(laneSession);
         return laneSession;
@@ -1782,6 +1808,13 @@ function handleHarnessToolCall(ws, msg) {
   const { id, tool } = msg;
   const args = msg.args && typeof msg.args === "object" ? msg.args : {};
   if (HUB_TRANSLATE_TOOLS.has(tool)) {
+    if (!toolVisible(tool, config)) {
+      safeSend(ws, {
+        type: "tool_result", id, ok: false,
+        error: `tool hidden by disabled plugin: ${tool}`
+      });
+      return;
+    }
     safeSend(ws, { type: "tool_result", id, ok: true, result: hubTranslateTool(tool, args) });
     return;
   }
@@ -1860,13 +1893,56 @@ function handleMessage(ws, msg) {
       handleSetTranslateConfig(ws, msg).catch((err) => log("set_translate_config failed:", err && err.message));
     else if (msg.type === "get_translate_config")
       handleGetTranslateConfig(ws).catch((err) => log("get_translate_config failed:", err && err.message));
-    else if (msg.type === "translate_stats")
-      safeSend(ws, { type: "translate_admin_result", op: "stats", result: translator.stats() });
-    else if (msg.type === "translate_recent")
-      safeSend(ws, { type: "translate_admin_result", op: "recent", result: { recent: translator.recentList(msg.n) } });
-    else if (msg.type === "translate_cache_clear")
-      safeSend(ws, { type: "translate_admin_result", op: "cache_clear", result: translator.clearCache() });
+    else if (msg.type === "translate_stats" || msg.type === "translate_recent" || msg.type === "translate_cache_clear")
+      handleTranslateAdmin(ws, msg);
+    else if (msg.type === "plugins_list") handlePluginsList(ws);
+    else if (msg.type === "plugin_set") handlePluginSet(ws, msg);
   }
+}
+
+// Direct-wire translate admin messages (v2.15) — gated by plugin visibility
+// like the tool path; a disabled translate plugin stops these too.
+function handleTranslateAdmin(ws, msg) {
+  const ops = {
+    translate_stats: ["stats", () => translator.stats()],
+    translate_recent: ["recent", () => ({ recent: translator.recentList(msg.n) })],
+    translate_cache_clear: ["cache_clear", () => translator.clearCache()],
+  };
+  const [op, fn] = ops[msg.type];
+  if (!toolVisible(msg.type, config)) {
+    safeSend(ws, { type: "translate_admin_result", op, error: "translate plugin disabled" });
+    return;
+  }
+  safeSend(ws, { type: "translate_admin_result", op, result: fn() });
+}
+
+// Plugin layer wire messages (v2.17): list what is installed + flip enabled
+// state; plugin_set persists to config.json and re-broadcasts capabilities.
+function handlePluginsList(ws) {
+  safeSend(ws, { type: "plugins", plugins: describePlugins(config) });
+}
+
+function handlePluginSet(ws, msg) {
+  const id = msg && typeof msg.id === "string" ? msg.id : null;
+  const enabled = msg && typeof msg.enabled === "boolean" ? msg.enabled : null;
+  if (!id || enabled === null) {
+    safeSend(ws, { type: "error", error: "plugin_set needs {id, enabled}" });
+    return;
+  }
+  const found = describePlugins(config).some((p) => p.id === id);
+  if (!found) {
+    safeSend(ws, { type: "error", error: `unknown plugin: ${id}` });
+    return;
+  }
+  config.plugins = { ...(config.plugins || {}), [id]: { enabled } };
+  try {
+    writeFileSync(path.join(__dirname, "config.json"), JSON.stringify(config, null, 2));
+  } catch (err) {
+    log("config.json persist failed:", err && err.message);
+  }
+  log(`plugin ${id} ${enabled ? "enabled" : "disabled"}`);
+  safeSend(ws, { type: "plugins", plugins: describePlugins(config) });
+  broadcastCapabilities();
 }
 
 // translate_request (extension -> hub): one paragraph batch or a single-word

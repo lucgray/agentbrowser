@@ -534,6 +534,16 @@ without touching the page DOM.
 > cues flow through our own batching/cache/rate-limit pipeline instead
 > of a per-site translator.
 
+## Plugins
+
+Feature packs the hub loads at session creation: each `plugin.json` injects
+a prompt fragment into the agent's system prompt and gates the tools it
+owns — disable a plugin and its tools disappear from the tool table. Drop a
+directory into `~/.agentchat/plugins/` to install one; toggle it in
+`config.json`, via `plugin_set`, or on the admin page. The bundled
+`translate` plugin carries all translate/subtitle tools. Authoring spec:
+[PLUGINS.md](PLUGINS.md).
+
 ## Multiple browsers on one hub
 
 Several Chrome-family browsers or profiles can run the extension against

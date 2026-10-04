@@ -3419,6 +3419,16 @@ async function init() {
     }
   });
 
+  // Paste images/files straight into the composer: clipboardData.files holds
+  // screenshots and copied files; a paste with no files falls through to the
+  // default text insertion untouched.
+  inputEl.addEventListener("paste", (e) => {
+    const files = e.clipboardData && e.clipboardData.files;
+    if (!files || files.length === 0) return;
+    e.preventDefault();
+    addFiles(files);
+  });
+
   inputEl.addEventListener("input", () => {
     autoGrow();
     updatePalette();

@@ -1281,6 +1281,35 @@ inspiration credited in the README: bilingual-in-player rendering follows
 the read-frog approach; the bilibili track discovery mirrors what
 community subtitle extensions do — both reimplemented here.
 
+## Plugin layer, v2.17
+
+Plugins are feature packs loaded from `server/plugins/` (built-in) and
+`~/.agentchat/plugins/` (user). Each is a `plugin.json` declaring a prompt
+fragment and tool ownership — see PLUGINS.md for the authoring spec.
+
+- **Prompt injection**: enabled plugins' `prompt` strings are appended to the
+  system prompt after `systemPromptExtra`, as `## Plugin: <name>` blocks,
+  at session creation (`sessionConfig()` in hub.mjs).
+- **Tool gating**: `exposeTools` names existing `tools.mjs` entries the
+  plugin owns; disabling a plugin filters them out of `effectiveTools()`
+  (the table handed to adapters) and blocks hub-answered tools and the
+  direct-wire translate admin messages with `tool hidden by disabled
+  plugin: <name>` / `translate plugin disabled`. `extraTools` appends new
+  schemas while enabled.
+- **State**: `config.plugins.<id>.enabled` overrides the manifest default
+  and persists to `config.json`.
+
+Wire messages (extension role):
+
+- `{type:"plugins_list"}` → `{type:"plugins", plugins:[{id, name, version,
+  description, enabled, builtin, tools}]}`
+- `{type:"plugin_set", id, enabled}` → same `plugins` reply, persists
+  config, and re-broadcasts `capabilities` (which now also carries
+  `plugins`).
+
+The built-in `translate` plugin owns every translate_*/subtitle_*/
+transcript_* tool — the first consumer of this layer.
+
 ## mcp-proxy.mjs
 
 Stdio MCP server (use `@modelcontextprotocol/sdk`, installed) exposing the ten
