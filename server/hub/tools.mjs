@@ -980,14 +980,13 @@ export const TOOLS = [
   },
   {
     name: "video_download",
-    description: "Download a video via yt-dlp on the hub machine (v2.18): {ok, file?, error?}. Works for YouTube, bilibili, X and ~1800 other sites yt-dlp supports. url may be omitted to download the tab the chat is bound to (pass tabId to use that tab's url). Requires yt-dlp installed on the hub host (pipx install yt-dlp, or python3 -m pip install yt-dlp).",
+    description: "Download a video via yt-dlp on the hub machine (v2.18): {ok, file?, error?}. Works for YouTube, bilibili, X and ~1800 other sites yt-dlp supports. url may be omitted to download the tab the chat is bound to. Requires yt-dlp installed on the hub host (pipx install yt-dlp, or python3 -m pip install yt-dlp).",
     args: {
       type: "object",
       properties: {
         url: { type: "string", description: "Video page URL; omit to use the bound/current tab's url" },
         format: { type: "string", description: "yt-dlp -f selector, e.g. 'bv*+ba/b' or 'mp4'; omit for yt-dlp default" },
-        dir: { type: "string", description: "Output directory (default ~/.agentchat/downloads)" },
-        tabId: { type: "number", description: "Tab whose url to download when url is omitted" }
+        dir: { type: "string", description: "Output directory (default ~/.agentchat/downloads)" }
       },
       required: []
     }

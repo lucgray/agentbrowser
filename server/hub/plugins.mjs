@@ -132,7 +132,13 @@ export function effectiveTools(config) {
   for (const p of listPlugins()) {
     if (!isEnabled(p, config)) continue;
     for (const t of p.extraTools) {
-      if (t && typeof t === "object" && t.name) extra.push(t);
+      if (!t || typeof t !== "object" || !t.name) continue;
+      // A plugin must not shadow a core tool — drop the collision.
+      if (KNOWN_TOOL_NAMES.has(t.name)) {
+        logWarn(`[plugins] ${p.id} extraTool "${t.name}" collides with a core tool — skipped`);
+        continue;
+      }
+      extra.push(t);
     }
   }
   return [...TOOLS.filter((t) => !hidden.has(t.name)), ...extra];

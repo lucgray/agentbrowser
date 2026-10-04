@@ -501,7 +501,9 @@ function hideTrPop() {
 function barRectEstimate(left, top) {
   if (floatBtn && !floatBtn.classList.contains("agentbrowser-hidden")) {
     const r = floatBtn.getBoundingClientRect();
-    if (r.width > 0) return { left, top: top - window.scrollY, width: r.width, height: r.height };
+    if (r.width > 0) {
+      return { left: left - window.scrollX, top: top - window.scrollY, width: r.width, height: r.height };
+    }
   }
   return { left: left - window.scrollX, top: top - window.scrollY, width: 190, height: 30 };
 }
