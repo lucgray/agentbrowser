@@ -340,6 +340,14 @@ export function onResult(msg) {
     console.warn('[agentbrowser] subtitle translate request failed:', msg.error);
     return true;
   }
+  // Mirror translations into the session's cue copy so transcriptWindow can
+  // hand bilingual lines to the "@" ask flow (keys are global cue indexes).
+  if (msg.results && typeof msg.results === 'object') {
+    for (const k in msg.results) {
+      const c = s.cues && s.cues[Number(k)];
+      if (c && msg.results[k]) c.translated = String(msg.results[k]);
+    }
+  }
   const req = Number(String(msg.id || '').split('-').pop()) || 0;
   evalRaw(
     tabId,

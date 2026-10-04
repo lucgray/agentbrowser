@@ -1895,7 +1895,12 @@ function handleHarnessToolCall(ws, msg) {
       });
       return;
     }
-    safeSend(ws, { type: "tool_result", id, ok: true, result: hubTranslateTool(tool, args) });
+    // video_download is async; resolve before serializing or the harness
+    // gets "{}".
+    Promise.resolve(hubTranslateTool(tool, args)).then(
+      (result) => safeSend(ws, { type: "tool_result", id, ok: true, result }),
+      (err) => safeSend(ws, { type: "tool_result", id, ok: false, error: String((err && err.message) || err) })
+    );
     return;
   }
   if (tool === "browsers_list") {
