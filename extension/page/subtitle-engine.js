@@ -80,11 +80,17 @@
       var bvid = /\/video\/(BV[\w]+)/.exec(location.pathname);
       var st = window.__INITIAL_STATE__ || {};
       var vd = st.videoData || {};
+      // videoData can describe a different video right after SPA navigation
+      // or when the feed page preloaded state — only trust its cid when its
+      // bvid matches the URL. page (?p=N) disambiguates multi-part videos.
+      var urlBvid = bvid ? bvid[1] : (vd.bvid || null);
+      var pageNo = /[?&]p=(\d+)/.exec(location.search);
       return {
         site: site,
-        bvid: bvid ? bvid[1] : (vd.bvid || null),
-        aid: vd.aid || null,
-        cid: vd.cid || st.cid || window.cid || null,
+        bvid: urlBvid,
+        aid: vd.bvid === urlBvid ? vd.aid || null : null,
+        cid: vd.bvid === urlBvid ? vd.cid || null : null,
+        page: pageNo ? Number(pageNo[1]) || 0 : 0,
       };
     }
     if (site === 'x') {
