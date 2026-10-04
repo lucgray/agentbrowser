@@ -1,4 +1,4 @@
-# AgentBrowser protocol v2.14
+# AgentBrowser protocol v2.21
 
 AgentBrowser is a Chrome MV3 extension with a side-panel chat UI, plus a local hub
 server. The chat is backed by a pluggable "harness" (Claude Agent SDK, Claude
@@ -1442,7 +1442,9 @@ The media affordance is a menu, not a bare ask: one icon, two actions
   bilibili into `.bpx-player-control-bottom-right` (or the legacy
   `.bilibili-player-video-control-bottom-right`). The hovered `<video>`'s
   ancestors are probed for the site's bar selector; the icon is a plain
-  button (`button.ab-media-cb`) prepended into the right-controls group.
+  button (`button.ab-media-cb`) inserted just left of the site's fullscreen
+  button — if the anchor isn't mounted yet it lands at the bar's far end
+  and a short-lived observer moves it when the anchor appears.
   Sites without a recognized control bar (X, self-hosted players) and
   images keep the floating `@` chip at the media's top-left — same menu.
 
@@ -1453,12 +1455,27 @@ The media affordance is a menu, not a bare ask: one icon, two actions
 
 - **`media_download` / `media_download_result` (extension ↔ hub)**: the
   hub runs `runVideoDownload({url})` (yt-dlp into `~/.agentchat/downloads`)
-  and replies `{type:'media_download_result', id, ok, file?|error?}` on
-  the same socket. SW resolves the tabId from `mediaDlTabs` and pushes
+  and replies `{type:'media_download_result', id, ok, file?|error?, dl?}`
+  on the same socket. On success the file is registered for `GET /dl/<id>`
+  on the hub's HTTP port (30min TTL); SW hands that URL to
+  `chrome.downloads` so the file lands in the browser's own Downloads and
+  shows in its download history, then pushes
   `{target:'video-ask', cmd:'download_result', ok, file, error}` to that
   tab, where the menu item flips 下载中… → 已保存/下载失败 and a toast
   shows the path or error. Fire-and-forget end to end: no sendResponse is
   held across a download that can take minutes.
+
+## Fullscreen floaters + bilibili subtitle cookies, v2.21
+
+- **Fullscreen hosting**: native fullscreen only renders the fullscreen
+  element's subtree, so the menu / toast / learn popup / floating chip all
+  mount on `document.fullscreenElement` when one is active (and move back
+  on `fullscreenchange`). bilibili fullscreens its player container —
+  without this the control-bar icon's menu was invisible there.
+- **bilibili subtitle auth**: the web subtitle API (`x/player/v2`,
+  `x/player/wbi/v2`, both tried) returns an empty track list to anonymous
+  callers; the SW now fetches api.bilibili.com with
+  `credentials:'include'` so a logged-in session unlocks AI tracks.
 
 ## mcp-proxy.mjs
 

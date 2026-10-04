@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>AgentBrowser — Console</title>
+<link rel="icon" href="/admin/logo.png">
 <style>
 :root{
   --bg:#f7f7f8; --card:#ffffff; --ink:#18181b; --mut:#71717a; --line:#e4e4e7;
@@ -16,7 +17,7 @@ body{margin:0;font:14px/1.55 "Inter",-apple-system,"Segoe UI",system-ui,sans-ser
 
 /* ——— top bar ——— */
 .topbar{position:sticky;top:0;z-index:10;display:flex;align-items:center;gap:12px;height:56px;padding:0 24px;background:rgba(255,255,255,.85);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
-.mark{width:28px;height:28px;border-radius:8px;background:linear-gradient(135deg,#4f46e5,#7c3aed);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:12px;letter-spacing:-.02em}
+.mark{width:28px;height:28px}
 .wordmark{font-weight:600;font-size:15px;letter-spacing:-.01em}
 .wordmark span{color:var(--mut);font-weight:400}
 .topbar .sp{flex:1}
@@ -112,7 +113,7 @@ pre{background:#fafafa;border:1px solid var(--line);border-radius:10px;padding:1
 </head>
 <body>
 <div class="topbar">
-  <div class="mark">AB</div>
+  <img class="mark" src="/admin/logo.png" alt="AgentBrowser">
   <div class="wordmark">AgentBrowser <span>Console</span></div>
   <div class="sp"></div>
   <span class="hostchip" id="hub-port"></span>

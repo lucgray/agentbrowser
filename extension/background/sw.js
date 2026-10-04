@@ -13,6 +13,9 @@ import * as translate from './translate.js';
 import * as subtitle from './subtitle.js';
 
 const DEFAULT_HUB_URL = 'ws://127.0.0.1:9010';
+// HTTP origin of the same hub server — media files finished by yt-dlp are
+// served under /dl/<id> so chrome.downloads can pick them up.
+let hubHttpBase = 'http://127.0.0.1:9010';
 
 // Stable per-profile id + a display name for the hub's browser table (v2.13:
 // several browsers can share one hub — this is how it tells them apart).
@@ -564,6 +567,9 @@ function sendToOffscreen(message) {
 async function connectHub() {
   await ensureOffscreen();
   const { hubUrl } = await chrome.storage.local.get('hubUrl');
+  hubHttpBase = String(hubUrl || DEFAULT_HUB_URL)
+    .replace(/^ws(s?):\/\//, 'http$1://')
+    .replace(/\/+$/, '');
   await sendToOffscreen({
     target: 'offscreen',
     cmd: 'connect',
@@ -985,15 +991,25 @@ function handleHubMessage(payload) {
     mediaDlTabs.delete(String(payload.id || ''));
     if (rec) {
       clearTimeout(rec.timer);
-      chrome.tabs
-        .sendMessage(rec.tabId, {
-          target: 'video-ask',
-          cmd: 'download_result',
-          ok: !!payload.ok,
-          file: payload.file,
-          error: payload.error,
-        })
-        .catch((err) => console.warn('[agentbrowser] download_result delivery failed', err));
+      const notify = (ok, extra) =>
+        chrome.tabs
+          .sendMessage(rec.tabId, { target: 'video-ask', cmd: 'download_result', ok, ...extra })
+          .catch((err) => console.warn('[agentbrowser] download_result delivery failed', err));
+      if (payload.ok && payload.dl) {
+        // Hand the hub-served file to the browser's own download manager so
+        // it lands in Downloads and shows in the download history.
+        const name = String(payload.file || '').split(/[\\/]/).pop() || 'video';
+        chrome.downloads
+          .download({ url: hubHttpBase + payload.dl, filename: name, saveAs: false })
+          .then(() => notify(true, { file: name }))
+          .catch((err) =>
+            notify(false, {
+              error: `browser download failed: ${(err && err.message) || err}`,
+            })
+          );
+      } else {
+        notify(!!payload.ok, { file: payload.file, error: payload.error });
+      }
     }
   } else if (payload.type === 'summary_result') {
     subtitle.onSummary(payload);

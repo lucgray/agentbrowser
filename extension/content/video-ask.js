@@ -38,6 +38,19 @@ const CONTROL_BARS = [
 ];
 
 let btn = null;
+
+// Native fullscreen renders ONLY the fullscreen element's subtree — floating
+// UI on document.body vanishes (bilibili fullscreens its player container).
+// Host all our floaters on the fullscreen element when one is active.
+function floatHost() {
+  return document.fullscreenElement || document.body || document.documentElement;
+}
+document.addEventListener("fullscreenchange", () => {
+  const host = floatHost();
+  for (const el of [btn, menu, toast, learn && learn.el]) {
+    if (el && el.parentNode !== host) host.appendChild(el);
+  }
+});
 let menu = null;
 let toast = null;
 let toastTimer = null;
@@ -145,7 +158,7 @@ function ensureButton() {
   });
   btn.addEventListener("mouseenter", clearHideTimer);
   btn.addEventListener("mouseleave", scheduleHide);
-  (document.body || document.documentElement).appendChild(btn);
+  floatHost().appendChild(btn);
   return btn;
 }
 
@@ -286,10 +299,26 @@ function mountControlIcon(video) {
   b.style.opacity = "0.92";
   const svg = b.firstElementChild;
   if (svg) svg.style.display = "block";
-  // Sit just left of the fullscreen button (site.anchor); unknown layouts
-  // fall back to the left edge of the right-controls group.
+  // Sit just left of the fullscreen button (site.anchor). The bar's children
+  // may not exist yet on first hover (bilibili builds them lazily) — fall
+  // back to the far end, then move left of the anchor once it appears.
   const anchorEl = site.anchor ? bar.querySelector(site.anchor) : null;
-  bar.insertBefore(b, anchorEl || bar.firstChild);
+  if (anchorEl) {
+    bar.insertBefore(b, anchorEl);
+  } else {
+    bar.appendChild(b);
+    if (site.anchor) {
+      const mo = new MutationObserver(() => {
+        const a = bar.querySelector(site.anchor);
+        if (a) {
+          bar.insertBefore(b, a);
+          mo.disconnect();
+        }
+      });
+      mo.observe(bar, { childList: true, subtree: true });
+      setTimeout(() => mo.disconnect(), 15000);
+    }
+  }
   cbBtns.add(bar);
   return true;
 }
@@ -327,7 +356,7 @@ function ensureMenu() {
   menu.dataset.abtheme = floatTheme;
   menu.addEventListener("mouseenter", clearHideTimer);
   menu.addEventListener("mouseleave", scheduleHide);
-  (document.body || document.documentElement).appendChild(menu);
+  floatHost().appendChild(menu);
   return menu;
 }
 
@@ -422,7 +451,7 @@ function showToast(anchorRect, text, isErr) {
   if (!toast) {
     toast = document.createElement("div");
     toast.id = TOAST_ID;
-    (document.body || document.documentElement).appendChild(toast);
+    floatHost().appendChild(toast);
   }
   toast.dataset.abtheme = floatTheme;
   toast.dataset.err = isErr ? "1" : "0";
@@ -679,7 +708,7 @@ function ensureLearn() {
     body.appendChild(pane);
     panes[key] = pane;
   }
-  (document.body || document.documentElement).appendChild(el);
+  floatHost().appendChild(el);
   learn = { el, panes, tabBtns };
   buildLearnPanes();
   return learn;
