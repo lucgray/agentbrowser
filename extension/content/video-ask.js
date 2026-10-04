@@ -39,6 +39,7 @@ let hideTimer = null;
 let lastContext = null;
 let dlPending = false;
 let dlDone = null;
+let lastPos = null; // last chip position — sub-pixel rewrites are jitter
 let floatTheme = "frost";
 if (isContextValid()) {
   chrome.storage.local
@@ -140,6 +141,7 @@ function hideButton() {
   hoverEl = null;
   hoverKind = null;
   hoverMode = null;
+  lastPos = null;
 }
 
 function scheduleHide() {
@@ -176,6 +178,12 @@ function pickMediaAt(e) {
   } catch (err) {
     logWarn("elementsFromPoint failed", err);
     return null;
+  }
+  // Hysteresis: keep the media we already picked while it stays under the
+  // pointer. Sibling overlays (poster img, player chrome) shuffle the stack
+  // order at edges, and switching hit.el re-places the chip — the jitter.
+  if (hoverEl && stack.includes(hoverEl)) {
+    return { el: hoverEl, kind: hoverEl.tagName === "VIDEO" ? "video" : "image" };
   }
   for (const el of stack) {
     if (el.id && String(el.id).startsWith("agentbrowser-")) continue;
@@ -220,7 +228,6 @@ function mountControlIcon(video) {
   b.type = "button";
   b.className = "ab-media-cb";
   b.title = "AgentBrowser";
-  b.appendChild(iconSvg(AT_PATHS, 18));
   b.addEventListener("mousedown", (e) => e.preventDefault());
   b.addEventListener("click", (e) => {
     e.preventDefault();
@@ -230,13 +237,24 @@ function mountControlIcon(video) {
     hoverMode = "control";
     toggleMenu(b.getBoundingClientRect());
   });
-  // YouTube/bilibili right-control groups size icons via height — fit in
-  // without forcing layout: flex item, centered, transparent background.
+  // Size from the bar's own buttons — hardcoding 36px looked right on
+  // YouTube but oversized inside bilibili's shorter control row.
+  let h = 36;
+  try {
+    const sib =
+      bar.querySelector("button, .ytp-button, .bpx-player-ctrl-btn") || bar;
+    const sh = Math.round(sib.getBoundingClientRect().height);
+    if (sh >= 20 && sh <= 48) h = sh;
+  } catch (err) {
+    logWarn("control bar sizing failed", err);
+  }
+  const icon = Math.max(14, Math.min(18, h - 14));
+  b.appendChild(iconSvg(AT_PATHS, icon));
   b.style.display = "inline-flex";
   b.style.alignItems = "center";
   b.style.justifyContent = "center";
-  b.style.width = "36px";
-  b.style.height = "36px";
+  b.style.width = h + "px";
+  b.style.height = h + "px";
   b.style.color = "inherit";
   b.style.opacity = "0.92";
   bar.insertBefore(b, bar.firstChild);
@@ -413,10 +431,24 @@ function placeButton(el, kind) {
   const minH = 80;
   if (r.width < minW || r.height < minH) return false; // ignore thumbnails/icons
   const b = ensureButton();
+  const left = Math.max(4, r.left + 8);
+  const top = Math.max(4, r.top + 8);
+  // Deadzone: identical/sub-pixel writes on every scroll event re-run layout
+  // for nothing — and visible restarts of the pop-in transition read as
+  // jitter at edges.
+  if (
+    lastPos &&
+    Math.abs(lastPos.left - left) < 1 &&
+    Math.abs(lastPos.top - top) < 1 &&
+    b.classList.contains("ab-show")
+  ) {
+    return true;
+  }
+  lastPos = { left, top };
   b.dataset.abtheme = floatTheme;
   b.style.position = "fixed";
-  b.style.left = Math.max(4, r.left + 8) + "px";
-  b.style.top = Math.max(4, r.top + 8) + "px";
+  b.style.left = left + "px";
+  b.style.top = top + "px";
   b.style.display = "flex";
   requestAnimationFrame(() => b.classList.add("ab-show"));
   return true;
