@@ -1310,6 +1310,32 @@ Wire messages (extension role):
 The built-in `translate` plugin owns every translate_*/subtitle_*/
 transcript_* tool — the first consumer of this layer.
 
+### Admin HTTP surface
+
+The hub's port now answers two protocols: WebSocket upgrade for the wire
+protocol, and HTTP for a management console. `GET /admin` serves a
+single-file page; `/admin/api/*` is JSON:
+
+- `GET /admin/api/state` → `{adapters, keys, browsers, plugins, translate,
+  translateProvider, translateStats, config, port}` — one call feeds the
+  whole page (config contains no keys; they live in the keystore).
+- `POST /admin/api/plugin {id, enabled}` → `setPluginEnabled` — same code
+  path as `plugin_set`, plus a capabilities re-broadcast.
+- `POST /admin/api/translate {provider?, model?, targetLang?, mode?,
+  wordHover?}` → `applyTranslateConfig` — same merge+persist+rebuild as
+  `set_translate_config`.
+- `POST /admin/api/key {provider, key}` → keystore write (null clears);
+  the key value is never returned to any client.
+- `POST /admin/api/config {…}` → top-level config patch restricted to a
+  key allowlist (`adapter`, `model`, `systemPromptExtra`, `mcpServers`,
+  `permissions`, `proactiveAnnotation`, `plugins`, `translate`,
+  `adapterModels`, `promptBudget`, `browserName`); unknown keys are
+  rejected so the raw editor can't drop fields it doesn't model.
+
+Non-admin HTTP requests get 426 (upgrade required). The page polls
+`/admin/api/state` every 15s — no auth, same localhost trust level as the
+WS port itself.
+
 ## mcp-proxy.mjs
 
 Stdio MCP server (use `@modelcontextprotocol/sdk`, installed) exposing the ten

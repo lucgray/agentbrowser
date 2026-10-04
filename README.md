@@ -544,6 +544,15 @@ directory into `~/.agentchat/plugins/` to install one; toggle it in
 `translate` plugin carries all translate/subtitle tools. Authoring spec:
 [PLUGINS.md](PLUGINS.md).
 
+## Web admin
+
+The hub port also serves a management console at
+`http://127.0.0.1:9010/admin` — connected browsers, adapter/model
+switching, provider keys, plugin on/off + prompt preview, translation
+settings, and a raw `config.json` editor (key-allowlist validated). Its
+`/admin/api/*` JSON endpoints drive the same code paths as the wire
+messages, so the web console and the side panel can never disagree.
+
 ## Multiple browsers on one hub
 
 Several Chrome-family browsers or profiles can run the extension against

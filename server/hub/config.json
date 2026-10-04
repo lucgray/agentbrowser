@@ -1,1 +1,9 @@
-{"adapter":"claude-agent-sdk","model":"claude-opus-5"}
+{
+  "adapter": "claude-agent-sdk",
+  "model": "claude-opus-5",
+  "plugins": {
+    "translate": {
+      "enabled": true
+    }
+  }
+}

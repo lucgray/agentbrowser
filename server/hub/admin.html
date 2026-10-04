@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AgentBrowser admin</title>
+<style>
+:root{color-scheme:light dark;--fg:#1a1a1a;--mut:#666;--line:#ddd;--acc:#0b5fff;--bg:#fff;--card:#fafafa}
+@media(prefers-color-scheme:dark){:root{--fg:#e6e6e6;--mut:#999;--line:#3a3a3a;--acc:#5b93ff;--bg:#141414;--card:#1d1d1d}}
+*{box-sizing:border-box}
+body{font:14px/1.5 system-ui,sans-serif;color:var(--fg);background:var(--bg);margin:0;padding:24px;max-width:960px}
+h1{font-size:18px;margin:0 0 4px}
+h2{font-size:14px;margin:24px 0 8px;text-transform:uppercase;letter-spacing:.06em;color:var(--mut)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px;margin:8px 0}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+label{color:var(--mut);font-size:12px}
+input,select,textarea{font:inherit;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:5px 8px}
+input[type=text],input[type=password]{width:220px}
+button{font:inherit;background:var(--acc);color:#fff;border:0;border-radius:6px;padding:6px 12px;cursor:pointer}
+button.ghost{background:none;color:var(--acc);border:1px solid var(--line)}
+button:disabled{opacity:.5;cursor:default}
+.pill{display:inline-block;padding:2px 8px;border-radius:99px;font-size:12px;border:1px solid var(--line);color:var(--mut)}
+.pill.on{border-color:var(--acc);color:var(--acc)}
+pre{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px;overflow:auto;font-size:12px;max-height:260px;white-space:pre-wrap;word-break:break-all}
+.toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:8px 16px;border-radius:8px;opacity:0;transition:opacity .2s;pointer-events:none}
+.toast.show{opacity:.9}
+table{border-collapse:collapse;width:100%}
+td,th{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);font-size:13px}
+th{color:var(--mut);font-weight:500;font-size:12px}
+.sub{color:var(--mut);font-size:12px}
+</style>
+</head>
+<body>
+<h1>AgentBrowser admin</h1>
+<div class="sub" id="hub-line">hub <span id="hub-port"></span></div>
+
+<h2>Browsers</h2>
+<div class="card"><div id="browsers" class="sub">none connected</div></div>
+
+<h2>Backend</h2>
+<div class="card">
+  <div class="row">
+    <label>adapter</label><select id="adapter"></select>
+    <label>model</label><select id="model"></select>
+    <button id="save-backend">Save</button>
+    <span class="sub">applies to the next chat session</span>
+  </div>
+  <div id="adapter-list" style="margin-top:10px"></div>
+</div>
+
+<h2>API keys</h2>
+<div class="card"><table id="keys"><tr><th>provider</th><th>status</th><th></th></tr></table></div>
+
+<h2>Plugins</h2>
+<div class="card"><div id="plugins"></div></div>
+
+<h2>Translation</h2>
+<div class="card">
+  <div class="row">
+    <label>provider</label><select id="tr-provider">
+      <option>auto</option><option>openai</option><option>anthropic</option>
+      <option>deepl</option><option>microsoft</option><option>free</option>
+    </select>
+    <label>model</label><input type="text" id="tr-model" placeholder="provider default">
+    <label>target</label><input type="text" id="tr-lang" style="width:80px">
+    <label>mode</label><select id="tr-mode">
+      <option>bilingual</option><option>card</option><option>dim</option>
+      <option>replace</option><option>ondemand</option>
+    </select>
+    <label><input type="checkbox" id="tr-hover"> word hover</label>
+    <button id="save-translate">Save</button>
+  </div>
+  <div class="sub" style="margin-top:6px">active provider: <span id="tr-active">?</span></div>
+</div>
+
+<h2>config.json</h2>
+<div class="card">
+  <textarea id="raw-config" style="width:100%;height:180px;font-family:ui-monospace,monospace;font-size:12px"></textarea>
+  <div class="row" style="margin-top:8px">
+    <button id="save-config">Save config</button>
+    <span class="sub">raw edit — invalid JSON is rejected before saving</span>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+<script>
+const $ = (id) => document.getElementById(id);
+const toast = (m) => { const t = $('toast'); t.textContent = m; t.classList.add('show'); setTimeout(() => t.classList.remove('show'), 1800); };
+async function api(path, body) {
+  const r = await fetch('/admin/api/' + path, body === undefined ? {} : {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body)
+  });
+  return r.json();
+}
+let state = null;
+const esc = (s) => String(s ?? '').replace(/[&<>]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+
+async function refresh() {
+  state = await api('state');
+  $('hub-port').textContent = location.host;
+  renderBrowsers(); renderBackend(); renderKeys(); renderPlugins(); renderTranslate(); renderRaw();
+}
+
+function renderBrowsers() {
+  const el = $('browsers');
+  const list = state.browsers || [];
+  el.innerHTML = list.length === 0 ? 'none connected'
+    : list.map(b => `<span class="pill ${b.default ? 'on' : ''}">${esc(b.name)}${b.default ? ' · primary' : ''}</span>`).join(' ');
+}
+
+function renderBackend() {
+  const sel = $('adapter'), msel = $('model');
+  sel.innerHTML = '';
+  for (const a of state.adapters || []) {
+    const o = document.createElement('option');
+    o.value = a.name; o.textContent = a.label + (a.ready === false ? ' (not ready)' : '');
+    sel.appendChild(o);
+  }
+  sel.value = state.config.adapter || '';
+  const fillModels = () => {
+    msel.innerHTML = '';
+    const a = (state.adapters || []).find(x => x.name === sel.value);
+    for (const m of (a && a.models) || []) {
+      const o = document.createElement('option'); o.value = o.textContent = m; msel.appendChild(o);
+    }
+    if (!msel.options.length) { const o = document.createElement('option'); o.value = o.textContent = ''; msel.appendChild(o); }
+    msel.value = state.config.model || '';
+  };
+  sel.onchange = fillModels; fillModels();
+  $('adapter-list').innerHTML = (state.adapters || []).map(a =>
+    `<div class="sub">${esc(a.name)} — ${esc(a.label)}${a.keyConfigured ? ' · key set' : ''}${a.ready === false ? ' · not ready' : ''}</div>`).join('');
+}
+
+function renderKeys() {
+  const t = $('keys');
+  t.innerHTML = '<tr><th>provider</th><th>status</th><th></th></tr>';
+  for (const p of Object.keys(state.keys || {})) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${esc(p)}</td><td>${state.keys[p] ? '<span class="pill on">configured</span>' : '<span class="pill">missing</span>'}</td><td></td>`;
+    const td = tr.lastChild, inp = document.createElement('input');
+    inp.type = 'password'; inp.placeholder = state.keys[p] ? 'replace key' : 'paste key'; inp.style.width = '180px';
+    const b1 = document.createElement('button'); b1.textContent = 'Save';
+    b1.onclick = async () => { const r = await api('key', { provider: p, key: inp.value }); toast(r.error || 'saved'); refresh(); };
+    const b2 = document.createElement('button'); b2.textContent = 'Clear'; b2.className = 'ghost';
+    b2.onclick = async () => { const r = await api('key', { provider: p, key: null }); toast(r.error || 'cleared'); refresh(); };
+    td.append(inp, ' ', b1, ' ', b2); t.appendChild(tr);
+  }
+}
+
+function renderPlugins() {
+  const el = $('plugins'); el.innerHTML = '';
+  for (const p of state.plugins || []) {
+    const card = document.createElement('div');
+    card.style.cssText = 'border:1px solid var(--line);border-radius:8px;padding:10px;margin:6px 0';
+    card.innerHTML = `<div class="row"><b>${esc(p.name)}</b><span class="pill ${p.enabled ? 'on' : ''}">${p.enabled ? 'on' : 'off'}</span>
+      <span class="sub">v${esc(p.version)}${p.builtin ? ' · built-in' : ''}</span></div>
+      <div class="sub" style="margin:6px 0">${esc(p.description)}</div>
+      <div class="sub">tools: ${esc((p.tools || []).join(', ') || 'none')}</div>`;
+    const row = document.createElement('div'); row.className = 'row'; row.style.marginTop = '8px';
+    const b = document.createElement('button'); b.textContent = p.enabled ? 'Disable' : 'Enable';
+    b.onclick = async () => { const r = await api('plugin', { id: p.id, enabled: !p.enabled }); toast(r.error || 'saved'); refresh(); };
+    const pv = document.createElement('button'); pv.textContent = 'prompt'; pv.className = 'ghost';
+    pv.onclick = () => { const d = card.querySelector('.pview'); if (d) { d.remove(); return; }
+      const pre = document.createElement('pre'); pre.className = 'pview'; pre.textContent = p.prompt || '(no prompt)';
+      card.appendChild(pre); };
+    row.append(b, ' ', pv); card.appendChild(row); el.appendChild(card);
+  }
+}
+
+function renderTranslate() {
+  const t = state.translate || {};
+  $('tr-provider').value = t.provider || 'auto';
+  $('tr-model').value = t.model || '';
+  $('tr-lang').value = t.targetLang || 'zh';
+  $('tr-mode').value = t.mode || 'bilingual';
+  $('tr-hover').checked = !!t.wordHover;
+  $('tr-active').textContent = state.translateProvider || '?';
+}
+
+function renderRaw() { $('raw-config').value = JSON.stringify(state.config, null, 2); }
+
+$('save-backend').onclick = async () => {
+  const r = await api('config', { adapter: $('adapter').value, model: $('model').value });
+  toast(r.error || 'saved'); refresh();
+};
+$('save-translate').onclick = async () => {
+  const r = await api('translate', {
+    provider: $('tr-provider').value, model: $('tr-model').value || undefined,
+    targetLang: $('tr-lang').value, mode: $('tr-mode').value, wordHover: $('tr-hover').checked
+  });
+  toast(r.error || 'saved'); refresh();
+};
+$('save-config').onclick = async () => {
+  let parsed;
+  try { parsed = JSON.parse($('raw-config').value); } catch { toast('invalid JSON'); return; }
+  const r = await api('config', parsed);
+  toast(r.error || 'saved'); refresh();
+};
+
+refresh();
+setInterval(refresh, 15000);
+</script>
+</body>
+</html>

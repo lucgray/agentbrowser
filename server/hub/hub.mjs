@@ -1929,20 +1929,31 @@ function handlePluginSet(ws, msg) {
     safeSend(ws, { type: "error", error: "plugin_set needs {id, enabled}" });
     return;
   }
-  const found = describePlugins(config).some((p) => p.id === id);
-  if (!found) {
-    safeSend(ws, { type: "error", error: `unknown plugin: ${id}` });
+  const r = setPluginEnabled(id, enabled);
+  if (!r.ok) {
+    safeSend(ws, { type: "error", error: r.error });
     return;
   }
+  safeSend(ws, { type: "plugins", plugins: describePlugins(config) });
+  broadcastCapabilities();
+}
+
+// Shared by plugin_set (wire) and the admin HTTP API (v2.17).
+function setPluginEnabled(id, enabled) {
+  const found = describePlugins(config).some((p) => p.id === id);
+  if (!found) return { ok: false, error: `unknown plugin: ${id}` };
   config.plugins = { ...(config.plugins || {}), [id]: { enabled } };
+  persistConfig();
+  log(`plugin ${id} ${enabled ? "enabled" : "disabled"}`);
+  return { ok: true };
+}
+
+function persistConfig() {
   try {
     writeFileSync(path.join(__dirname, "config.json"), JSON.stringify(config, null, 2));
   } catch (err) {
     log("config.json persist failed:", err && err.message);
   }
-  log(`plugin ${id} ${enabled ? "enabled" : "disabled"}`);
-  safeSend(ws, { type: "plugins", plugins: describePlugins(config) });
-  broadcastCapabilities();
 }
 
 // translate_request (extension -> hub): one paragraph batch or a single-word
@@ -1968,8 +1979,8 @@ async function handleTranslateRequest(ws, msg) {
 
 // Panel quick-config: {provider, model, targetLang} land in config.json's
 // `translate` block and rebuild the service (cache file is flushed first).
-async function handleSetTranslateConfig(ws, msg) {
-  const c = msg && typeof msg.config === "object" && msg.config ? msg.config : {};
+// Shared by set_translate_config (wire) and the admin HTTP API (v2.17).
+async function applyTranslateConfig(c) {
   const clean = {};
   for (const k of ["provider", "model", "targetLang", "mode", "wordHover"]) {
     if (c[k] !== undefined) clean[k] = c[k];
@@ -1977,14 +1988,16 @@ async function handleSetTranslateConfig(ws, msg) {
   // Merge, don't replace: config.translate may carry fields the panel form
   // doesn't model (e.g. baseUrl) — a wholesale write silently dropped them.
   config.translate = { ...(config.translate || {}), ...clean };
-  try {
-    writeFileSync(path.join(__dirname, "config.json"), JSON.stringify(config, null, 2));
-  } catch (err) {
-    log("config.json persist failed:", err.message);
-  }
+  persistConfig();
   swapTranslator(config.translate);
   log("translate config updated: " + JSON.stringify(clean));
   const provider = await Promise.resolve(translator.provider()).catch(() => "free");
+  return { ok: true, config: config.translate, provider };
+}
+
+async function handleSetTranslateConfig(ws, msg) {
+  const c = msg && typeof msg.config === "object" && msg.config ? msg.config : {};
+  const { provider } = await applyTranslateConfig(c);
   try {
     ws.send(JSON.stringify({ type: "translate_config", config: config.translate, provider }));
   } catch (err) {
@@ -2040,13 +2053,94 @@ function handleClose(ws) {
 }
 
 // ---------------------------------------------------------------------------
-// Server
+// Server — one port, two protocols: HTTP for /admin (+ /admin/api/*),
+// WebSocket upgrade for everything else (v2.17).
 
-const wss = new WebSocketServer({ host: "127.0.0.1", port: PORT }, () => {
-  log("listening on ws://127.0.0.1:" + PORT);
+import { createAdminHandler } from "./admin.mjs";
+import http from "node:http";
+
+// Admin state/actions — thin wrappers over the same internals the wire
+// messages drive, so panel and web console can never disagree.
+async function adminState() {
+  const caps = await buildCapabilities();
+  return {
+    adapters: caps.adapters,
+    keys: caps.keys,
+    browsers: caps.browsers,
+    plugins: describePlugins(config),
+    translate: config.translate || {},
+    translateProvider: await Promise.resolve(translator.provider()).catch(() => "free"),
+    translateStats: translator.stats(),
+    config,
+    port: PORT,
+  };
+}
+
+function setGeneralConfig(body) {
+  // Patch only known top-level keys; anything else is kept verbatim so the
+  // raw editor can't silently drop fields it doesn't model.
+  const ALLOWED = new Set([
+    "adapter", "model", "systemPromptExtra", "mcpServers",
+    "permissions", "proactiveAnnotation", "plugins", "translate",
+    "adapterModels", "promptBudget", "browserName"
+  ]);
+  for (const k of Object.keys(body)) {
+    if (!ALLOWED.has(k)) return { ok: false, error: `unknown config key: ${k}` };
+    if (k === "translate") {
+      // translate has its own validated path with service rebuild
+      applyTranslateConfig(body.translate || {}).catch((err) =>
+        log("admin translate config failed:", err && err.message));
+      continue;
+    }
+    config[k] = body[k];
+  }
+  persistConfig();
+  return { ok: true };
+}
+
+const adminHandler = createAdminHandler({
+  state: adminState,
+  setPlugin: (id, enabled) => {
+    const r = setPluginEnabled(id, enabled);
+    if (r.ok) broadcastCapabilities();
+    return r;
+  },
+  setTranslate: (cfg) => applyTranslateConfig(cfg),
+  setKey: async (provider, key) => {
+    if (!PROVIDERS.includes(provider)) return { ok: false, error: `unknown provider: ${provider}` };
+    try {
+      await storeKey(provider, key && key.trim() !== "" ? key.trim() : null);
+      log("api key " + (key ? "stored" : "cleared") + " for provider " + provider + " (admin)");
+      broadcastCapabilities();
+      return { ok: true };
+    } catch (err) {
+      log("admin set_key failed:", err && err.message);
+      return { ok: false, error: err.message };
+    }
+  },
+  setGeneral: (cfg) => {
+    const r = setGeneralConfig(cfg);
+    if (r.ok) broadcastCapabilities();
+    return r;
+  },
+  getConfig: () => config,
 });
 
-wss.on("error", (err) => {
+const httpServer = http.createServer((req, res) => {
+  if (req.url && req.url.startsWith("/admin")) {
+    adminHandler(req, res).catch((err) => {
+      log("admin handler error:", err && err.message);
+      try { res.writeHead(500); res.end(); } catch { /* socket gone */ }
+    });
+    return;
+  }
+  res.writeHead(426, { "content-type": "text/plain" });
+  res.end("websocket endpoint — connect with a ws client; admin at /admin");
+});
+
+const wss = new WebSocketServer({ server: httpServer });
+
+httpServer.on("error", (err) => {
   if (err.code === "EADDRINUSE") {
     log(
       "port " + PORT + " is already in use." +
@@ -2056,6 +2150,10 @@ wss.on("error", (err) => {
     process.exit(1);
   }
   log("server error:", err.message);
+});
+
+httpServer.listen(PORT, "127.0.0.1", () => {
+  log("listening on ws://127.0.0.1:" + PORT + " (admin: http://127.0.0.1:" + PORT + "/admin)");
 });
 
 wss.on("connection", (ws) => {
