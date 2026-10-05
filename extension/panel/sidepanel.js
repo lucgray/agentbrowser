@@ -310,6 +310,12 @@ const I18N = {
     advancedSection: "Advanced",
     openAdminBtn: "Open admin page",
     adminNote: "Plugins, browsers and more advanced options live in the hub's admin page (/admin on this machine).",
+    directSection: "Direct mode (no hub)",
+    directEnabledLabel: "Skip the hub — the extension calls the API directly",
+    directProviderTitle: "provider",
+    directModelPh: "model (blank = default)",
+    directBaseUrlPh: "base URL (optional)",
+    directNote: "On, the panel talks to Anthropic/OpenAI straight from the extension and runs browser tools itself — no local hub needed. The key lives in this machine's chrome.storage. Chat history, plugins and / commands are hub features and stay off in direct mode.",
     saveBtn: "Save",
     clearBtn: "Clear",
     keysNote: "Keys are stored locally on this machine only, by the hub, in a file only your user account can read. The panel never receives a saved key back; it is only told whether one is configured.",
@@ -372,6 +378,12 @@ const I18N = {
     advancedSection: "高级",
     openAdminBtn: "打开管理页面",
     adminNote: "插件、浏览器与更多高级配置都在管理页面完成（本机 hub 的 /admin）。",
+    directSection: "直连模式（无 hub）",
+    directEnabledLabel: "不用 hub，扩展直连 API",
+    directProviderTitle: "provider",
+    directModelPh: "model（留空取默认）",
+    directBaseUrlPh: "base URL（可选）",
+    directNote: "开启后不再依赖本地 hub：面板消息直接在扩展内调 Anthropic/OpenAI 接口并执行浏览器工具。密钥存本机 chrome.storage。聊天记录、插件与 / 命令等 hub 功能在直连模式下不可用。",
     saveBtn: "保存",
     clearBtn: "清除",
     keysNote: "密钥只保存在本机（由 hub 写入仅当前用户可读的文件），面板只会收到“是否已配置”，不会收到密钥本身。",
@@ -896,6 +908,42 @@ async function init() {
       : "frost";
     trSpace.checked = stored.abSpaceTranslate === true;
   }).catch(() => applyI18n());
+
+  // Direct mode (hubless): the extension calls the provider API itself.
+  // Config lives in chrome.storage.local.abDirect — the worker reads it
+  // there, so saving needs no round trip.
+  const directEnabled = document.getElementById("set-direct-enabled");
+  const directProvider = document.getElementById("set-direct-provider");
+  const directModel = document.getElementById("set-direct-model");
+  const directKey = document.getElementById("set-direct-key");
+  const directBaseUrl = document.getElementById("set-direct-baseurl");
+  const directSave = document.getElementById("set-direct-save");
+  const directState = document.getElementById("set-direct-state");
+  let abDirect = {};
+  chrome.storage.local.get("abDirect").then((stored) => {
+    abDirect = (stored && stored.abDirect) || {};
+    directEnabled.checked = abDirect.enabled === true;
+    directProvider.value = abDirect.provider === "openai" ? "openai" : "anthropic";
+    directModel.value = abDirect.model || "";
+    directBaseUrl.value = abDirect.baseUrl || "";
+    directKey.placeholder = abDirect.apiKey ? "••••••••" : "API key";
+    directState.textContent = abDirect.enabled && abDirect.apiKey ? "on" : "";
+  }).catch((err) => console.warn("[agentbrowser] direct cfg load failed", err));
+  directSave.addEventListener("click", () => {
+    abDirect = {
+      enabled: directEnabled.checked,
+      provider: directProvider.value,
+      model: directModel.value.trim(),
+      baseUrl: directBaseUrl.value.trim().replace(/\/+$/, ""),
+      apiKey: directKey.value.trim() || abDirect.apiKey || "",
+    };
+    directKey.value = "";
+    directKey.placeholder = abDirect.apiKey ? "••••••••" : "API key";
+    directState.textContent = abDirect.enabled && abDirect.apiKey ? "on" : "";
+    chrome.storage.local
+      .set({ abDirect })
+      .catch((err) => console.warn("[agentbrowser] direct cfg save failed", err));
+  });
   setLanguage.addEventListener("change", () => {
     uiLang = setLanguage.value;
     chrome.storage.local.set({ panelLanguage: uiLang });

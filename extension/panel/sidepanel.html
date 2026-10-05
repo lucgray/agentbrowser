@@ -185,6 +185,35 @@
 
     <details class="set-details">
       <summary class="set-summary">
+        <span class="set-summary-label" data-i18n="directSection">直连模式（无 hub）</span>
+        <span id="set-direct-state" class="set-state"></span>
+      </summary>
+      <div class="set-group">
+        <div class="set-head">
+          <label class="set-label" for="set-direct-enabled" data-i18n="directEnabledLabel">不用 hub，扩展直连 API</label>
+          <input id="set-direct-enabled" type="checkbox" class="set-toggle">
+        </div>
+        <div class="set-row">
+          <select id="set-direct-provider" class="set-select" data-i18n-title="directProviderTitle">
+            <option value="anthropic">anthropic</option>
+            <option value="openai">openai</option>
+          </select>
+          <input id="set-direct-model" class="set-input" autocomplete="off" spellcheck="false"
+                 data-i18n-placeholder="directModelPh" placeholder="model">
+        </div>
+        <input id="set-direct-key" class="set-input" type="password" autocomplete="off" spellcheck="false"
+               placeholder="API key" aria-label="Direct API key">
+        <input id="set-direct-baseurl" class="set-input" autocomplete="off" spellcheck="false"
+               data-i18n-placeholder="directBaseUrlPh" placeholder="base URL (optional)">
+        <div class="set-row">
+          <button id="set-direct-save" type="button" data-i18n="saveBtn">Save</button>
+        </div>
+        <p class="set-note" data-i18n="directNote">开启后不再依赖本地 hub：面板消息直接在扩展内调 Anthropic/OpenAI 接口并执行浏览器工具。密钥存本机 chrome.storage。聊天记录、插件与命令等 hub 功能在直连模式下不可用。</p>
+      </div>
+    </details>
+
+    <details class="set-details">
+      <summary class="set-summary">
         <span class="set-summary-label" data-i18n="advancedSection">高级 / Advanced</span>
       </summary>
       <div class="set-group">
