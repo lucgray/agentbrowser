@@ -139,10 +139,12 @@ npm start          # 监听 ws://127.0.0.1:9010
 `server/hub/config.json`），发送即可。工具活动以紧凑 chip 形式显示在
 对话流中。
 
-> **提示** — 可用 `AGENTCHAT_PORT` 覆盖端口。想让 hub 跨登录常驻，
-> [server/autostart.md](server/autostart.md) 里有 macOS 的 launchd 方案
-> （plist 放在仓库外）。日志写到 `/tmp/agentchat-hub.log`。如果 hub 报
-> 端口被占用，说明已有 autostart 副本在运行。
+> **提示** — 可用 `AGENTCHAT_PORT` 覆盖端口。想让 hub 随浏览器自动启动
+> （多个浏览器只起一个），跑一次
+> `node server/native/install.mjs <扩展ID>` 即可；登录即常驻的
+> launchd / Task Scheduler / systemd 方案见
+> [server/autostart.md](server/autostart.md)。如果 hub 报端口被占用，
+> 说明已有 autostart 副本在运行。
 
 ## 选中即问
 
