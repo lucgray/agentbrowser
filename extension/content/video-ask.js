@@ -304,16 +304,26 @@ function mountControlIcon(video) {
   // Sit just left of the fullscreen button (site.anchor). The bar's children
   // may not exist yet on first hover (bilibili builds them lazily) — fall
   // back to the far end, then move left of the anchor once it appears.
+  // insertBefore needs a direct child of the bar — climb the anchor to its
+  // top-level ancestor (it may sit inside a wrapper), and verify parentage
+  // since YouTube re-renders the bar's children in batches.
+  const barChild = (el) => {
+    let n = el;
+    while (n && n.parentNode !== bar) n = n.parentNode;
+    return n;
+  };
   const anchorEl = site.anchor ? bar.querySelector(site.anchor) : null;
-  if (anchorEl) {
-    bar.insertBefore(b, anchorEl);
+  const ref = anchorEl ? barChild(anchorEl) : null;
+  if (ref) {
+    bar.insertBefore(b, ref);
   } else {
     bar.appendChild(b);
     if (site.anchor) {
       const mo = new MutationObserver(() => {
         const a = bar.querySelector(site.anchor);
-        if (a) {
-          bar.insertBefore(b, a);
+        const r = a ? barChild(a) : null;
+        if (r) {
+          bar.insertBefore(b, r);
           mo.disconnect();
         }
       });
