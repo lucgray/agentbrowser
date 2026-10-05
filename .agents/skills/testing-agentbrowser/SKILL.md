@@ -188,3 +188,12 @@ None for the stub-hub or shim paths. Real adapters need their provider keys/CLIs
 - MV3 SW target ids go stale on every restart ("no target <id>") — re-list `/json/list` for the `sw.js` target right before each SW eval rather than caching the id.
 - Triple-space translate can be tested without the OS: dispatch 3× `new KeyboardEvent('keydown',{code:'Space',bubbles:true,cancelable:true})` on `document.body` — the 650ms run window is generous. Assert via `__abTranslate.status().active` + `[data-ab-tid]` count; a focused `<input>` must not trigger it.
 - `chrome.downloads` from a `data:` URL: `data:text/plain` forces a `.txt` extension; `data:application/octet-stream` preserves `.srt`/`.xml`. Check `~/Downloads` directly.
+
+## Direct mode (hubless) testing
+
+- Kill the hub (`ss -ltnp | grep :9010` → kill by PID) — direct mode only proves itself with NO listener on :9010.
+- `abDirect` in `chrome.storage.local` (set via SW eval — page context can't see chrome.storage): `{enabled:true, provider:'anthropic'|'openai', apiKey:'test', model:'stub-model', baseUrl:'http://127.0.0.1:8765'}`. `baseUrl` is honored — a local stub makes the whole fetch→tool-loop real.
+- Scriptable stub pattern: one node server answering BOTH `POST /v1/messages` (anthropic shape: `content:[{type:'tool_use'|'text'}]`, `usage:{input_tokens,output_tokens}`) and `POST /v1/chat/completions` (openai shape: `choices[0].message.tool_calls`, `role:'tool'` results). A `/_mode` control endpoint switches behavior per scenario (tool-then-text / multi-tool / hang / 401) — far more deterministic than per-request sniffing. Log every request body; the second request IS the proof that tools executed (real `tool_result`/`role:'tool'` messages with live tab data).
+- Panel-as-tab: `chrome.tabs.create({url:chrome.runtime.getURL('panel/sidepanel.html')})` from the SW opens the same panel code connected over the same port — every assertion holds when the puzzle-menu GUI open is unreliable.
+- The panel's `#abort` button only exists while a turn is live — a hanging stub + click verifies AbortController wiring without timing races.
+- Design note: direct-mode tool calls pass `permissions:null` to `gateToolCall` → `shouldCheck` returns false → **no consent gate at all** — write tools run unprompted. Worth verifying/mentioning rather than assuming the hub-path card still applies.
