@@ -11,6 +11,7 @@ import { createPanelRouter, windowIdFromPortName } from './panel-router.js';
 import { PRELOAD_PRESETS } from './stealth.js';
 import * as translate from './translate.js';
 import * as subtitle from './subtitle.js';
+import * as direct from './direct.js';
 
 const DEFAULT_HUB_URL = 'ws://127.0.0.1:9010';
 // HTTP origin of the same hub server — media files finished by yt-dlp are
@@ -613,6 +614,14 @@ chrome.storage.onChanged.addListener((changes, area) => {
       console.warn('[agentbrowser] hub reconnect failed', err);
     });
   }
+  // Direct-mode toggle: flip the reported status + capabilities live.
+  if (area === 'local' && changes.abDirect) {
+    direct.config().then((cfg) => {
+      const on = direct.isEnabled(cfg);
+      postToPanel({ type: 'status', connected: hubConnected || on });
+      if (on) postToPanel(direct.capabilitiesFor(cfg));
+    });
+  }
 });
 
 // --- hub <-> panel routing --------------------------------------------------
@@ -893,20 +902,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       .then((prompt) => {
         const chatId = `learn-${tabId}-${++learnChatSeq}`;
         learnChats.set(chatId, { tabId });
-        sendToOffscreen({
-          target: 'offscreen',
-          cmd: 'send',
-          payload: {
-            type: 'chat',
-            chatId,
-            text: prompt,
-            adapter: lastPanelAdapter || undefined,
-            context: {
-              currentTab: {
-                tabId,
-                url: (sender.tab && sender.tab.url) || '',
-                title,
-              },
+        dispatchChat({
+          type: 'chat',
+          chatId,
+          text: prompt,
+          adapter: lastPanelAdapter || undefined,
+          context: {
+            currentTab: {
+              tabId,
+              url: (sender.tab && sender.tab.url) || '',
+              title,
             },
           },
         });
@@ -934,20 +939,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       `User's comment: ${message.text}\n` +
       'Reply conversationally — your answer streams back onto the annotation card on the page. ' +
       'Use annotate_reply for a short targeted reply, or just answer directly.';
-    sendToOffscreen({
-      target: 'offscreen',
-      cmd: 'send',
-      payload: {
-        type: 'chat',
-        chatId,
-        text,
-        adapter: lastPanelAdapter || undefined,
-        context: {
-          currentTab: {
-            tabId,
-            url: sender.tab.url || '',
-            title: sender.tab.title || '',
-          },
+    dispatchChat({
+      type: 'chat',
+      chatId,
+      text,
+      adapter: lastPanelAdapter || undefined,
+      context: {
+        currentTab: {
+          tabId,
+          url: sender.tab.url || '',
+          title: sender.tab.title || '',
         },
       },
     });
@@ -965,7 +966,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         });
       });
     }
-    postToPanel({ type: 'status', connected: hubConnected });
+    // A hub socket flap must not drop a direct-mode panel to "未连接".
+    direct.enabled().then((on) => {
+      postToPanel({ type: 'status', connected: hubConnected || on });
+    });
   } else if (message.cmd === 'ws_message') {
     handleHubMessage(message.payload);
   } else if (
@@ -982,46 +986,14 @@ function handleHubMessage(payload) {
   if (payload.type === 'tool_call') {
     handleToolCall(payload);
   } else if (payload.type === 'chat_event') {
-    // Annotation threads (chatId 'ann-*') stream to the page card, not the
-    // panel. Events for chatIds the current panel did not start are dropped.
-    const ann = annChats.get(payload.chatId);
-    if (ann) {
-      chrome.tabs
-        .sendMessage(ann.tabId, {
-          target: 'annotation',
-          cmd: 'event',
-          annId: ann.annId,
-          event: payload.event,
-        })
-        .catch((err) => {
-          console.warn('[agentbrowser] annotation event delivery failed', err);
-        });
-      return;
-    }
-    const learn = learnChats.get(payload.chatId);
-    if (learn) {
-      chrome.tabs
-        .sendMessage(learn.tabId, {
-          target: 'video-ask',
-          cmd: 'learn_event',
-          event: payload.event,
-        })
-        .catch((err) => {
-          console.warn('[agentbrowser] learn event delivery failed', err);
-        });
-      return;
-    }
-    postToPanel({
-      type: 'chat_event',
-      chatId: payload.chatId,
-      browser: payload.browser,
-      event: payload.event,
-    });
+    emitChatEvent(payload.chatId, payload.event, payload.browser);
   } else if (payload.type === 'capabilities') {
-    // Relayed verbatim. Cached so a panel that reconnects gets its picker back
-    // without waiting for the round trip its own get_capabilities makes.
+    // Relayed verbatim — except in direct mode, where the panel keeps the
+    // synthetic adapter its chats actually run through.
     lastCapabilities = payload;
-    postToPanel(payload);
+    direct.enabled().then((on) => {
+      if (!on) postToPanel(payload);
+    });
   } else if (payload.type === 'superseded') {
     // Another extension holds this browser's id — the hub kept it and cut us.
     postToPanel({ type: 'superseded', reason: payload.reason });
@@ -1138,30 +1110,59 @@ chrome.runtime.onConnect.addListener((port) => {
     }
   }
   panelRouter.connect(windowId, port);
-  port.postMessage({ type: 'status', connected: hubConnected });
-  if (lastCapabilities) port.postMessage(lastCapabilities);
-  connectHub().catch((err) => {
-    console.warn('[agentbrowser] hub connect on panel open failed', err);
+  direct.enabled().then((directOn) => {
+    if (directOn) {
+      // Hubless mode: report connected and hand the panel the synthetic
+      // adapter instead of touching the hub at all.
+      port.postMessage({ type: 'status', connected: true });
+      direct.config().then((cfg) => port.postMessage(direct.capabilitiesFor(cfg)));
+      return;
+    }
+    port.postMessage({ type: 'status', connected: hubConnected });
+    if (lastCapabilities) port.postMessage(lastCapabilities);
+    connectHub().catch((err) => {
+      console.warn('[agentbrowser] hub connect on panel open failed', err);
+    });
   });
   port.onMessage.addListener((msg) => {
     if (!msg || typeof msg !== 'object') return;
     // Binds chat/command/chat_resume chatIds to this window for reply routing.
     panelRouter.noteInbound(windowId, msg);
-    if (msg.type === 'chat' || msg.type === 'command') {
+    if (msg.type === 'chat') {
       // Annotation comments default to whatever backend the panel is using.
       if (typeof msg.adapter === 'string' && msg.adapter) {
         lastPanelAdapter = msg.adapter;
       }
       // Verbatim, every field: picking fields out would drop model, context
-      // and attachments.
+      // and attachments. Direct mode runs the turn in this worker instead.
+      dispatchChat(msg);
+    } else if (msg.type === 'command') {
       sendToOffscreen({ target: 'offscreen', cmd: 'send', payload: msg });
+    } else if (msg.type === 'chat_abort') {
+      direct.enabled().then((on) => {
+        if (on) direct.abort(msg.chatId);
+        else sendToOffscreen({ target: 'offscreen', cmd: 'send', payload: msg });
+      });
+    } else if (msg.type === 'get_capabilities') {
+      direct.config().then((cfg) => {
+        if (direct.isEnabled(cfg)) postToPanel(direct.capabilitiesFor(cfg));
+        else sendToOffscreen({ target: 'offscreen', cmd: 'send', payload: msg });
+      });
+    } else if (msg.type === 'chat_list') {
+      direct.enabled().then((on) => {
+        if (on) postToPanel({ type: 'chat_list', chats: [] });
+        else sendToOffscreen({ target: 'offscreen', cmd: 'send', payload: msg });
+      });
+    } else if (msg.type === 'chat_resume') {
+      // Direct mode keeps no transcripts — resume always reports not-found
+      // so the panel falls back to a fresh chat.
+      direct.enabled().then((on) => {
+        if (on) postToPanel({ type: 'chat_resumed', chatId: msg.chatId, found: false });
+        else sendToOffscreen({ target: 'offscreen', cmd: 'send', payload: msg });
+      });
     } else if (
-      msg.type === 'chat_resume' ||
-      msg.type === 'chat_abort' ||
       msg.type === 'set_key' ||
       msg.type === 'set_proactive_config' ||
-      msg.type === 'get_capabilities' ||
-      msg.type === 'chat_list' ||
       msg.type === 'set_translate_config' ||
       msg.type === 'get_translate_config'
     ) {
@@ -1954,4 +1955,66 @@ async function executeTool(tool, args, permissions) {
   const fn = TOOLS[tool];
   if (!fn) throw new Error(`unknown tool: ${tool}`);
   return fn(args, permissions);
+}
+
+// Chat-event fan-out shared by hub replies and direct-mode turns: ann-*/
+// learn-* chats stream back to the page that started them, the rest go to
+// the panel that owns the chat.
+function emitChatEvent(chatId, event, browser) {
+  const ann = annChats.get(chatId);
+  if (ann) {
+    chrome.tabs
+      .sendMessage(ann.tabId, {
+        target: 'annotation',
+        cmd: 'event',
+        annId: ann.annId,
+        event,
+      })
+      .catch((err) => {
+        console.warn('[agentbrowser] annotation event delivery failed', err);
+      });
+    return;
+  }
+  const learn = learnChats.get(chatId);
+  if (learn) {
+    chrome.tabs
+      .sendMessage(learn.tabId, {
+        target: 'video-ask',
+        cmd: 'learn_event',
+        event,
+      })
+      .catch((err) => {
+        console.warn('[agentbrowser] learn event delivery failed', err);
+      });
+    return;
+  }
+  postToPanel({ type: 'chat_event', chatId, browser, event });
+}
+
+// A chat payload destined for the agent — hub when connected, the built-in
+// provider loop when direct mode is on.
+function dispatchChat(payload) {
+  direct
+    .enabled()
+    .then((on) => {
+      if (!on) {
+        sendToOffscreen({ target: 'offscreen', cmd: 'send', payload });
+        return;
+      }
+      direct
+        .sendChat(payload, {
+          emit: (event) => emitChatEvent(payload.chatId, event),
+          execTool: (name, args) => executeTool(name, args, null),
+          gate: (name, args) => gateToolCall(name, args, null),
+        })
+        .catch((err) => {
+          console.warn('[agentbrowser] direct chat failed', err);
+          emitChatEvent(payload.chatId, { kind: 'error', message: String((err && err.message) || err) });
+          emitChatEvent(payload.chatId, { kind: 'done' });
+        });
+    })
+    .catch((err) => {
+      console.warn('[agentbrowser] direct-mode check failed, sending to hub', err);
+      sendToOffscreen({ target: 'offscreen', cmd: 'send', payload });
+    });
 }
