@@ -143,11 +143,12 @@ Type a message, pick an adapter from the dropdown if you don't want the
 default from `server/hub/config.json`, and send. Tool activity shows up as
 compact chips in the transcript.
 
-> **Tip** — override the port with `AGENTCHAT_PORT`. To keep the hub running
-> across logins, [server/autostart.md](server/autostart.md) has a launchd
-> recipe for macOS; the plist lives outside the repo. Logs go to
-> `/tmp/agentchat-hub.log`. If the hub reports the port is in use, an
-> autostarted copy is already running.
+> **Tip** — override the port with `AGENTCHAT_PORT`. To have the hub start
+> itself when the browser launches (one hub serves every browser), run
+> `node server/native/install.mjs <extension-id>` once; login-time
+> services (launchd / Task Scheduler / systemd) are covered in
+> [server/autostart.md](server/autostart.md). If the hub reports the port
+> is in use, an autostarted copy is already running.
 
 ## Ask about a selection
 

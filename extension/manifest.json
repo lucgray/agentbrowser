@@ -14,7 +14,8 @@
     "notifications",
     "tabCapture",
     "activeTab",
-    "downloads"
+    "downloads",
+    "nativeMessaging"
   ],
   "host_permissions": [
     "*://*/*"

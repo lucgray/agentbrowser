@@ -564,7 +564,33 @@ function sendToOffscreen(message) {
   });
 }
 
+// The native host (installed via server/native/install.mjs) starts the hub
+// on demand, so the browser doesn't need a manually launched hub. Absent
+// host → a warn and the usual "hub not connected" state; nothing breaks.
+let nativeEnsureAt = 0;
+function ensureHubViaNative() {
+  if (Date.now() - nativeEnsureAt < 60_000) return;
+  nativeEnsureAt = Date.now();
+  chrome.runtime
+    .sendNativeMessage('com.agentbrowser.hub', { type: 'ensure' })
+    .then((res) => {
+      // Hub came up just now (this keeper spawned it or a sibling did) —
+      // retry the ws connect once it settles.
+      if (res && res.ok && !res.already) {
+        setTimeout(() => {
+          connectHub().catch((err) => {
+            console.warn('[agentbrowser] hub reconnect after autostart failed', err);
+          });
+        }, 1500);
+      }
+    })
+    .catch((err) => {
+      console.warn('[agentbrowser] native hub keeper unavailable', err);
+    });
+}
+
 async function connectHub() {
+  ensureHubViaNative();
   await ensureOffscreen();
   const { hubUrl } = await chrome.storage.local.get('hubUrl');
   hubHttpBase = String(hubUrl || DEFAULT_HUB_URL)
