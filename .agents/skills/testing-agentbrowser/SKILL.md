@@ -188,6 +188,8 @@ None for the stub-hub or shim paths. Real adapters need their provider keys/CLIs
 - MV3 SW target ids go stale on every restart ("no target <id>") — re-list `/json/list` for the `sw.js` target right before each SW eval rather than caching the id.
 - Triple-space translate can be tested without the OS: dispatch 3× `new KeyboardEvent('keydown',{code:'Space',bubbles:true,cancelable:true})` on `document.body` — the 650ms run window is generous. Assert via `__abTranslate.status().active` + `[data-ab-tid]` count; a focused `<input>` must not trigger it.
 - `chrome.downloads` from a `data:` URL: `data:text/plain` forces a `.txt` extension; `data:application/octet-stream` preserves `.srt`/`.xml`. Check `~/Downloads` directly.
+- Real YouTube/bilibili pages lazily load their own control bars — a page can end up with duplicate `.ytp-right-controls`/`bpx-*` elements, so scope queries inside the injected subtree (`box.querySelector`), never global selectors.
+- x.com is login-walled anonymously — exercise hostname-gated resolvers with a structural mock on the real hostname (the `data-testid`/`role=slider`/`button>div>svg` shape `resolve()` documents) when the real player can't load.
 
 ## Direct mode (hubless) testing
 
