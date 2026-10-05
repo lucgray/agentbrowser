@@ -312,29 +312,33 @@ function mountControlIcon(video) {
     toggleMenu(b.getBoundingClientRect());
   });
   // Size from the bar's own buttons — hardcoding 36px looked right on
-  // YouTube but oversized inside bilibili's shorter control row.
+  // YouTube but oversized inside bilibili's shorter control row. Measure the
+  // anchor (fullscreen) button first: it's always an icon button, unlike a
+  // text-quality sibling that skews the width.
   let h = 36;
+  let w = 0;
   try {
     const sib =
-      bar.querySelector("button, .ytp-button, .bpx-player-ctrl-btn") || bar;
-    const sh = Math.round(sib.getBoundingClientRect().height);
+      (site.anchor ? bar.querySelector(site.anchor) : null) ||
+      bar.querySelector("button, .ytp-button, .bpx-player-ctrl-btn") ||
+      bar;
+    const sr = sib.getBoundingClientRect();
+    const sh = Math.round(sr.height);
+    const sw = Math.round(sr.width);
     if (sh >= 20 && sh <= 48) h = sh;
+    if (sw >= 20 && sw <= 64) w = sw;
   } catch (err) {
     logWarn("control bar sizing failed", err);
   }
-  const icon = Math.max(14, Math.min(18, h - 14));
+  const icon = Math.max(14, Math.min(18, h - 8));
   b.appendChild(iconSvg(AT_PATHS, icon));
   b.style.display = "inline-flex";
   b.style.alignItems = "center";
   b.style.justifyContent = "center";
-  b.style.alignSelf = "center";
-  b.style.width = h + "px";
+  b.style.width = (w || h) + "px";
   b.style.height = h + "px";
   b.style.color = "inherit";
   b.style.opacity = "0.92";
-  // Bars whose children align via inline-block vertical-align (bilibili)
-  // drop a baseline-aligned element below the icon row.
-  b.style.verticalAlign = "middle";
   const svg = b.firstElementChild;
   if (svg) svg.style.display = "block";
   // Sit just left of the fullscreen button (site.anchor). The bar's children
