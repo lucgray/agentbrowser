@@ -35,6 +35,30 @@ const CONTROL_BARS = [
     bar: ".bpx-player-control-bottom-right, .bilibili-player-video-control",
     anchor: ".bpx-player-ctrl-full",
   },
+  {
+    match: /(^|\.)(twitter\.com|x\.com)$/,
+    // x.com exposes no stable class names — resolve the controls group by
+    // structure (the approach read-frog uses): it exists only while the
+    // progress slider renders, and control icons sit at a fixed
+    // button > div > svg depth inside it.
+    resolve(video) {
+      const box =
+        video.closest(
+          "[data-testid='videoPlayer'],[data-testid='videoComponent'],[data-testid='videoPlayerContainer']",
+        ) || video.parentElement;
+      if (!box || !box.querySelector("[role='slider']")) return null;
+      const svg = box.querySelector("button[role='button'] > div > svg");
+      return (
+        (svg &&
+          svg.parentElement &&
+          svg.parentElement.parentElement &&
+          svg.parentElement.parentElement.parentElement &&
+          svg.parentElement.parentElement.parentElement.parentElement) ||
+        null
+      );
+    },
+    anchorLast: true, // the last child is the fullscreen button
+  },
 ];
 
 let btn = null;
@@ -238,10 +262,19 @@ const cbBtns = new WeakSet(); // control bars already carrying our icon
 
 function findControlBar(video) {
   if (video.tagName !== "VIDEO") return null;
+  for (const site of CONTROL_BARS) {
+    if (!site.resolve || !site.match.test(location.hostname)) continue;
+    try {
+      const bar = site.resolve(video);
+      if (bar && bar.isConnected) return { bar, site };
+    } catch (err) {
+      logWarn("control bar resolve failed", err);
+    }
+  }
   let el = video;
   for (let i = 0; el && i < 8; i++) {
     for (const site of CONTROL_BARS) {
-      if (!site.match.test(location.hostname)) continue;
+      if (!site.bar || !site.match.test(location.hostname)) continue;
       try {
         const bar = el.querySelector ? el.querySelector(site.bar) : null;
         if (bar && bar.isConnected) return { bar, site };
@@ -299,6 +332,9 @@ function mountControlIcon(video) {
   b.style.height = h + "px";
   b.style.color = "inherit";
   b.style.opacity = "0.92";
+  // Bars whose children align via inline-block vertical-align (bilibili)
+  // drop a baseline-aligned element below the icon row.
+  b.style.verticalAlign = "middle";
   const svg = b.firstElementChild;
   if (svg) svg.style.display = "block";
   // Sit just left of the fullscreen button (site.anchor). The bar's children
@@ -313,7 +349,10 @@ function mountControlIcon(video) {
     return n;
   };
   const anchorEl = site.anchor ? bar.querySelector(site.anchor) : null;
-  const ref = anchorEl ? barChild(anchorEl) : null;
+  let ref = anchorEl ? barChild(anchorEl) : null;
+  if (!ref && site.anchorLast && bar.lastElementChild) {
+    ref = bar.lastElementChild;
+  }
   if (ref) {
     bar.insertBefore(b, ref);
   } else {
