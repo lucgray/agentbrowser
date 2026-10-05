@@ -522,8 +522,16 @@ document.addEventListener(
 // button; re-place on scroll, drop on fullscreen change.
 addEventListener(
   "scroll",
-  () => {
+  (e) => {
     if (hoverMode !== "float" || !hoverEl) return;
+    // Only a scroll of the document or of an ancestor moves the media's
+    // viewport rect. Unrelated scrollers (chat feeds, side panes auto-
+    // scrolling on stream) fire constantly — re-placing on every tick turns
+    // any sub-pixel reflow of the media into a visible horizontal shake.
+    const t = e.target;
+    const docScroll =
+      t === document || t === document.documentElement || t === document.body;
+    if (!docScroll && !(t && t.contains && t.contains(hoverEl))) return;
     if (!hoverEl.isConnected || !placeButton(hoverEl, hoverKind)) hideButton();
   },
   true
@@ -540,15 +548,18 @@ function placeButton(el, kind) {
   const minH = 80;
   if (r.width < minW || r.height < minH) return false; // ignore thumbnails/icons
   const b = ensureButton();
-  const left = Math.max(4, r.left + 8);
-  const top = Math.max(4, r.top + 8);
+  // Round to whole pixels: a streaming page can wobble the rect by a
+  // fraction of a pixel every scroll tick, and writing each wobble reads
+  // as the chip shaking.
+  const left = Math.round(Math.max(4, r.left + 8));
+  const top = Math.round(Math.max(4, r.top + 8));
   // Deadzone: identical/sub-pixel writes on every scroll event re-run layout
   // for nothing — and visible restarts of the pop-in transition read as
   // jitter at edges.
   if (
     lastPos &&
-    Math.abs(lastPos.left - left) < 1 &&
-    Math.abs(lastPos.top - top) < 1 &&
+    lastPos.left === left &&
+    lastPos.top === top &&
     b.classList.contains("ab-show")
   ) {
     return true;
