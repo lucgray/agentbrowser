@@ -243,24 +243,13 @@ function ours(node) {
   return !!(node && node.closest && node.closest("[id^='agentbrowser-']"));
 }
 
-// The player wrapper framing a media's own overlays (control chrome, poster,
-// captions). Foreign overlays covering the media — a sticky site header the
-// video scrolled under, an overlapping card — sit OUTSIDE this box, which is
-// how we tell "own chrome" from "media is covered by the page".
-function mediaBox(el) {
-  return (
-    el.closest(
-      "[data-testid='videoPlayer'],[data-testid='videoComponent']," +
-        "[data-testid='videoPlayerContainer'],.html5-video-player," +
-        ".bpx-player-container,.bilibili-player,[data-testid='tweetPhoto']",
-    ) || el.parentElement
-  );
-}
-
-// At this stack's point, is the media covered by something outside its own
-// player wrapper? Own overlays (player chrome inside mediaBox) don't count,
-// and a wrapping ancestor (link around an img) doesn't either.
-function mediaCovered(stack, el, box) {
+// At this stack's point, is the media covered by foreign content? Pure
+// geometry, no per-site rules: the topmost non-AgentBrowser element is
+// harmless when it's the media itself, an ancestor, a descendant, or an
+// element lying entirely inside the media's rect (the player's own chrome —
+// captions, gradients, in-player controls). Anything extending outside the
+// rect — a sticky site header, an overlapping card — is a foreign cover.
+function mediaCovered(stack, el) {
   let top = null;
   for (const n of stack) {
     if (!ours(n)) {
@@ -269,8 +258,16 @@ function mediaCovered(stack, el, box) {
     }
   }
   if (!top) return true;
-  if (top === el || top.contains(el)) return false;
-  return !(box && box.contains(top));
+  if (top === el || top.contains(el) || el.contains(top)) return false;
+  const mr = el.getBoundingClientRect();
+  const tr = top.getBoundingClientRect();
+  const M = 4; // tolerance for borders / sub-pixel offsets
+  return (
+    tr.left < mr.left - M ||
+    tr.right > mr.right + M ||
+    tr.top < mr.top - M ||
+    tr.bottom > mr.bottom + M
+  );
 }
 
 // Ancestor-walk misses media covered by sibling overlays — YouTube parks an
@@ -306,7 +303,7 @@ function pickMediaAt(e) {
     // e.g. a player scrolled under x.com's sticky header. Anchoring there
     // lands the chip on the header. Only videos whose point is actually
     // visible (topmost is the video or its own chrome) qualify.
-    if (el.tagName === "VIDEO" && !mediaCovered(stack, el, mediaBox(el))) {
+    if (el.tagName === "VIDEO" && !mediaCovered(stack, el)) {
       return { el, kind: "video" };
     }
   }
@@ -684,7 +681,6 @@ function placeButton(el, kind) {
   // everywhere → hide.
   const left = Math.round(Math.max(4, r.left + 8));
   if (left > window.innerWidth - 28) return false;
-  const box = kind === "video" ? mediaBox(el) : null;
   let top = -1;
   const hi = Math.min(r.bottom - 24, window.innerHeight - 28);
   for (let y = Math.round(Math.max(4, r.top + 8)); y <= hi; y += 24) {
@@ -696,7 +692,7 @@ function placeButton(el, kind) {
       top = y;
       break;
     }
-    if (!mediaCovered(stack, el, box)) {
+    if (!mediaCovered(stack, el)) {
       top = y;
       break;
     }
