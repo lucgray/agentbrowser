@@ -158,6 +158,9 @@ const BOOK_PATHS = [
 // Floating chip (fallback for players without a recognized control bar, and
 // for images). Clicking opens the menu rather than asking directly.
 function ensureButton() {
+  // Sites can sweep our node out of the DOM — re-mount instead of handing
+  // back a detached element the chip then silently dies on.
+  if (btn && btn.parentNode !== floatHost()) floatHost().appendChild(btn);
   if (btn) return btn;
   btn = document.createElement("div");
   btn.id = BTN_ID;
@@ -202,6 +205,18 @@ function hideButton() {
   hoverEl = null;
   hoverKind = null;
   hoverMode = null;
+  lastPos = null;
+}
+
+// Hide the chip because its anchor is covered, but KEEP the hover state: the
+// scroll handler re-runs placeButton every relevant tick, so the chip
+// re-appears the moment the media uncovers without needing a fresh hover.
+function coverHide() {
+  clearHideTimer();
+  if (btn) {
+    btn.classList.remove("ab-show");
+    btn.style.display = "none";
+  }
   lastPos = null;
 }
 
@@ -458,6 +473,7 @@ function menuItem(iconPaths, text, onClick) {
 }
 
 function ensureMenu() {
+  if (menu && menu.parentNode !== floatHost()) floatHost().appendChild(menu);
   if (menu) return menu;
   menu = document.createElement("div");
   menu.id = MENU_ID;
@@ -596,7 +612,7 @@ document.addEventListener(
   (e) => {
     const hit = pickMediaAt(e);
     if (!hit) {
-      if (hoverEl && btn && btn.classList.contains("ab-show")) scheduleHide();
+      if (hoverEl) scheduleHide();
       return;
     }
     if (hit.kind === "video" && mountControlIcon(hit.el)) {
@@ -607,11 +623,18 @@ document.addEventListener(
       return;
     }
     clearHideTimer();
-    if (hit.el === hoverEl) return;
+    if (hit.el === hoverEl) {
+      // Cover-hidden chip: the media is hovered again — retry the anchor
+      // (its cover may have gone without any scroll event).
+      if (btn && !btn.classList.contains("ab-show") && !placeButton(hoverEl, hoverKind)) {
+        coverHide();
+      }
+      return;
+    }
     hoverEl = hit.el;
     hoverKind = hit.kind;
     hoverMode = "float";
-    if (!placeButton(hit.el, hit.kind)) hideButton();
+    if (!placeButton(hit.el, hit.kind)) coverHide();
   },
   true
 );
@@ -619,7 +642,7 @@ document.addEventListener(
 document.addEventListener(
   "mouseout",
   (e) => {
-    if (!pickMediaAt(e) && hoverEl && btn && btn.classList.contains("ab-show")) scheduleHide();
+    if (!pickMediaAt(e) && hoverEl) scheduleHide();
   },
   true
 );
@@ -638,7 +661,8 @@ addEventListener(
     const docScroll =
       t === document || t === document.documentElement || t === document.body;
     if (!docScroll && !(t && t.contains && t.contains(hoverEl))) return;
-    if (!hoverEl.isConnected || !placeButton(hoverEl, hoverKind)) hideButton();
+    if (!hoverEl.isConnected) hideButton();
+    else if (!placeButton(hoverEl, hoverKind)) coverHide();
   },
   true
 );
