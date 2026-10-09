@@ -246,11 +246,14 @@ function pickMediaAt(e) {
   if (hoverEl && stack.includes(hoverEl)) {
     return { el: hoverEl, kind: hoverEl.tagName === "VIDEO" ? "video" : "image" };
   }
+  // See-through is for VIDEO only: a video's invisible control layer sits on
+  // top of it. Applying it to IMG latched the chip onto images covered by
+  // article text (e.g. a weibo cover under the headline) — the @ then glued
+  // to the image's top-left corner, landing on the title. Covered images get
+  // no chip; an uncovered img still hits via the ancestor walk above.
   for (const el of stack) {
     if (el.id && String(el.id).startsWith("agentbrowser-")) continue;
-    if (el.tagName === "VIDEO" || el.tagName === "IMG") {
-      return { el, kind: el.tagName === "VIDEO" ? "video" : "image" };
-    }
+    if (el.tagName === "VIDEO") return { el, kind: "video" };
   }
   return null;
 }
