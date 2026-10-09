@@ -566,6 +566,29 @@ directory into `~/.agentchat/plugins/` to install one; toggle it in
 `translate` plugin carries all translate/subtitle tools. Authoring spec:
 [PLUGINS.md](PLUGINS.md).
 
+### Notes plugin (pipebox-style page notes)
+
+The bundled `notes` plugin turns the extension into a page-notes tool:
+
+- **Sidebar** — a fixed markdown editor in shadow DOM (autosave, tags,
+  quote list, image paste → `/notes-assets/`). Open it from the context
+  menu (笔记侧边栏), `Alt+Shift+N`, or the opt-in edge handle (context
+  menu checkbox / `notesEdgeHandle` — off by default, nothing persistent
+  is drawn on the page unless you ask for it).
+- **Collect** — the selection ⋯ menu's 存笔记 highlights the selection on
+  the page and stores it as an anchored quote in the page's note;
+  highlights restore on the next visit.
+- **Library + API** — notes live as JSON in `~/.agentchat/notes/`, browsable
+  on the admin page's Notes card and over `GET|POST /admin/api/notes*`
+  (markdown export included) — pipebox's "Api 接口" feature, self-hosted.
+- **Agent side** — `notes_list`, `note_get`, `note_save`, `note_append`,
+  `note_quote`, `note_delete`, `notes_stats` let the agent read and write
+  the same store (ask it to "save this to notes").
+- **Chat export** — on chatgpt.com / claude.ai / gemini the sidebar gets an
+  "导出对话" button that appends the conversation to the note as markdown.
+
+Storage stays local — no cloud account like the original pipebox service.
+
 ## Web admin
 
 The hub port also serves a management console at

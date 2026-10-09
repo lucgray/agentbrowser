@@ -29,7 +29,8 @@
         "content/float-guard.js",
         "content/selection.js",
         "content/annotation.js",
-        "content/video-ask.js"
+        "content/video-ask.js",
+        "content/notes.js"
       ],
       "css": [
         "content/float-theme.css",
@@ -45,6 +46,14 @@
   },
   "side_panel": {
     "default_path": "panel/sidepanel.html"
+  },
+  "commands": {
+    "toggle-notes-sidebar": {
+      "suggested_key": {
+        "default": "Alt+Shift+N"
+      },
+      "description": "Toggle the notes sidebar"
+    }
   },
   "icons": {
     "16": "icons/icon-16.png",

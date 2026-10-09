@@ -561,6 +561,11 @@ function createMoreMenu() {
     ["📖", "词典", () => openPopupWith("dict")],
     ["🧩", "长难句", () => openPopupWith("parse")],
   ];
+  // Notes plugin hook: notes.js registers __abNoteCollect; only show the item
+  // when the plugin resolved as enabled (a disabled plugin = dead button).
+  if (typeof window.__abNoteCollect === "function" && window.__abNotesEnabled !== false) {
+    items.push(["📝", "存笔记", () => window.__abNoteCollect()]);
+  }
   for (const [ico, label, fn] of items) {
     const it = document.createElement("button");
     it.type = "button";

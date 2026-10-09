@@ -1558,3 +1558,39 @@ skill/SKILL.md to ~/.claude/skills and ~/.agents/skills (or --target dirs).
   shadow host mounting positioned content), probes an inflated rect over a
   9-point grid, observes open shadow roots, and re-probes at settle delays
   for floaters that mount after we do.
+
+## protocol v2.23
+
+- `note_op` (extension -> hub): the notes plugin's page-side sidebar performs
+  note operations. `{type:'note_op', reqId, op, ...args}` — the args whitelist
+  is forwarded by sw.js verbatim. Replies `note_op_result`
+  `{reqId, ok:true, result}` or `{reqId, ok:false, error}`. `op` in
+  `list|get|save|update|delete|append|quote|asset|tags|quotes_for_url|stats`,
+  all gated on the `notes` plugin being enabled.
+- Notes storage (hub): `server/hub/notes.mjs` keeps notes as one JSON file
+  per note under `~/.agentchat/notes/` (`AGENTCHAT_NOTES_DIR` redirects),
+  assets under `~/.agentchat/notes/assets/` served at `GET /notes-assets/<f>`
+  with a basename allowlist (no traversal). Note shape: `{id, title, url,
+  domain, tags[], content, quotes[], created, updated}`; a quote is `{id,
+  text, prefix, suffix, url, anchor:{xpath,start,endXpath,end}|null, ts}`.
+- Notes tools (agent-facing, hub-answered like the translate tools):
+  `notes_list`, `note_get`, `note_save`, `note_append`, `note_quote`,
+  `note_delete`, `notes_stats` — declared by `server/plugins/notes/` and
+  hidden when the plugin is disabled.
+- Admin HTTP: `GET /admin/api/notes` (`?id=` returns `{note}`, else
+  `{notes, tags, stats}`; `?q&tag&domain&url&limit` filters),
+  `GET /admin/api/notes/export?id=` (markdown download), and
+  `POST /admin/api/notes` with `{op: save|update|delete|append|quote|asset}`.
+- Page sidebar (`extension/content/notes.js`): shadow-DOM fixed panel with a
+  markdown editor (autosave 800ms debounce), tag field, quote list, per-URL
+  note library, image paste upload, chatGPT-style conversation export on
+  chatgpt/claude/gemini hosts. Opened via context menu 笔记侧边栏,
+  Alt+Shift+N (`commands` entry), or the opt-in edge handle
+  (`notesEdgeHandle` chrome.storage.local, default false — nothing
+  persistent is drawn on the page unless enabled). `notesSide`
+  (left|right) persists panel position.
+- Selection collection: the ⋯ menu gains 存笔记, which highlights the live
+  selection (`.ab-note-hl` spans, data-quote-id) and appends it to the
+  page's note as an anchored quote. Highlights restore on load via
+  `quotes_for_url` — anchor-xpath first, then exact-text + prefix/suffix
+  scan as a fallback.
