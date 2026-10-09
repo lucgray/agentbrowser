@@ -77,8 +77,12 @@
     try {
       if (root.querySelector(KNOWN_FOREIGN_HOSTS)) return true;
       // Open shadow root with visibly positioned content = foreign overlay.
-      for (const inner of root.querySelectorAll("*")) {
-        const cs = getComputedStyle(inner);
+      // Bounded scan: a floater's positioned wrapper sits near the top of
+      // the root; walking a whole component tree (hundreds of nodes) with a
+      // computed-style read each is the hot path this cap avoids.
+      const inner = root.querySelectorAll("*");
+      for (let i = 0; i < inner.length && i < 60; i++) {
+        const cs = getComputedStyle(inner[i]);
         if ((cs.position === "fixed" || cs.position === "absolute") &&
             cs.display !== "none" && cs.visibility !== "hidden") return true;
       }
@@ -181,7 +185,7 @@
     const later = () => {
       if (pending) return;
       pending = true;
-      setTimeout(check, 60);
+      timers.push(setTimeout(check, 60));
     };
     const mo = new MutationObserver((records) => {
       if (pending || stopped) return;
@@ -202,12 +206,19 @@
     try {
       mo.observe(document.body, { childList: true, subtree: true });
       // Attach into open shadow roots already present (foreign overlays that
-      // mounted before us — their hosts live at body level).
-      for (const el of document.body.querySelectorAll("*")) {
+      // mounted before us — their hosts live at body level). Both caps are
+      // deliberate: a full querySelectorAll("*") sweep is O(page size) and
+      // web-component-heavy sites (YouTube) expose hundreds of open roots —
+      // an observer on each one would fan every DOM churn into our check.
+      const all = document.body.querySelectorAll("*");
+      let attached = 0;
+      for (let i = 0; i < all.length && i < 1500 && attached < 24; i++) {
+        const el = all[i];
         if (el.shadowRoot && !(el.id && String(el.id).startsWith(OWN_PREFIX))) {
           const inner = new MutationObserver(later);
           try { inner.observe(el.shadowRoot, { childList: true, subtree: true }); } catch (err) { console.warn("[agentbrowser] shadow attach failed", err); }
           shadowObservers.push(inner);
+          attached++;
         }
       }
       // Settle probes: closed-shadow and delayed floaters leave no observable

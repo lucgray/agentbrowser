@@ -1099,23 +1099,14 @@ function annotateSegments(extraState) {
   renderPop();
 }
 
-function showTrPop(text) {
-  popText = String(text || "");
-  popTranslated = "";
-  popSpeaking = false;
-  popBusy = "tr";
-  popExtra = null;
-  popMode = "tr";
-  const pop = ensureTrPop();
-  pop.dataset.abtheme = floatTheme;
-  renderPop();
+// Position the popup: left edge under the selection's left (the read-frog
+// anchor), flipped above when the card would not fit below.
+function placeTrPop(pop) {
+  const selRect = lastSelBounds;
   const anchor =
     floatBtn && !floatBtn.classList.contains("agentbrowser-hidden")
       ? floatBtn.getBoundingClientRect()
       : null;
-  const selRect = lastSelBounds;
-  // Anchor the popup's left edge under the selection's left edge (the
-  // read-frog anchor), falling back to the toolbar's position.
   const baseLeft = selRect
     ? selRect.left + window.scrollX
     : anchor
@@ -1124,7 +1115,6 @@ function showTrPop(text) {
   let top = anchor ? anchor.bottom + window.scrollY + 8 : selRect ? selRect.bottom + window.scrollY + 8 : window.scrollY + 80;
   const maxH = Math.round(window.innerHeight * 0.62);
   if (top - window.scrollY + maxH > window.innerHeight - 12) {
-    // Not enough room below — flip above the selection when possible.
     const above = (selRect ? selRect.top : anchor ? anchor.top : 200) + window.scrollY - 8 - Math.min(360, maxH);
     if (above > window.scrollY + 8) top = above;
   }
@@ -1134,40 +1124,33 @@ function showTrPop(text) {
   requestAnimationFrame(() => pop.classList.add("ab-show"));
 }
 
+function resetPop(text, mode, busy) {
+  popText = String(text || "");
+  popTranslated = "";
+  popSpeaking = false;
+  popBusy = busy;
+  popExtra = null;
+  popMode = mode;
+}
+
+function showTrPop(text) {
+  resetPop(text, "tr", "tr");
+  const pop = ensureTrPop();
+  pop.dataset.abtheme = floatTheme;
+  renderPop();
+  placeTrPop(pop);
+}
+
 // ⋯ menu surfaces: open the popup straight into dict or parse mode — same
 // card, different title and no translation block.
 function openPopupWith(mode) {
   if (!isContextValid() || !currentSelectionContext) return;
   const text = currentSelectionContext.text;
-  popText = String(text || "");
-  popTranslated = "";
-  popSpeaking = false;
-  popBusy = "";
-  popExtra = null;
-  popMode = mode === "dict" || mode === "parse" ? mode : "tr";
+  resetPop(text, mode === "dict" || mode === "parse" ? mode : "tr", "");
   const pop = ensureTrPop();
   pop.dataset.abtheme = floatTheme;
   renderPop();
-  const selRect = lastSelBounds;
-  const anchor =
-    floatBtn && !floatBtn.classList.contains("agentbrowser-hidden")
-      ? floatBtn.getBoundingClientRect()
-      : null;
-  const baseLeft = selRect
-    ? selRect.left + window.scrollX
-    : anchor
-      ? anchor.left + window.scrollX
-      : window.scrollX + 40;
-  let top = anchor ? anchor.bottom + window.scrollY + 8 : selRect ? selRect.bottom + window.scrollY + 8 : window.scrollY + 80;
-  const maxH = Math.round(window.innerHeight * 0.62);
-  if (top - window.scrollY + maxH > window.innerHeight - 12) {
-    const above = (selRect ? selRect.top : anchor ? anchor.top : 200) + window.scrollY - 8 - Math.min(360, maxH);
-    if (above > window.scrollY + 8) top = above;
-  }
-  const popW = Math.min(360, window.innerWidth - 32);
-  pop.style.left = `${Math.max(window.scrollX + 12, Math.min(baseLeft, window.innerWidth + window.scrollX - popW - 16))}px`;
-  pop.style.top = `${top}px`;
-  requestAnimationFrame(() => pop.classList.add("ab-show"));
+  placeTrPop(pop);
   hideButton();
   if (popMode === "dict") runDict();
   else if (popMode === "parse") runParse();
