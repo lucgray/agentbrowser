@@ -970,6 +970,7 @@ function renderPop() {
         row.append(dot, spEl("span", "ab-sp-role", seg.role || `片段${i + 1}`));
         const tx = spEl("span", "ab-sp-segtext", seg.text || "");
         row.append(tx);
+        if (seg.zh) row.append(spEl("div", "ab-sp-zh", seg.zh));
         if (seg.note) row.append(spEl("div", "ab-sp-note", seg.note));
         list.append(row);
       });

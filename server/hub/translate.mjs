@@ -572,7 +572,7 @@ Rules:
 
   // analyze_request (extension -> hub): the selection popup's 词典/长难句.
   // mode "dict" -> compact dictionary entry as plain text; mode "parse" ->
-  // JSON segments [{text, role, note}] the popup can annotate onto the page.
+  // JSON segments [{text, role, note, zh}] the popup can annotate onto the page.
   const DICT_SYSTEM = `You are a bilingual dictionary engine. Given a word or short phrase, output a compact dictionary entry.
 
 Rules:
@@ -584,10 +584,11 @@ Rules:
   const PARSE_SYSTEM = `You are a sentence-structure analyzer for language learners. Given a sentence, break it into its grammatical components.
 
 Rules:
-- Output ONLY a JSON array — no markdown fences, no preamble — of objects {"text","role","note"}.
+- Output ONLY a JSON array — no markdown fences, no preamble — of objects {"text","role","note","zh"}.
 - "text" is the exact substring of the input for that component (it MUST appear verbatim in the input).
 - "role" is a short Chinese grammatical label like 主句/谓语/宾语从句/定语从句/状语从句/同位语/插入语/连接成分.
 - "note" is one short Chinese sentence explaining the component's function.
+- "zh" is a short gloss of that component in the target language so learners can compare structure and meaning.
 - Cover the whole sentence; 3-10 segments, in source order.`;
 
   // parseSegments pulls the JSON array out of a model reply that may wrap it
@@ -610,7 +611,7 @@ Rules:
       if (!it || typeof it !== 'object') continue;
       const text = String(it.text || '').trim();
       if (!text) continue;
-      out.push({ text, role: String(it.role || ''), note: String(it.note || '') });
+      out.push({ text, role: String(it.role || ''), note: String(it.note || ''), zh: String(it.zh || '') });
     }
     return out.length ? out : null;
   }

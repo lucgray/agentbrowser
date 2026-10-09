@@ -403,6 +403,13 @@
   overflow-wrap: anywhere;
   opacity: 0.9;
 }
+#agentbrowser-sel-tr-pop .ab-sp-zh {
+  grid-column: 3;
+  font-size: 12px;
+  opacity: 0.62;
+  margin-top: 1px;
+  overflow-wrap: anywhere;
+}
 #agentbrowser-sel-tr-pop .ab-sp-note {
   grid-column: 3;
   font-size: 11px;
