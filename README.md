@@ -570,17 +570,21 @@ directory into `~/.agentchat/plugins/` to install one; toggle it in
 
 The bundled `notes` plugin turns the extension into a page-notes tool:
 
-- **Sidebar** — a fixed markdown editor in shadow DOM (autosave, tags,
-  quote list, image paste → `/notes-assets/`). Open it from the context
-  menu (笔记侧边栏), `Alt+Shift+N`, or the opt-in edge handle (context
-  menu checkbox / `notesEdgeHandle` — off by default, nothing persistent
-  is drawn on the page unless you ask for it).
-- **Collect** — the selection ⋯ menu's 存笔记 highlights the selection on
-  the page and stores it as an anchored quote in the page's note;
-  highlights restore on the next visit.
+- **Sidebar** — a fixed panel in shadow DOM whose default view is the page
+  info card + 本页笔记 + the page's highlight list; each highlight opens an
+  overlay markdown editor (autosave, tags, image paste → `/notes-assets/`).
+  Open it from the context menu (笔记侧边栏), `Alt+Shift+N`, or the opt-in
+  edge handle (context menu checkbox / `notesEdgeHandle` — off by default,
+  nothing persistent is drawn on the page unless you ask for it).
+- **Highlight** — the selection ⋯ menu has three separate controls:
+  🖌高亮 paints a mark, 📝批注 paints + opens its annotation editor, and
+  🎨高亮色 picks the brush color (5 colors). Marks live in
+  `~/.agentchat/notes/marks.json`, restore on the next visit, and a mark
+  with an annotation gets a dashed outline + 📝 badge — click it to edit.
 - **Library + API** — notes live as JSON in `~/.agentchat/notes/`, browsable
-  on the admin page's Notes card and over `GET|POST /admin/api/notes*`
-  (markdown export included) — pipebox's "Api 接口" feature, self-hosted.
+  on the admin page's Notes card (stat strip, color distribution, mark
+  detail table) and over `GET|POST /admin/api/notes*` (markdown export
+  included) — pipebox's "Api 接口" feature, self-hosted.
 - **Agent side** — `notes_list`, `note_get`, `note_save`, `note_append`,
   `note_quote`, `note_delete`, `notes_stats` let the agent read and write
   the same store (ask it to "save this to notes").

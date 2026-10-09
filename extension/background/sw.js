@@ -746,7 +746,7 @@ function handleNoteOpMessage(tabId, message) {
   const payload = { type: 'note_op', reqId, op: message.op };
   for (const k of [
     'id', 'q', 'tag', 'domain', 'url', 'limit', 'title', 'content', 'text',
-    'tags', 'name', 'data', 'prefix', 'suffix', 'anchor',
+    'tags', 'name', 'data', 'prefix', 'suffix', 'anchor', 'color', 'markId', 'scope',
   ]) {
     if (message[k] !== undefined) payload[k] = message[k];
   }

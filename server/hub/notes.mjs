@@ -1,14 +1,17 @@
 // Notes service (PROTOCOL v2.23): the hub-side half of the "notes" plugin —
 // a pipebox-style page notes store living under ~/.agentchat/notes/ so notes
 // stay local instead of in a cloud account. One JSON file per note plus an
-// assets/ dir for pasted images. Pure storage + query code; hub.mjs wires it
-// to tool calls, the note_op wire message and the admin HTTP API.
+// assets/ dir for pasted images and a marks.json page-highlights store.
+// Pure storage + query code; hub.mjs wires it to tool calls, the note_op
+// wire message and the admin HTTP API.
 //
 // Note shape: { id, title, url, domain, tags[], content(md), quotes[],
-//               created, updated }
-// Quote shape: { id, text, prefix, suffix, url, anchor:{xpath,start,end}, ts }
-// — the anchor serializes where in the page DOM the quote was highlighted so
-// the content script can re-apply it on the next visit.
+//               markId|null, created, updated }
+// A note with markId set is the annotation ("批注") of that page highlight.
+// Mark shape: { id, url, text, prefix, suffix, anchor, color, ts } — a
+// user-painted page highlight; marks live in marks.json keyed by id and are
+// the shared substrate notes quote (a mark may exist with no note at all,
+// or carry exactly one note via note.markId).
 
 import {
   readdirSync, readFileSync, writeFileSync, renameSync, existsSync,
@@ -69,6 +72,7 @@ function readNoteFile(file) {
       tags: Array.isArray(n.tags) ? n.tags.map((t) => String(t)).filter(Boolean) : [],
       content: String(n.content || ""),
       quotes: Array.isArray(n.quotes) ? n.quotes : [],
+      markId: typeof n.markId === "string" && n.markId ? n.markId : null,
       created: Number(n.created) || 0,
       updated: Number(n.updated) || 0,
     };
@@ -107,6 +111,7 @@ function summaryOf(n) {
     domain: n.domain,
     tags: n.tags,
     quoteCount: n.quotes.length,
+    markId: n.markId || null,
     excerpt: body.slice(0, 120),
     created: n.created,
     updated: n.updated,
@@ -146,7 +151,7 @@ function cleanTags(tags) {
   return [...new Set(tags.map((t) => String(t).trim()).filter(Boolean))].slice(0, 20);
 }
 
-export function saveNote({ id, title, url, domain, tags, content, quotes } = {}) {
+export function saveNote({ id, title, url, domain, tags, content, quotes, markId } = {}) {
   const now = Date.now();
   let note = id ? getNote(id) : null;
   if (id && !note) return { error: "note not found: " + id };
@@ -176,6 +181,8 @@ export function saveNote({ id, title, url, domain, tags, content, quotes } = {})
     note.content = content;
   }
   if (Array.isArray(quotes)) note.quotes = quotes.slice(0, 500);
+  if (typeof markId === "string" && markId) note.markId = markId;
+  if (markId === null) note.markId = null;
   note.updated = now;
   try {
     ensureDir();
@@ -236,6 +243,138 @@ export function appendQuote(id, q = {}) {
     return { error: String(err.message) };
   }
   return { note, quote: note.quotes[note.quotes.length - 1] };
+}
+
+// ——— Page marks (user-painted highlights) ———
+// marks.json: { [id]: { id, url, text, prefix, suffix, anchor, color, ts } }
+// anchor serializes the highlight's DOM position (xpath + offsets, text
+// context as fallback) so content scripts re-paint on the next visit. A mark
+// can be annotated by exactly one note via note.markId; removing the mark
+// also removes its annotation note.
+
+const MARK_COLORS = new Set(["yellow", "green", "blue", "pink", "purple"]);
+const MAX_MARKS = 2000;
+
+function marksFile() {
+  return path.join(notesDir(), "marks.json");
+}
+
+function cleanAnchor(a) {
+  if (!a || typeof a !== "object") return null;
+  const pick = (v, n) => (typeof v === "string" ? v.slice(0, n) : "");
+  return {
+    xpath: pick(a.xpath, 1000),
+    start: Math.max(0, Number(a.start) || 0),
+    endXpath: pick(a.endXpath, 1000),
+    end: Math.max(0, Number(a.end) || 0),
+    prefix: pick(a.prefix, 120),
+    suffix: pick(a.suffix, 120),
+  };
+}
+
+function cleanMark(m) {
+  if (!m || typeof m !== "object" || !m.id) return null;
+  return {
+    id: String(m.id),
+    url: String(m.url || "").slice(0, 2000),
+    text: String(m.text || "").slice(0, 4000),
+    anchor: cleanAnchor(m.anchor),
+    color: MARK_COLORS.has(m.color) ? m.color : "yellow",
+    ts: Number(m.ts) || 0,
+  };
+}
+
+function loadMarks() {
+  const file = marksFile();
+  if (!existsSync(file)) return {};
+  try {
+    const raw = JSON.parse(readFileSync(file, "utf8"));
+    const src = raw && typeof raw === "object" && raw.marks && typeof raw.marks === "object" ? raw.marks : {};
+    const out = {};
+    for (const [k, v] of Object.entries(src)) {
+      const m = cleanMark(v);
+      if (m) out[k] = m;
+    }
+    return out;
+  } catch (err) {
+    logWarn("[notes] marks.json unreadable:", err.message);
+    return {};
+  }
+}
+
+function saveMarks(map) {
+  try {
+    ensureDir();
+    const entries = Object.values(map).sort((a, b) => b.ts - a.ts).slice(0, MAX_MARKS);
+    const obj = {};
+    for (const m of entries) obj[m.id] = m;
+    writeAtomic(marksFile(), JSON.stringify({ marks: obj }, null, 1));
+    return true;
+  } catch (err) {
+    logWarn("[notes] marks save failed:", err.message);
+    return false;
+  }
+}
+
+export function noteForMark(markId) {
+  if (!markId) return null;
+  return allNotes().find((n) => n.markId === markId) || null;
+}
+
+export function marksForUrl(url) {
+  const u = String(url || "");
+  if (!u) return [];
+  const map = loadMarks();
+  return Object.values(map)
+    .filter((m) => m.url === u)
+    .sort((a, b) => a.ts - b.ts)
+    .map((m) => ({ ...m, noted: !!noteForMark(m.id) }));
+}
+
+// Admin-facing list: every mark with its noted flag, newest first.
+export function listMarks() {
+  const map = loadMarks();
+  return Object.values(map)
+    .sort((a, b) => b.ts - a.ts)
+    .map((m) => ({ ...m, noted: !!noteForMark(m.id), domain: domainOf(m.url) }));
+}
+
+export function saveMark({ url, text, anchor, color } = {}) {
+  const u = String(url || "").slice(0, 2000);
+  const t = String(text || "").slice(0, 4000);
+  if (!u || !t) return { error: "mark needs url and text" };
+  const map = loadMarks();
+  const mark = {
+    id: newId("m"),
+    url: u,
+    text: t,
+    anchor: cleanAnchor(anchor),
+    color: MARK_COLORS.has(color) ? color : "yellow",
+    ts: Date.now(),
+  };
+  map[mark.id] = mark;
+  if (!saveMarks(map)) return { error: "marks save failed" };
+  return { mark };
+}
+
+export function updateMark({ id, color } = {}) {
+  const map = loadMarks();
+  const m = map[String(id || "")];
+  if (!m) return { error: "mark not found: " + id };
+  if (MARK_COLORS.has(color)) m.color = color;
+  if (!saveMarks(map)) return { error: "marks save failed" };
+  return { mark: m };
+}
+
+export function removeMark(id) {
+  const map = loadMarks();
+  const mid = String(id || "");
+  if (!map[mid]) return { error: "mark not found: " + id };
+  delete map[mid];
+  if (!saveMarks(map)) return { error: "marks save failed" };
+  const n = noteForMark(mid);
+  if (n) deleteNote(n.id);
+  return { deleted: mid, noteDeleted: n ? n.id : null };
 }
 
 export function listTags() {
@@ -324,17 +463,20 @@ export function notesStats() {
   } catch (err) {
     logWarn("[notes] assets count failed:", err.message);
   }
+  const allMarks = Object.values(loadMarks());
+  const colorCounts = {};
+  for (const m of allMarks) colorCounts[m.color] = (colorCounts[m.color] || 0) + 1;
   return {
     notes: ns.length,
     quotes: ns.reduce((s, n) => s + n.quotes.length, 0),
+    marks: allMarks.length,
+    marksNoted: ns.filter((n) => n.markId).length,
+    colorCounts,
     tags: listTags().length,
     assets,
     bytes: ns.reduce((s, n) => {
-      try {
-        return s + statSync(notePath(n.id)).size;
-      } catch {
-        return s;
-      }
+      const p = notePath(n.id);
+      return existsSync(p) ? s + statSync(p).size : s;
     }, 0),
   };
 }

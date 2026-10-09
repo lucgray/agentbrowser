@@ -115,8 +115,51 @@ test('content over MAX_BODY is rejected', () => {
   assert.ok(r.error);
 });
 
+test('marks: save/list/update and noted flag follows markId notes', () => {
+  freshDir();
+  const r = notes.saveMark({ url: 'https://a.com/p', text: 'hl me', color: 'blue' });
+  assert.equal(r.error, undefined);
+  const m = r.mark;
+  assert.ok(m.id.startsWith('m-'));
+  assert.equal(m.color, 'blue');
+  // invalid color falls back to yellow; missing url/text errors
+  assert.equal(notes.saveMark({ url: 'u', text: 't', color: 'zz' }).mark.color, 'yellow');
+  assert.ok(notes.saveMark({ text: 'no url' }).error);
+  let list = notes.marksForUrl('https://a.com/p');
+  assert.equal(list.length, 1);
+  assert.equal(list[0].noted, false);
+  // annotate the mark -> note carries markId, mark flips to noted
+  const n = save({ title: 'ann', url: 'https://a.com/p', markId: m.id, content: 'my note' });
+  list = notes.marksForUrl('https://a.com/p');
+  assert.equal(list[0].noted, true);
+  assert.equal(notes.noteForMark(m.id).id, n.id);
+  // recolor
+  assert.equal(notes.updateMark({ id: m.id, color: 'pink' }).mark.color, 'pink');
+  // listMarks (admin) has domain + noted
+  const all = notes.listMarks();
+  assert.equal(all.length, 2);
+  assert.equal(all.find((x) => x.id === m.id).noted, true);
+  // stats expose marks + color distribution
+  const s = notes.notesStats();
+  assert.equal(s.marks, 2);
+  assert.equal(s.colorCounts.pink, 1);
+});
+
+test('removeMark cascade-deletes the annotation note', () => {
+  freshDir();
+  const m = notes.saveMark({ url: 'u', text: 'gone' }).mark;
+  const n = save({ title: 'ann', url: 'u', markId: m.id, content: 'x' });
+  const r = notes.removeMark(m.id);
+  assert.equal(r.deleted, m.id);
+  assert.equal(r.noteDeleted, n.id);
+  assert.equal(notes.getNote(n.id), null);
+  assert.equal(notes.marksForUrl('u').length, 0);
+  assert.ok(notes.removeMark('m-nope').error);
+});
+
 test('module exposes the service surface hub.mjs calls', () => {
-  for (const k of ['listNotes', 'getNote', 'saveNote', 'deleteNote', 'appendContent', 'appendQuote', 'listTags', 'quotesForUrl', 'addAsset', 'readAsset', 'exportNote', 'notesStats', 'notesDir', 'wireNotes']) {
+  for (const k of ['listNotes', 'getNote', 'saveNote', 'deleteNote', 'appendContent', 'appendQuote', 'listTags', 'quotesForUrl', 'addAsset', 'readAsset', 'exportNote', 'notesStats', 'notesDir', 'wireNotes',
+    'saveMark', 'updateMark', 'removeMark', 'marksForUrl', 'listMarks', 'noteForMark']) {
     assert.equal(typeof notes[k], 'function', k);
   }
   notes.wireNotes({ warn: () => {} }); // installs a logger; returns nothing

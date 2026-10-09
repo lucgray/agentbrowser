@@ -96,6 +96,7 @@ export function createAdminHandler(ctx) {
           }),
           tags: N.listTags(),
           stats: N.notesStats(),
+          marks: url.searchParams.get("marks") ? N.listMarks() : undefined,
         });
       }
       return;

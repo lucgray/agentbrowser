@@ -591,6 +591,11 @@ const NOTE_OPS = {
   asset: (a) => notes.addAsset(a.name, a.data),
   tags: () => ({ tags: notes.listTags() }),
   quotes_for_url: (a) => ({ quotes: notes.quotesForUrl(a.url) }),
+  marks_for_url: (a) => ({ marks: notes.marksForUrl(a.url) }),
+  mark_save: (a) => notes.saveMark(a),
+  mark_update: (a) => notes.updateMark(a),
+  mark_remove: (a) => notes.removeMark(a.id),
+  note_for_mark: (a) => ({ note: notes.noteForMark(a.markId) }),
   stats: () => notes.notesStats(),
 };
 
