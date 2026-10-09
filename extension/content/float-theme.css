@@ -188,28 +188,31 @@
   display: flex !important;
   align-items: center;
   justify-content: space-between;
-  margin: -2px 0 -2px;
+  margin: -4px -2px 0;
+  padding-bottom: 4px;
+  border-bottom: 1px solid rgba(128, 128, 128, 0.14);
 }
 #agentbrowser-sel-tr-pop .ab-sp-title {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
-  letter-spacing: 0.04em;
-  opacity: 0.55;
+  letter-spacing: 0.05em;
+  line-height: 22px;
+  opacity: 0.6;
 }
 #agentbrowser-sel-tr-pop .ab-sp-x {
   all: unset;
-  width: 20px;
-  height: 20px;
+  width: 22px;
+  height: 22px;
   display: inline-flex !important;
   align-items: center;
   justify-content: center;
-  font-size: 15px;
+  font-size: 14px;
   line-height: 1;
   border-radius: 6px;
   cursor: pointer;
   opacity: 0.55;
 }
-#agentbrowser-sel-tr-pop .ab-sp-x:hover { opacity: 1; }
+#agentbrowser-sel-tr-pop .ab-sp-x:hover { opacity: 1; background: rgba(128, 128, 128, 0.12) !important; }
 #agentbrowser-sel-tr-pop .ab-sp-src {
   max-height: 7.5em;
   overflow-y: auto;
@@ -226,7 +229,7 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   border-top: 1px solid rgba(128, 128, 128, 0.18);
-  padding-top: 8px;
+  padding-top: 9px;
 }
 #agentbrowser-sel-tr-pop .ab-sp-tr.ab-sp-err { opacity: 0.7; font-weight: 400; }
 #agentbrowser-sel-tr-pop .ab-sp-loading { opacity: 0.5; font-weight: 400; }
@@ -240,15 +243,19 @@
   all: unset;
   display: inline-flex !important;
   align-items: center;
-  gap: 4px;
-  padding: 4px 9px;
+  gap: 5px;
+  min-height: 26px;
+  box-sizing: border-box;
+  padding: 3px 10px;
   font-size: 12px;
   font-weight: 500;
+  line-height: 1;
   border-radius: 7px;
   cursor: pointer;
   border: 1px solid rgba(128, 128, 128, 0.22);
   transition: background 0.1s ease, opacity 0.1s ease;
 }
+#agentbrowser-sel-tr-pop .ab-sp-ico { font-size: 13px; line-height: 1; display: inline-block; }
 #agentbrowser-sel-tr-pop .ab-sp-act:hover { background: rgba(128, 128, 128, 0.12) !important; }
 #agentbrowser-sel-tr-pop .ab-sp-act.ab-busy { opacity: 0.5; pointer-events: none; }
 #agentbrowser-sel-tr-pop .ab-sp-extra {
@@ -274,10 +281,11 @@
 #agentbrowser-sel-tr-pop .ab-sp-parse { display: flex !important; flex-direction: column; gap: 8px; }
 #agentbrowser-sel-tr-pop .ab-sp-seg {
   display: grid;
-  grid-template-columns: auto auto 1fr;
+  grid-template-columns: 7px auto 1fr;
   align-items: baseline;
-  gap: 6px;
-  font-size: 12px;
+  column-gap: 8px;
+  font-size: 12.5px;
+  line-height: 1.55;
 }
 #agentbrowser-sel-tr-pop .ab-sp-dot {
   width: 7px;
@@ -289,6 +297,7 @@
   font-weight: 600;
   font-size: 11px;
   white-space: nowrap;
+  min-width: 3.2em;
 }
 #agentbrowser-sel-tr-pop .ab-sp-segtext {
   overflow-wrap: anywhere;
@@ -299,6 +308,11 @@
   font-size: 11px;
   opacity: 0.6;
   margin-top: 1px;
+}
+#agentbrowser-sel-tr-pop .ab-sp-done {
+  font-size: 11px;
+  opacity: 0.65;
+  margin-top: 8px;
 }
 #agentbrowser-sel-tr-pop .ab-sp-annotate {
   all: unset;

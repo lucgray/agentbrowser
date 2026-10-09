@@ -696,8 +696,16 @@ function spEl(tag, cls, text) {
   return d;
 }
 
+// Labels shaped "<emoji> <text>" wrap the emoji in .ab-sp-ico so icon and
+// text share one baseline; plain labels stay untouched.
 function spBtn(label, title, onClick) {
-  const b = spEl("button", "ab-sp-act", label);
+  const b = spEl("button", "ab-sp-act");
+  const m = /^(\S+)\s(.+)$/.exec(String(label || ""));
+  if (m && /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{FE0F}]/u.test(m[1])) {
+    b.append(spEl("span", "ab-sp-ico", m[1]), document.createTextNode(m[2]));
+  } else {
+    b.textContent = String(label || "");
+  }
   b.type = "button";
   if (title) b.title = title;
   b.addEventListener("click", (e) => {
@@ -761,7 +769,7 @@ function renderPop() {
   }
 
   acts.textContent = "";
-  const speakBtn = spBtn(popSpeaking ? "■ 停止" : "🔊 朗读", "朗读译文", () => toggleSpeak());
+  const speakBtn = spBtn(popSpeaking ? "⏹ 停止" : "🔊 朗读", "朗读译文", () => toggleSpeak());
   const copyBtn = spBtn("📋 复制", "复制译文", () => {
     navigator.clipboard.writeText(popTranslated || popText).catch((err) => logWarn("clipboard write failed", err));
   });
