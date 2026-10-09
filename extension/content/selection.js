@@ -548,65 +548,76 @@ function mkSep() {
 }
 
 // The bar stays lean — everything beyond Ask/translate lives in the ⋯ menu
-// (read-frog parks its extra actions in "more" the same way).
+// (read-frog parks its extra actions in "more" the same way). The menu's
+// lower half is a plugin slot: actions registered on __abPlugins, each
+// gated by pluginToolbar config (context-menu checkboxes flip it live).
 let moreMenu = null;
+
+function menuAction(id, ico, label, fn) {
+  const it = document.createElement("button");
+  it.type = "button";
+  it.className = "ab-menu-item";
+  it.append(spEl("span", "ab-menu-ico", ico), document.createTextNode(label));
+  it.addEventListener("mousedown", (e) => e.preventDefault());
+  it.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    hideMoreMenu();
+    fn();
+  });
+  it.dataset.actionId = id;
+  return it;
+}
+
+function menuPalette(a) {
+  const row = document.createElement("div");
+  row.className = "ab-menu-item ab-menu-colors";
+  row.appendChild(spEl("span", "ab-menu-ico", a.icon || "🎨"));
+  row.appendChild(document.createTextNode(a.label));
+  const cur = a.get ? a.get() : null;
+  for (const [c, hex] of Object.entries(a.colors || {})) {
+    const dot = document.createElement("button");
+    dot.type = "button";
+    dot.className = "ab-swatch" + (c === cur ? " sel" : "");
+    dot.style.background = hex;
+    dot.title = c;
+    dot.addEventListener("mousedown", (e) => e.preventDefault());
+    dot.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      a.run(c);
+      row.querySelectorAll(".ab-swatch").forEach((d) => d.classList.toggle("sel", d === dot));
+    });
+    row.appendChild(dot);
+  }
+  return row;
+}
+
+// Rebuilt on every open so plugin actions and config flips appear live.
+function populateMenu(m) {
+  m.textContent = "";
+  const P = window.__abPlugins;
+  const on = (id) => !P || P.toolbarEnabled(id);
+  const core = [
+    ["core:copy", "📋", "复制", () => handleCopyClick()],
+    ["core:speak", "🔊", "朗读", () => speakText(currentSelectionContext && currentSelectionContext.text)],
+    ["core:dict", "📖", "词典", () => openPopupWith("dict")],
+    ["core:parse", "🧩", "长难句", () => openPopupWith("parse")],
+  ];
+  for (const [id, ico, label, fn] of core) {
+    if (on(id)) m.appendChild(menuAction(id, ico, label, fn));
+  }
+  for (const a of P ? P.toolbarActions() : []) {
+    const aid = a.plugin + ":" + a.id;
+    if (!on(aid)) continue;
+    m.appendChild(a.kind === "palette" ? menuPalette(a) : menuAction(aid, a.icon, a.label, a.run));
+  }
+}
 
 function createMoreMenu() {
   if (moreMenu) return moreMenu;
   moreMenu = document.createElement("div");
   moreMenu.id = MENU_ID;
-  const items = [
-    ["📋", "复制", () => handleCopyClick()],
-    ["🔊", "朗读", () => speakText(currentSelectionContext && currentSelectionContext.text)],
-    ["📖", "词典", () => openPopupWith("dict")],
-    ["🧩", "长难句", () => openPopupWith("parse")],
-  ];
-  // Notes plugin hooks: notes.js registers __abNoteBrush/__abNoteAnnotate; only
-  // show the items when the plugin resolved as enabled (disabled = dead buttons).
-  const notesOn =
-    typeof window.__abNoteBrush === "function" && window.__abNotesEnabled !== false;
-  if (notesOn) {
-    items.push(["🖌", "高亮", () => window.__abNoteBrush()]);
-    items.push(["📝", "批注", () => window.__abNoteAnnotate()]);
-  }
-  for (const [ico, label, fn] of items) {
-    const it = document.createElement("button");
-    it.type = "button";
-    it.className = "ab-menu-item";
-    it.append(spEl("span", "ab-menu-ico", ico), document.createTextNode(label));
-    it.addEventListener("mousedown", (e) => e.preventDefault());
-    it.addEventListener("click", (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      hideMoreMenu();
-      fn();
-    });
-    moreMenu.appendChild(it);
-  }
-  // Highlight color row: pick the brush color without triggering an action.
-  if (notesOn && typeof window.__abNoteColorNames === "function") {
-    const row = document.createElement("div");
-    row.className = "ab-menu-item ab-menu-colors";
-    row.appendChild(spEl("span", "ab-menu-ico", "🎨"));
-    row.appendChild(document.createTextNode("高亮色 "));
-    const cur = window.__abNoteColor ? window.__abNoteColor() : "yellow";
-    for (const [c, hex] of Object.entries(window.__abNoteColorNames())) {
-      const dot = document.createElement("button");
-      dot.type = "button";
-      dot.className = "ab-swatch" + (c === cur ? " sel" : "");
-      dot.style.background = hex;
-      dot.title = c;
-      dot.addEventListener("mousedown", (e) => e.preventDefault());
-      dot.addEventListener("click", (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        window.__abNoteSetColor(c);
-        row.querySelectorAll(".ab-swatch").forEach((d) => d.classList.toggle("sel", d === dot));
-      });
-      row.appendChild(dot);
-    }
-    moreMenu.appendChild(row);
-  }
   (document.body || document.documentElement).appendChild(moreMenu);
   return moreMenu;
 }
@@ -622,10 +633,30 @@ function toggleMoreMenu() {
     hideMoreMenu();
     return;
   }
+  populateMenu(m);
   const r = floatBtn.getBoundingClientRect();
   m.style.left = `${r.left + window.scrollX}px`;
   m.style.top = `${r.bottom + window.scrollY + 6}px`;
   requestAnimationFrame(() => m.classList.add("ab-show"));
+}
+
+// Bar items are configurable slots too: core:ask / core:translate toggle from
+// the same pluginToolbar map as the ⋯menu actions — nothing on the bar is
+// mandatory, an empty bar just never shows.
+function populateBar() {
+  if (!floatBtn) return;
+  const P = window.__abPlugins;
+  const on = (id) => !P || P.toolbarEnabled(id);
+  floatBtn.textContent = "";
+  let added = 0;
+  const add = (node, needsSep) => {
+    if (needsSep && added > 0) floatBtn.appendChild(mkSep());
+    floatBtn.appendChild(node);
+    added++;
+  };
+  if (on("core:ask")) add(mkItem(ICONS.ask, "问 AI", (e) => handleAskClick(e)), added > 0);
+  if (on("core:translate")) add(mkItem(ICONS.translate, "翻译", (e) => handleTranslateClick(e)), added > 0);
+  add(mkItem(ICONS.more, "更多", () => toggleMoreMenu()), added > 0);
 }
 
 function createFloatingButton() {
@@ -634,14 +665,15 @@ function createFloatingButton() {
   floatBtn.id = BTN_ID;
   floatBtn.className = "agentbrowser-hidden";
   floatBtn.dataset.abtheme = floatTheme;
-  floatBtn.append(
-    mkItem(ICONS.ask, "问 AI", (e) => handleAskClick(e)),
-    mkSep(),
-    mkItem(ICONS.translate, "翻译", (e) => handleTranslateClick(e)),
-    mkSep(),
-    mkItem(ICONS.more, "更多", () => toggleMoreMenu())
-  );
+  populateBar();
   (document.body || document.documentElement).appendChild(floatBtn);
+  try {
+    chrome.storage.onChanged.addListener((chg, area) => {
+      if (area === "local" && chg.pluginToolbar) populateBar();
+    });
+  } catch (err) {
+    logWarn("pluginToolbar bar listener failed", err);
+  }
   return floatBtn;
 }
 

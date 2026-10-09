@@ -26,6 +26,7 @@
         "*://*/*"
       ],
       "js": [
+        "content/plugin-bus.js",
         "content/float-guard.js",
         "content/selection.js",
         "content/annotation.js",
