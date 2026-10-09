@@ -12,7 +12,11 @@
   --on:#16a34a; --on-soft:#f0fdf4; --on-line:#bbf7d0;
   --off:#dc2626; --off-soft:#fef2f2; --off-line:#fecaca;
 }
-*{box-sizing:border-box}
+*{box-sizing:border-box;scrollbar-width:thin;scrollbar-color:#d4d4d8 transparent}
+*::-webkit-scrollbar{width:8px;height:8px}
+*::-webkit-scrollbar-track{background:transparent}
+*::-webkit-scrollbar-thumb{background:#d4d4d8;border-radius:8px}
+*::-webkit-scrollbar-thumb:hover{background:#a1a1aa}
 body{margin:0;font:14px/1.55 "Inter",-apple-system,"Segoe UI",system-ui,sans-serif;color:var(--ink);background:var(--bg);-webkit-font-smoothing:antialiased}
 
 /* ——— top bar ——— */

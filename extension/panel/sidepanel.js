@@ -2803,7 +2803,17 @@ async function init() {
     chrome.storage.onChanged.addListener((changes, area) => {
       if (area !== "session") return;
       if (changes.pendingSelection) {
-        applyPendingSelection(changes.pendingSelection.newValue);
+        if (!changes.pendingSelection.newValue) {
+          // The page selection collapsed — sw removed the staged payload, so
+          // drop the chip it produced. Chips from media "@" asks survive: sw
+          // only removes records whose selection.isSelection is true.
+          if (selectionCtx) {
+            selectionCtx = null;
+            renderChips();
+          }
+        } else {
+          applyPendingSelection(changes.pendingSelection.newValue);
+        }
       }
       if (changes.pendingAttachment) {
         applyPendingAttachment(changes.pendingAttachment.newValue);

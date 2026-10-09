@@ -213,7 +213,7 @@ export function createClaudeCliSession(ctx) {
     if (model) {
       args.push('--model', model);
     }
-    child = spawn('claude', args, { stdio: ['pipe', 'pipe', 'pipe'] });
+    child = spawn('claude', args, { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
     child.stdout.setEncoding('utf8');
     child.stderr.setEncoding('utf8');
     child.stdout.on('data', handleStdout);

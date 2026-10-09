@@ -113,6 +113,7 @@ function installWindows(browser, launcher, manifest) {
   const key = WIN_REG_PREFIX + BROWSERS[browser].win32;
   const r = spawnSync("reg", ["add", key, "/ve", "/t", "REG_SZ", "/d", file, "/f"], {
     stdio: "pipe",
+    windowsHide: true,
   });
   if (r.status !== 0) {
     console.error(`[install] ${browser}: reg add failed — ${r.stderr || r.stdout}`);
