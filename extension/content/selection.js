@@ -928,7 +928,13 @@ function showTrPop(text) {
       ? floatBtn.getBoundingClientRect()
       : null;
   const selRect = lastSelBounds;
-  const baseLeft = anchor ? anchor.left + window.scrollX : selRect ? selRect.left + window.scrollX : window.scrollX + 40;
+  // Anchor the popup's left edge under the selection's left edge (the
+  // read-frog anchor), falling back to the toolbar's position.
+  const baseLeft = selRect
+    ? selRect.left + window.scrollX
+    : anchor
+      ? anchor.left + window.scrollX
+      : window.scrollX + 40;
   let top = anchor ? anchor.bottom + window.scrollY + 8 : selRect ? selRect.bottom + window.scrollY + 8 : window.scrollY + 80;
   const maxH = Math.round(window.innerHeight * 0.62);
   if (top - window.scrollY + maxH > window.innerHeight - 12) {
@@ -936,7 +942,8 @@ function showTrPop(text) {
     const above = (selRect ? selRect.top : anchor ? anchor.top : 200) + window.scrollY - 8 - Math.min(360, maxH);
     if (above > window.scrollY + 8) top = above;
   }
-  pop.style.left = `${Math.max(window.scrollX + 12, Math.min(baseLeft, window.innerWidth + window.scrollX - 360 - 16))}px`;
+  const popW = Math.min(360, window.innerWidth - 32);
+  pop.style.left = `${Math.max(window.scrollX + 12, Math.min(baseLeft, window.innerWidth + window.scrollX - popW - 16))}px`;
   pop.style.top = `${top}px`;
   requestAnimationFrame(() => pop.classList.add("ab-show"));
 }
