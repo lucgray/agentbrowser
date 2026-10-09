@@ -789,6 +789,35 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     });
     return true;
   }
+  if (message.cmd === 'selection_clear') {
+    const tabId = sender && sender.tab && sender.tab.id;
+    if (tabId == null) {
+      sendResponse({ success: false, error: 'no tab' });
+      return true;
+    }
+    // Only collapse chips that staged a live page selection — media "@" asks
+    // (video/image reference) and context-menu element contexts stay put,
+    // they are not tied to the text selection that just collapsed.
+    chrome.storage.session
+      .get('pendingSelection')
+      .then((data) => {
+        const rec = data && data.pendingSelection;
+        if (
+          rec &&
+          rec.tabId === tabId &&
+          rec.selection &&
+          rec.selection.isSelection === true
+        ) {
+          return chrome.storage.session.remove('pendingSelection');
+        }
+      })
+      .then(() => sendResponse({ success: true }))
+      .catch((err) => {
+        console.warn('[agentbrowser] pendingSelection clear failed', err);
+        sendResponse({ success: false });
+      });
+    return true;
+  }
   if (message.cmd === 'translate_ask') {
     const tabId = sender && sender.tab && sender.tab.id;
     if (tabId == null || !message.text) {

@@ -1242,6 +1242,35 @@ function handleMouseUp(e) {
 
 let lastAutoSentText = "";
 let autoKeyTimer = null;
+// selectionStaged tracks whether this tab's live selection currently fills the
+// panel's context chip — auto capture or an Ask click. When the selection
+// collapses afterwards the chip must collapse with it.
+let selectionStaged = false;
+let suppressClearOnce = false; // Ask success removes ranges itself
+let clearTimer = null;
+
+function handleSelectionChange() {
+  if (!isContextValid()) {
+    document.removeEventListener("selectionchange", handleSelectionChange);
+    return;
+  }
+  clearTimeout(clearTimer);
+  clearTimer = setTimeout(() => {
+    if (!isContextValid() || !selectionStaged) return;
+    const sel = window.getSelection();
+    const empty = !sel || sel.isCollapsed || !sel.toString().trim();
+    if (!empty) return;
+    if (suppressClearOnce) {
+      suppressClearOnce = false;
+      return;
+    }
+    selectionStaged = false;
+    lastAutoSentText = "";
+    chrome.runtime
+      .sendMessage({ target: "sw", cmd: "selection_clear" })
+      .catch((err) => logWarn("selection_clear send failed", err));
+  }, 120);
+}
 
 function autoDeliverSelection() {
   if (!autoSelectionEnabled) return;
@@ -1253,6 +1282,7 @@ function autoDeliverSelection() {
   const text = typeof payload.text === "string" ? payload.text.trim() : "";
   if (text.length < 3 || text === lastAutoSentText) return;
   lastAutoSentText = text;
+  selectionStaged = true;
   chrome.runtime
     .sendMessage({ target: "sw", cmd: "selection_auto", selection: payload })
     .catch((err) => logWarn("selection_auto send failed", err));
@@ -1285,6 +1315,8 @@ async function handleAskClick(e) {
       selection: currentSelectionContext,
     });
     if (response && response.success) {
+      selectionStaged = true;
+      suppressClearOnce = true; // our own removeAllRanges must not clear the chip
       window.getSelection().removeAllRanges();
       hideButton();
     }
@@ -1442,6 +1474,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   return true;
 });
 
+document.addEventListener("selectionchange", handleSelectionChange);
 document.addEventListener("mouseup", handleMouseUp);
 document.addEventListener("keydown", handleKeyDown);
 document.addEventListener("keyup", handleKeyUp);

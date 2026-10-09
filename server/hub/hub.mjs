@@ -545,7 +545,7 @@ let ytDlpCmd = null; // null = not probed yet; array argv prefix once found
 function findYtDlp() {
   if (ytDlpCmd) return Promise.resolve(ytDlpCmd);
   const tryCmd = (argv) => new Promise((resolve) => {
-    const p = spawn(argv[0], argv.slice(1).concat(["--version"]), { stdio: ["ignore", "pipe", "pipe"] });
+    const p = spawn(argv[0], argv.slice(1).concat(["--version"]), { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
     let out = "";
     p.stdout.on("data", (d) => { out += d; });
     p.on("error", () => resolve(null));
@@ -577,7 +577,7 @@ async function runVideoDownload(args) {
     url,
   ]);
   return new Promise((resolve) => {
-    const proc = spawn(argv[0], argv.slice(1), { cwd: dir });
+    const proc = spawn(argv[0], argv.slice(1), { cwd: dir, windowsHide: true });
     let tail = "";
     let file = null;
     const keep = (chunk) => {

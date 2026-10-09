@@ -315,31 +315,44 @@ function mountControlIcon(video) {
     toggleMenu(b.getBoundingClientRect());
   });
   // Size from the bar's own buttons — hardcoding 36px looked right on
-  // YouTube but oversized inside bilibili's shorter control row.
-  let h = 36;
-  try {
-    const sib =
-      bar.querySelector("button, .ytp-button, .bpx-player-ctrl-btn") || bar;
-    const sh = Math.round(sib.getBoundingClientRect().height);
-    if (sh >= 20 && sh <= 48) h = sh;
-  } catch (err) {
-    logWarn("control bar sizing failed", err);
-  }
-  const icon = Math.max(14, Math.min(18, h - 14));
-  b.appendChild(iconSvg(AT_PATHS, icon));
+  // YouTube but oversized inside bilibili's shorter control row. Measure the
+  // anchor (fullscreen) button first: it's always an icon button, unlike a
+  // text-quality sibling that skews the width. Re-runnable: bilibili builds
+  // the bar lazily, so a first-hover mount can precede the anchor's render —
+  // the reposition observer below calls this again once it exists.
+  const applySize = () => {
+    let h = 36;
+    let w = 0;
+    try {
+      const sib =
+        (site.anchor ? bar.querySelector(site.anchor) : null) ||
+        bar.querySelector("button, .ytp-button, .bpx-player-ctrl-btn") ||
+        bar;
+      const sr = sib.getBoundingClientRect();
+      const sh = Math.round(sr.height);
+      const sw = Math.round(sr.width);
+      if (sh >= 20 && sh <= 48) h = sh;
+      if (sw >= 20 && sw <= 64) w = sw;
+    } catch (err) {
+      logWarn("control bar sizing failed", err);
+    }
+    const icon = Math.max(14, Math.min(18, h - 8));
+    const svg = b.firstElementChild;
+    if (svg) {
+      svg.setAttribute("width", String(icon));
+      svg.setAttribute("height", String(icon));
+      svg.style.display = "block";
+    }
+    b.style.width = (w || h) + "px";
+    b.style.height = h + "px";
+  };
+  b.appendChild(iconSvg(AT_PATHS, 16));
   b.style.display = "inline-flex";
   b.style.alignItems = "center";
   b.style.justifyContent = "center";
-  b.style.alignSelf = "center";
-  b.style.width = h + "px";
-  b.style.height = h + "px";
   b.style.color = "inherit";
   b.style.opacity = "0.92";
-  // Bars whose children align via inline-block vertical-align (bilibili)
-  // drop a baseline-aligned element below the icon row.
-  b.style.verticalAlign = "middle";
-  const svg = b.firstElementChild;
-  if (svg) svg.style.display = "block";
+  applySize();
   // Sit just left of the fullscreen button (site.anchor). The bar's children
   // may not exist yet on first hover (bilibili builds them lazily) — fall
   // back to the far end, then move left of the anchor once it appears.
@@ -365,6 +378,7 @@ function mountControlIcon(video) {
         const a = bar.querySelector(site.anchor);
         const r = a ? barChild(a) : null;
         if (r) {
+          applySize(); // anchor exists now — first-mount size was guessed
           bar.insertBefore(b, r);
           mo.disconnect();
         }

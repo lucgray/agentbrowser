@@ -12,6 +12,7 @@
 // logged and dropped — MCP servers print startup noise there.
 
 import { spawn } from 'node:child_process';
+import { resolveBin } from './generic-cli.mjs';
 
 const TAG = '[mcp-bridge]';
 const PROTOCOL_VERSION = '2025-03-26';
@@ -43,10 +44,18 @@ class StdioMcpClient {
     if (!command || typeof command !== 'string') {
       throw new Error(`mcp server "${this.name}" has no command`);
     }
-    this.child = spawn(command, args, {
+    // resolveBin knows the Windows shims (npx is npx.cmd); spawning a .cmd
+    // needs shell:true (EINVAL since the 2024 Node security patch).
+    const binPath = resolveBin(command);
+    const cliShell =
+      process.platform === 'win32' &&
+      (binPath === command || /\.(cmd|bat)$/i.test(binPath));
+    this.child = spawn(binPath, args, {
       cwd: typeof cwd === 'string' ? cwd : undefined,
       env: { ...process.env, ...(env && typeof env === 'object' ? env : {}) },
-      stdio: ['pipe', 'pipe', 'inherit']
+      stdio: ['pipe', 'pipe', 'inherit'],
+      shell: cliShell,
+      windowsHide: true
     });
     this.child.on('error', (err) => this.failAll(err));
     this.child.on('exit', (code) => {

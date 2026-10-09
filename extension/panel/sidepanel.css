@@ -1905,3 +1905,27 @@ textarea.set-input {
   font: var(--ac-type-secondary);
   color: var(--ac-text-secondary);
 }
+
+/* Slim scrollbars for every scroller in the panel (chat list, settings,
+   code blocks). WebKit styles only paint on our scrollers, not the page. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--ac-border) transparent;
+}
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--ac-border);
+  border-radius: 8px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--ac-text-muted);
+}
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}

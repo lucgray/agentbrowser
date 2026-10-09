@@ -771,3 +771,35 @@ button.ab-media-cb svg { display: block; pointer-events: none; }
   opacity: 0.65;
   margin-top: 8px;
 }
+
+/* slim scrollbars inside our own floating panes (learn tabs, menus) */
+#agentbrowser-learn .ab-learn-pane,
+#agentbrowser-learn .ab-learn-body,
+#agentbrowser-ask-btn *,
+#agentbrowser-video-ask-btn * {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(128, 128, 128, 0.45) transparent;
+}
+#agentbrowser-learn .ab-learn-pane::-webkit-scrollbar,
+#agentbrowser-learn .ab-learn-body::-webkit-scrollbar,
+#agentbrowser-ask-btn *::-webkit-scrollbar,
+#agentbrowser-video-ask-btn *::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+#agentbrowser-learn ::-webkit-scrollbar-track,
+#agentbrowser-ask-btn ::-webkit-scrollbar-track,
+#agentbrowser-video-ask-btn ::-webkit-scrollbar-track {
+  background: transparent;
+}
+#agentbrowser-learn ::-webkit-scrollbar-thumb,
+#agentbrowser-ask-btn ::-webkit-scrollbar-thumb,
+#agentbrowser-video-ask-btn ::-webkit-scrollbar-thumb {
+  background: rgba(128, 128, 128, 0.45);
+  border-radius: 7px;
+}
+#agentbrowser-learn ::-webkit-scrollbar-thumb:hover,
+#agentbrowser-ask-btn ::-webkit-scrollbar-thumb:hover,
+#agentbrowser-video-ask-btn ::-webkit-scrollbar-thumb:hover {
+  background: rgba(128, 128, 128, 0.7);
+}
