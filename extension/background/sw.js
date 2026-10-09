@@ -647,6 +647,11 @@ let translateAskSeq = 0;
 const learnTrAsks = new Map();
 let learnTrAskSeq = 0;
 
+// Selection popup's 词典/长难句: one-shot analyze_request (ids "an-"), same
+// settle-map pattern as translate_ask.
+const analyzeAsks = new Map();
+let analyzeAskSeq = 0;
+
 // Media menu 下载视频: reqId -> tabId so the hub's media_download_result
 // can be pushed back to the tab that asked (minutes-long; no response held).
 const mediaDlTabs = new Map();
@@ -728,6 +733,40 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       (ok) => sendResponse({ success: ok }),
       () => sendResponse({ success: false })
     );
+    return true;
+  }
+  if (message.cmd === 'analyze_ask') {
+    const tabId = sender && sender.tab && sender.tab.id;
+    const mode = message.mode === 'dict' || message.mode === 'parse' ? message.mode : null;
+    if (tabId == null || !mode || !message.text) {
+      sendResponse({ success: false, error: 'bad analyze_ask' });
+      return true;
+    }
+    if (!hubConnected) {
+      sendResponse({ success: false, error: 'hub not connected' });
+      return true;
+    }
+    const reqId = `an-${tabId}-${++analyzeAskSeq}`;
+    const timer = setTimeout(() => {
+      if (analyzeAsks.delete(reqId)) {
+        sendResponse({ success: false, error: 'analyze timeout' });
+      }
+    }, 30000);
+    analyzeAsks.set(reqId, (res) => {
+      clearTimeout(timer);
+      sendResponse(res);
+    });
+    sendToOffscreen({
+      target: 'offscreen',
+      cmd: 'send',
+      payload: {
+        type: 'analyze_request',
+        id: reqId,
+        tabId,
+        mode,
+        text: String(message.text).slice(0, 4000),
+      },
+    });
     return true;
   }
   if (message.cmd === 'translate_ask') {
@@ -1033,6 +1072,16 @@ function handleHubMessage(payload) {
       }
     } else if (!subtitle.onResult(payload)) {
       translate.onResult(payload);
+    }
+  } else if (payload.type === 'analyze_result') {
+    const settle = analyzeAsks.get(String(payload.id || ''));
+    analyzeAsks.delete(String(payload.id || ''));
+    if (settle) {
+      if (payload.error) {
+        settle({ success: false, error: String(payload.error) });
+      } else {
+        settle({ success: true, text: payload.text, segments: payload.segments });
+      }
     }
   } else if (payload.type === 'media_download_result') {
     const rec = mediaDlTabs.get(String(payload.id || ''));

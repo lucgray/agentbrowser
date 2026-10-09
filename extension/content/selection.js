@@ -22,6 +22,7 @@ const AUTO_SEL_KEY = "autoSelectionEnabled"; // chrome.storage.local, set by the
 const FLOAT_THEME_KEY = "floatTheme"; // chrome.storage.local, frost | ink | paper
 const FLOAT_THEMES = new Set(["frost", "ink", "paper"]);
 const SPACE_TR_KEY = "abSpaceTranslate"; // triple-space input-translation toggle
+const YIELD_KEY = "abYieldForeign"; // yield our floaters to foreign overlays
 
 let floatBtn = null;
 let trPop = null;
@@ -33,8 +34,10 @@ let floatingAskEnabled = true; // cached; kept in sync below
 let autoSelectionEnabled = true; // cached; panel 设置开关
 let floatTheme = "frost"; // cached; settings select
 let spaceTrEnabled = false; // cached; settings checkbox — opt-in
+let yieldForeign = true; // cached; settings toggle — foreign overlays win
 let spaceRun = 0;
 let spaceTimer = null;
+let lastSelBounds = null; // viewport rect of the last selection, for the guard
 
 // Editable field the triple-space input translation acts on — input/textarea
 // (except passwords) or any contentEditable host.
@@ -107,12 +110,14 @@ if (isContextValid()) {
       [AUTO_SEL_KEY]: true,
       [FLOAT_THEME_KEY]: "frost",
       [SPACE_TR_KEY]: false,
+      [YIELD_KEY]: true,
     })
     .then((r) => {
       floatingAskEnabled = r[FLOAT_ASK_KEY] !== false;
       autoSelectionEnabled = r[AUTO_SEL_KEY] !== false;
       floatTheme = FLOAT_THEMES.has(r[FLOAT_THEME_KEY]) ? r[FLOAT_THEME_KEY] : "frost";
       spaceTrEnabled = r[SPACE_TR_KEY] === true;
+      yieldForeign = r[YIELD_KEY] !== false;
     })
     .catch((err) => {
       logWarn("floating-ask setting read failed", err);
@@ -130,6 +135,9 @@ if (isContextValid()) {
     }
     if (SPACE_TR_KEY in changes) {
       spaceTrEnabled = changes[SPACE_TR_KEY].newValue === true;
+    }
+    if (YIELD_KEY in changes) {
+      yieldForeign = changes[YIELD_KEY].newValue !== false;
     }
     if (FLOAT_THEME_KEY in changes) {
       const v = changes[FLOAT_THEME_KEY].newValue;
@@ -571,6 +579,11 @@ function hideTrPop() {
     trPop.style.top = "";
     trPop.style.left = "";
   }
+  if (popSpeaking && window.speechSynthesis) {
+    try { window.speechSynthesis.cancel(); } catch (err) { logWarn("speech cancel failed", err); }
+  }
+  popSpeaking = false;
+  popBusy = "";
 }
 
 // Bar rect estimate before layout: three labelled items ≈ 190x30. After
@@ -585,17 +598,42 @@ function barRectEstimate(left, top) {
   return { left: left - window.scrollX, top: top - window.scrollY, width: 190, height: 30 };
 }
 
+// The guard probes a zone covering the selection plus our bar: another
+// extension's toolbar docking onto the same selection counts as a conflict
+// even when it doesn't literally overlap our bar's pixels.
+function probeRect(left, top) {
+  const bar = barRectEstimate(left, top);
+  const s = lastSelBounds;
+  if (!s) return bar;
+  const left2 = Math.min(bar.left, s.left);
+  const top2 = Math.min(bar.top, s.top);
+  const right2 = Math.max(bar.left + bar.width, s.right);
+  const bottom2 = Math.max(bar.top + bar.height, s.bottom);
+  return { left: left2, top: top2, width: right2 - left2, height: bottom2 - top2 };
+}
+
 // returns true when a foreign overlay already owns the spot.
 function foreignBlocks(left, top) {
+  if (!yieldForeign) return false;
   const g = window.__abFloatGuard;
   if (!g) return false;
-  return !!g.foreignAtRect(barRectEstimate(left, top));
+  return !!g.foreignAtRect(probeRect(left, top), 80);
 }
 
 function armForeignWatcher() {
+  if (!yieldForeign) return;
   const g = window.__abFloatGuard;
   if (!g || foreignStop) return;
-  const r = floatBtn.getBoundingClientRect();
+  const b = floatBtn.getBoundingClientRect();
+  const s = lastSelBounds;
+  const r = s
+    ? {
+        left: Math.min(b.left, s.left),
+        top: Math.min(b.top, s.top),
+        right: Math.max(b.right, s.right),
+        bottom: Math.max(b.bottom, s.bottom),
+      }
+    : b;
   foreignStop = g.watchForeign(r, hideButton);
 }
 
@@ -609,6 +647,7 @@ function showButtonAtSelection(selection) {
     const rects = range.getClientRects();
     let rect = rects.length > 0 ? rects[rects.length - 1] : range.getBoundingClientRect();
     if (!rect || (rect.width === 0 && rect.height === 0)) return;
+    lastSelBounds = range.getBoundingClientRect();
 
     const btnWidth = 190;
     const btnHeight = 30;
@@ -639,23 +678,258 @@ function showButtonAtSelection(selection) {
 
 // --- toolbar actions ----------------------------------------------------------
 
-function showTrPop(text) {
-  if (!trPop) {
-    trPop = document.createElement("div");
-    trPop.id = POP_ID;
-    (document.body || document.documentElement).appendChild(trPop);
+// --- selection popup ---------------------------------------------------------
+// Read-frog-style popover in our own theme: 原文 / 译文 / action row
+// (朗读·复制·词典·长难句) / expandable section for dictionary and
+// long-sentence analyses, which can also be annotated onto the page.
+
+let popText = "";
+let popTranslated = "";
+let popSpeaking = false;
+let popBusy = ""; // "tr" | "dict" | "parse" | ""
+let popExtra = null; // {mode:'dict'|'parse', data, err}
+
+function spEl(tag, cls, text) {
+  const d = document.createElement(tag);
+  if (cls) d.className = cls;
+  if (text != null) d.textContent = text;
+  return d;
+}
+
+function spBtn(label, title, onClick) {
+  const b = spEl("button", "ab-sp-act", label);
+  b.type = "button";
+  if (title) b.title = title;
+  b.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    onClick();
+  });
+  return b;
+}
+
+function isWordLike(text) {
+  const t = String(text || "").trim();
+  return t.length > 0 && t.length <= 60 && t.split(/\s+/).length <= 4 && !/[\n\r]/.test(t);
+}
+
+function roleColor(i) {
+  const palette = ["#7c3aed", "#2563eb", "#0891b2", "#d97706", "#059669", "#be185d", "#dc2626", "#9333ea"];
+  return palette[i % palette.length];
+}
+
+function ensureTrPop() {
+  if (trPop) return trPop;
+  trPop = document.createElement("div");
+  trPop.id = POP_ID;
+  const head = spEl("div", "ab-sp-head");
+  head.append(spEl("span", "ab-sp-title", "翻译"));
+  const close = spBtn("×", "关闭", () => hideTrPop());
+  close.classList.add("ab-sp-x");
+  head.append(close);
+  trPop.append(
+    head,
+    spEl("div", "ab-sp-src"),
+    spEl("div", "ab-sp-tr"),
+    spEl("div", "ab-sp-acts"),
+    spEl("div", "ab-sp-extra")
+  );
+  (document.body || document.documentElement).appendChild(trPop);
+  return trPop;
+}
+
+function renderPop() {
+  if (!trPop) return;
+  const src = trPop.querySelector(".ab-sp-src");
+  const tr = trPop.querySelector(".ab-sp-tr");
+  const acts = trPop.querySelector(".ab-sp-acts");
+  const extra = trPop.querySelector(".ab-sp-extra");
+  src.textContent = popText;
+  tr.textContent = "";
+  tr.classList.remove("ab-sp-err");
+  if (popBusy === "tr") {
+    tr.append(spEl("span", "ab-sp-loading", "翻译中…"));
+  } else if (popTranslated) {
+    tr.textContent = popTranslated;
+  } else {
+    tr.textContent = "—";
   }
-  trPop.dataset.abtheme = floatTheme;
-  trPop.textContent = text;
+
+  acts.textContent = "";
+  const speakBtn = spBtn(popSpeaking ? "■ 停止" : "🔊 朗读", "朗读译文", () => toggleSpeak());
+  const copyBtn = spBtn("📋 复制", "复制译文", () => {
+    navigator.clipboard.writeText(popTranslated || popText).catch((err) => logWarn("clipboard write failed", err));
+  });
+  acts.append(speakBtn, copyBtn);
+  if (isWordLike(popText)) {
+    const dictBtn = spBtn(popBusy === "dict" ? "词典…" : "📖 词典", "词典释义", () => runDict());
+    if (popBusy === "dict") dictBtn.classList.add("ab-busy");
+    acts.append(dictBtn);
+  }
+  if (popText.trim().length > 15) {
+    const parseBtn = spBtn(popBusy === "parse" ? "解析…" : "🧩 长难句", "长难句结构解析", () => runParse());
+    if (popBusy === "parse") parseBtn.classList.add("ab-busy");
+    acts.append(parseBtn);
+  }
+
+  extra.textContent = "";
+  extra.style.display = "none";
+  if (popExtra) {
+    extra.style.display = "block";
+    const title = spEl("div", "ab-sp-extra-title", popExtra.mode === "dict" ? "词典" : "长难句解析");
+    extra.append(title);
+    if (popExtra.err) {
+      extra.append(spEl("div", "ab-sp-extra-err", popExtra.err));
+    } else if (popExtra.mode === "dict") {
+      const body = spEl("div", "ab-sp-dict");
+      body.textContent = popExtra.data;
+      extra.append(body);
+    } else if (popExtra.mode === "parse" && Array.isArray(popExtra.data)) {
+      const list = spEl("div", "ab-sp-parse");
+      popExtra.data.forEach((seg, i) => {
+        const row = spEl("div", "ab-sp-seg");
+        const dot = spEl("span", "ab-sp-dot");
+        dot.style.background = roleColor(i);
+        row.append(dot, spEl("span", "ab-sp-role", seg.role || `片段${i + 1}`));
+        const tx = spEl("span", "ab-sp-segtext", seg.text || "");
+        row.append(tx);
+        if (seg.note) row.append(spEl("div", "ab-sp-note", seg.note));
+        list.append(row);
+      });
+      extra.append(list);
+      const annotateBtn = spBtn("✎ 标注到页面", "把每个成分画到原句上", () => annotateSegments(popExtra.data));
+      annotateBtn.classList.add("ab-sp-annotate");
+      extra.append(annotateBtn);
+    }
+  }
+}
+
+function toggleSpeak() {
+  if (!window.speechSynthesis) return;
+  if (popSpeaking) {
+    window.speechSynthesis.cancel();
+    popSpeaking = false;
+    renderPop();
+    return;
+  }
+  const text = popTranslated || popText;
+  if (!text) return;
+  try {
+    window.speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = /[\u4e00-\u9fff]/.test(text) ? "zh-CN" : "en-US";
+    u.onend = u.onerror = () => {
+      popSpeaking = false;
+      renderPop();
+    };
+    window.speechSynthesis.speak(u);
+    popSpeaking = true;
+    renderPop();
+  } catch (err) {
+    logWarn("speech synthesis failed", err);
+  }
+}
+
+async function analyzeAsk(mode, text) {
+  const response = await chrome.runtime.sendMessage({
+    target: "sw",
+    cmd: "analyze_ask",
+    mode,
+    text,
+  });
+  return response;
+}
+
+async function runDict() {
+  if (popBusy) return;
+  popBusy = "dict";
+  popExtra = null;
+  renderPop();
+  try {
+    const res = await analyzeAsk("dict", popText);
+    popBusy = "";
+    if (res && res.success && res.text) {
+      popExtra = { mode: "dict", data: String(res.text) };
+    } else {
+      popExtra = { mode: "dict", data: null, err: `查询失败：${(res && res.error) || "未知错误"}` };
+    }
+  } catch (err) {
+    popBusy = "";
+    popExtra = { mode: "dict", data: null, err: "扩展未连接" };
+    logWarn("dict analyze failed", err);
+  }
+  renderPop();
+}
+
+async function runParse() {
+  if (popBusy) return;
+  popBusy = "parse";
+  popExtra = null;
+  renderPop();
+  try {
+    const res = await analyzeAsk("parse", popText);
+    popBusy = "";
+    if (res && res.success && Array.isArray(res.segments) && res.segments.length) {
+      popExtra = { mode: "parse", data: res.segments };
+    } else {
+      popExtra = { mode: "parse", data: null, err: `解析失败：${(res && res.error) || "未返回成分"}` };
+    }
+  } catch (err) {
+    popBusy = "";
+    popExtra = { mode: "parse", data: null, err: "扩展未连接" };
+    logWarn("parse analyze failed", err);
+  }
+  renderPop();
+}
+
+function annotateSegments(segments) {
+  const api = window.__abAnnotate;
+  if (!api || typeof api.add !== "function") {
+    logWarn("annotate API unavailable");
+    return;
+  }
+  let done = 0;
+  segments.forEach((seg, i) => {
+    const quote = String((seg && seg.text) || "").trim();
+    if (!quote) return;
+    const r = api.add({
+      quote,
+      style: "underline",
+      comment: `${seg.role || "成分"}${seg.note ? " — " + seg.note : ""}`,
+      color: roleColor(i),
+      author: "agent",
+    });
+    if (r && r.ok) done++;
+  });
+  const extra = trPop && trPop.querySelector(".ab-sp-extra");
+  if (extra) extra.append(spEl("div", "ab-sp-note", `已在页面标注 ${done} 处`));
+}
+
+function showTrPop(text) {
+  popText = String(text || "");
+  popTranslated = "";
+  popSpeaking = false;
+  popBusy = "tr";
+  popExtra = null;
+  const pop = ensureTrPop();
+  pop.dataset.abtheme = floatTheme;
+  renderPop();
   const anchor =
     floatBtn && !floatBtn.classList.contains("agentbrowser-hidden")
       ? floatBtn.getBoundingClientRect()
       : null;
-  const left = anchor ? anchor.left + window.scrollX : window.scrollX + 40;
-  const top = anchor ? anchor.bottom + window.scrollY + 8 : window.scrollY + 80;
-  trPop.style.left = `${Math.min(left, window.innerWidth + window.scrollX - 340 - 16)}px`;
-  trPop.style.top = `${top}px`;
-  requestAnimationFrame(() => trPop.classList.add("ab-show"));
+  const selRect = lastSelBounds;
+  const baseLeft = anchor ? anchor.left + window.scrollX : selRect ? selRect.left + window.scrollX : window.scrollX + 40;
+  let top = anchor ? anchor.bottom + window.scrollY + 8 : selRect ? selRect.bottom + window.scrollY + 8 : window.scrollY + 80;
+  const maxH = Math.round(window.innerHeight * 0.62);
+  if (top - window.scrollY + maxH > window.innerHeight - 12) {
+    // Not enough room below — flip above the selection when possible.
+    const above = (selRect ? selRect.top : anchor ? anchor.top : 200) + window.scrollY - 8 - Math.min(360, maxH);
+    if (above > window.scrollY + 8) top = above;
+  }
+  pop.style.left = `${Math.max(window.scrollX + 12, Math.min(baseLeft, window.innerWidth + window.scrollX - 360 - 16))}px`;
+  pop.style.top = `${top}px`;
+  requestAnimationFrame(() => pop.classList.add("ab-show"));
 }
 
 async function handleTranslateClick(e) {
@@ -663,23 +937,27 @@ async function handleTranslateClick(e) {
   e.stopPropagation();
   if (!isContextValid() || !currentSelectionContext) return;
   const text = currentSelectionContext.text;
+  showTrPop(text);
+  hideButton();
   try {
     const response = await chrome.runtime.sendMessage({
       target: "sw",
       cmd: "translate_ask",
       text,
     });
+    popBusy = "";
     if (response && response.success && response.text) {
-      showTrPop(response.text);
-      hideButton();
+      popTranslated = String(response.text);
     } else {
-      showTrPop(`翻译失败：${(response && response.error) || "未知错误"}`);
-      hideButton();
+      popTranslated = `翻译失败：${(response && response.error) || "未知错误"}`;
+      if (trPop) trPop.querySelector(".ab-sp-tr").classList.add("ab-sp-err");
     }
+    renderPop();
   } catch (err) {
+    popBusy = "";
+    popTranslated = "翻译不可用：扩展未连接";
+    renderPop();
     logWarn("translate_ask send failed", err);
-    showTrPop("翻译不可用：扩展未连接");
-    hideButton();
   }
 }
 

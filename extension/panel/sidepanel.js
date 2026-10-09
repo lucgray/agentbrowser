@@ -294,6 +294,8 @@ const I18N = {
     autoSelectionLabel: "Auto-capture selected text",
     autoSelectionNote: "Selecting text on a page appends it to the chat context — no Ask click needed.",
     floatingAskLabel: "Show the floating Ask toolbar on selection",
+    yieldForeignLabel: "Yield to other extensions' floating UI",
+    yieldForeignNote: "When another extension (read-frog, 沙拉查词…) shows its own floating toolbar near the selection, ours hides instead of stacking.",
     floatThemeLabel: "Floating toolbar style",
     floatThemeNote: "Theme for the selection toolbar and media @ chip — frost, ink or paper.",
     proactiveLabel: "Auto co-read new tabs",
@@ -362,6 +364,8 @@ const I18N = {
     autoSelectionLabel: "自动捕获选中的文字",
     autoSelectionNote: "在网页上选中文字后自动加入对话上下文，无需点击 Ask。",
     floatingAskLabel: "选中后显示悬浮工具栏",
+    yieldForeignLabel: "检测到其他扩展浮层时让位",
+    yieldForeignNote: "其他扩展（陪读蛙、沙拉查词等）的悬浮条出现时，自动隐藏我们的划词工具栏，不叠加。",
     floatThemeLabel: "悬浮工具栏风格",
     floatThemeNote: "划词工具栏与媒体 @ 键的悬浮风格：雾玻璃 / 墨玉 / 纸白。",
     proactiveLabel: "打开新标签页时自动 co-read",
@@ -888,6 +892,7 @@ async function init() {
   const setLanguage = document.getElementById("set-language");
   const toggleAutoSelection = document.getElementById("toggle-auto-selection");
   const toggleFloatingAsk = document.getElementById("toggle-floating-ask");
+  const toggleYieldForeign = document.getElementById("toggle-yield-foreign");
   const setFloatTheme = document.getElementById("set-float-theme");
   const trSpace = document.getElementById("set-tr-space");
   refreshDynamicI18n = () => {
@@ -897,12 +902,13 @@ async function init() {
       field.state.textContent = keyState[field.provider] ? t("keyConfigured") : t("keyNotSet");
     }
   };
-  chrome.storage.local.get(["panelLanguage", "autoSelectionEnabled", "floatingAskEnabled", "floatTheme", "abSpaceTranslate"]).then((stored) => {
+  chrome.storage.local.get(["panelLanguage", "autoSelectionEnabled", "floatingAskEnabled", "floatTheme", "abSpaceTranslate", "abYieldForeign"]).then((stored) => {
     uiLang = (stored && stored.panelLanguage) || "auto";
     applyI18n();
     setLanguage.value = uiLang;
     toggleAutoSelection.checked = stored.autoSelectionEnabled !== false;
     toggleFloatingAsk.checked = stored.floatingAskEnabled !== false;
+    toggleYieldForeign.checked = stored.abYieldForeign !== false;
     setFloatTheme.value = ["frost", "ink", "paper"].includes(stored.floatTheme)
       ? stored.floatTheme
       : "frost";
@@ -954,6 +960,9 @@ async function init() {
   });
   toggleFloatingAsk.addEventListener("change", () => {
     chrome.storage.local.set({ floatingAskEnabled: toggleFloatingAsk.checked });
+  });
+  toggleYieldForeign.addEventListener("change", () => {
+    chrome.storage.local.set({ abYieldForeign: toggleYieldForeign.checked });
   });
   setFloatTheme.addEventListener("change", () => {
     chrome.storage.local.set({ floatTheme: setFloatTheme.value });

@@ -570,9 +570,90 @@ Rules:
     return { summary: String(text || '').trim(), provider };
   }
 
+  // analyze_request (extension -> hub): the selection popup's 词典/长难句.
+  // mode "dict" -> compact dictionary entry as plain text; mode "parse" ->
+  // JSON segments [{text, role, note}] the popup can annotate onto the page.
+  const DICT_SYSTEM = `You are a bilingual dictionary engine. Given a word or short phrase, output a compact dictionary entry.
+
+Rules:
+- Output plain text, no markdown fences, no preamble.
+- Line 1: the headword, its phonetic (IPA) in slashes if English, then the translation.
+- Then one line per sense: "词性. 释义 — 例句" (gloss in the target language, example in the source language).
+- At most 4 senses. No sign-off.`;
+
+  const PARSE_SYSTEM = `You are a sentence-structure analyzer for language learners. Given a sentence, break it into its grammatical components.
+
+Rules:
+- Output ONLY a JSON array — no markdown fences, no preamble — of objects {"text","role","note"}.
+- "text" is the exact substring of the input for that component (it MUST appear verbatim in the input).
+- "role" is a short Chinese grammatical label like 主句/谓语/宾语从句/定语从句/状语从句/同位语/插入语/连接成分.
+- "note" is one short Chinese sentence explaining the component's function.
+- Cover the whole sentence; 3-10 segments, in source order.`;
+
+  // parseSegments pulls the JSON array out of a model reply that may wrap it
+  // in prose or code fences — exported for tests.
+  function parseSegments(raw) {
+    const s = String(raw || '').trim();
+    if (!s) return null;
+    const m = s.match(/\[[\s\S]*\]/);
+    if (!m) return null;
+    let arr;
+    try {
+      arr = JSON.parse(m[0]);
+    } catch (err) {
+      console.warn('[translate] analyze parse JSON failed:', err.message);
+      return null;
+    }
+    if (!Array.isArray(arr)) return null;
+    const out = [];
+    for (const it of arr) {
+      if (!it || typeof it !== 'object') continue;
+      const text = String(it.text || '').trim();
+      if (!text) continue;
+      out.push({ text, role: String(it.role || ''), note: String(it.note || '') });
+    }
+    return out.length ? out : null;
+  }
+
+  async function analyze(msg) {
+    const provider = providerOf(cfg.provider);
+    if (!['openai', 'anthropic'].includes(provider)) {
+      throw new Error(`provider "${provider}" cannot analyze — set translate.provider to openai or anthropic`);
+    }
+    const mode = msg && msg.mode;
+    const text = String((msg && msg.text) || '').slice(0, 4000);
+    if (!text.trim()) throw new Error('empty text');
+    const targetLang = String((msg && msg.targetLang) || cfg.targetLang);
+    const system = mode === 'dict' ? DICT_SYSTEM : mode === 'parse' ? PARSE_SYSTEM : null;
+    if (!system) throw new Error(`unknown analyze mode "${mode}"`);
+
+    const hash = hashKey(provider, cfg.model || '', targetLang, `an-${mode}`, text);
+    const hit = mem.get(hash) !== undefined ? mem.get(hash) : file.get(hash);
+    if (hit !== undefined) {
+      return mode === 'dict'
+        ? { text: hit, provider }
+        : { segments: parseSegments(hit) || [], provider };
+    }
+    const out = await callProvider(['x'], {
+      targetLang,
+      system,
+      user: `Target language: ${targetLang}\n\n${mode === 'dict' ? 'Word/phrase' : 'Sentence'}:\n${text}`,
+    });
+    const body = String(out || '').trim();
+    if (body) {
+      mem.set(hash, body);
+      file.set(hash, body);
+    }
+    return mode === 'dict'
+      ? { text: body, provider }
+      : { segments: parseSegments(body) || [], provider };
+  }
+
   return {
     handleRequest,
     summarize,
+    analyze,
+    parseSegments,
     provider: () => providerOf(cfg.provider),
     config: cfg,
     flushCache: () => file.flush(),
