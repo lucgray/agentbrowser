@@ -1976,6 +1976,8 @@ function handleMessage(ws, msg) {
       handleTranslateRequest(ws, msg).catch((err) => log("translate_request failed:", err && err.message));
     else if (msg.type === "summary_request")
       handleSummaryRequest(ws, msg).catch((err) => log("summary_request failed:", err && err.message));
+    else if (msg.type === "analyze_request")
+      handleAnalyzeRequest(ws, msg).catch((err) => log("analyze_request failed:", err && err.message));
     else if (msg.type === "media_download")
       handleMediaDownload(ws, msg).catch((err) => log("media_download failed:", err && err.message));
     else if (msg.type === "set_translate_config")
@@ -2116,6 +2118,27 @@ async function handleSummaryRequest(ws, msg) {
     reply({ summary: r.summary, provider: r.provider });
   } catch (err) {
     log("summary_request failed:", err && err.message);
+    reply({ error: String((err && err.message) || err) });
+  }
+}
+
+// analyze_request (extension -> hub): the selection popup's 词典/长难句 —
+// dictionary entry or sentence-structure segments. Same socket routing as
+// translate_result.
+async function handleAnalyzeRequest(ws, msg) {
+  const id = typeof msg.id === "string" ? msg.id : null;
+  const reply = (extra) => {
+    try {
+      ws.send(JSON.stringify({ type: "analyze_result", id, ...extra }));
+    } catch (err) {
+      log("analyze_result send failed:", err && err.message);
+    }
+  };
+  try {
+    const r = await translator.analyze(msg);
+    reply({ text: r.text, segments: r.segments, provider: r.provider });
+  } catch (err) {
+    log("analyze_request failed:", err && err.message);
     reply({ error: String((err && err.message) || err) });
   }
 }

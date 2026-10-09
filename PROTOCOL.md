@@ -1,4 +1,4 @@
-# AgentBrowser protocol v2.21
+# AgentBrowser protocol v2.22
 
 AgentBrowser is a Chrome MV3 extension with a side-panel chat UI, plus a local hub
 server. The chat is backed by a pluggable "harness" (Claude Agent SDK, Claude
@@ -1537,3 +1537,24 @@ skill/SKILL.md to ~/.claude/skills and ~/.agents/skills (or --target dirs).
   tool failure -> tool chip shows ✗ + error text.
 - Prose (README, comments): plain and specific, no marketing adjectives, no
   em dashes.
+
+## protocol v2.22
+
+- `analyze_request` (extension -> hub): the selection popup's dictionary and
+  long-sentence tools. `{type:'analyze_request', id, tabId, mode, text,
+  targetLang?}` with `mode: 'dict' | 'parse'`. Replies `analyze_result`
+  `{id, text}` for dict or `{id, segments:[{text, role, note}]}` for parse;
+  `{id, error}` on failure. Chat providers only (openai/anthropic); results
+  are cached per mode+text like translate_request.
+- Selection popup: the 翻译 toolbar action now opens a read-frog-style
+  popover (source text, streamed translation, 朗读 via speechSynthesis,
+  📋 copy, 📖 dictionary on word-like selections, 🧩 long-sentence parse
+  with on-page annotation of each segment via the annotation layer).
+- `abYieldForeign` (chrome.storage.local, default true): when another
+  extension's floating UI appears near the selection, our floating toolbar
+  hides instead of stacking. Off = always show ours.
+- float-guard: recognises shadow-host foreign overlays (read-frog's
+  `read-frog-selection` host, `[data-rf-selection-overlay-root]`, any open
+  shadow host mounting positioned content), probes an inflated rect over a
+  9-point grid, observes open shadow roots, and re-probes at settle delays
+  for floaters that mount after we do.

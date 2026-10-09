@@ -51,6 +51,24 @@ function browserIdentity() {
 // panelPort this replaced let the last-opened window steal every chat event).
 const panelRouter = createPanelRouter();
 let hubConnected = false;
+const hubConnectWaiters = new Set(); // resolved when ws_status reports connected
+// MV3 wakes the SW with hubConnected=false; the offscreen re-report lands a
+// few hundred ms later. Commands arriving in that window wait for it instead
+// of failing 'hub not connected' on a live socket.
+function waitForHubConnected(timeoutMs = 4000) {
+  if (hubConnected) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      hubConnectWaiters.delete(done);
+      resolve(hubConnected);
+    }, timeoutMs);
+    const done = () => {
+      clearTimeout(timer);
+      resolve(true);
+    };
+    hubConnectWaiters.add(done);
+  });
+}
 let lastCapabilities = null; // last {type:'capabilities'} from the hub, replayed on panel connect
 let lastPanelAdapter = null; // adapter of the panel's most recent chat; default for annotation threads
 
@@ -647,6 +665,11 @@ let translateAskSeq = 0;
 const learnTrAsks = new Map();
 let learnTrAskSeq = 0;
 
+// Selection popup's 词典/长难句: one-shot analyze_request (ids "an-"), same
+// settle-map pattern as translate_ask.
+const analyzeAsks = new Map();
+let analyzeAskSeq = 0;
+
 // Media menu 下载视频: reqId -> tabId so the hub's media_download_result
 // can be pushed back to the tab that asked (minutes-long; no response held).
 const mediaDlTabs = new Map();
@@ -730,6 +753,42 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     );
     return true;
   }
+  if (message.cmd === 'analyze_ask') {
+    const tabId = sender && sender.tab && sender.tab.id;
+    const mode = message.mode === 'dict' || message.mode === 'parse' ? message.mode : null;
+    if (tabId == null || !mode || !message.text) {
+      sendResponse({ success: false, error: 'bad analyze_ask' });
+      return true;
+    }
+    waitForHubConnected().then((ok) => {
+      if (!ok) {
+        sendResponse({ success: false, error: 'hub not connected' });
+        return;
+      }
+      const reqId = `an-${tabId}-${++analyzeAskSeq}`;
+      const timer = setTimeout(() => {
+        if (analyzeAsks.delete(reqId)) {
+          sendResponse({ success: false, error: 'analyze timeout' });
+        }
+      }, 30000);
+      analyzeAsks.set(reqId, (res) => {
+        clearTimeout(timer);
+        sendResponse(res);
+      });
+      sendToOffscreen({
+        target: 'offscreen',
+        cmd: 'send',
+        payload: {
+          type: 'analyze_request',
+          id: reqId,
+          tabId,
+          mode,
+          text: String(message.text).slice(0, 4000),
+        },
+      });
+    });
+    return true;
+  }
   if (message.cmd === 'selection_clear') {
     const tabId = sender && sender.tab && sender.tab.id;
     if (tabId == null) {
@@ -765,11 +824,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse({ success: false, error: 'no tab' });
       return true;
     }
-    if (!hubConnected) {
-      sendResponse({ success: false, error: 'hub not connected' });
-      return true;
-    }
-    handleTranslateAsk(tabId, message.text, sendResponse);
+    waitForHubConnected().then((ok) => {
+      if (!ok) {
+        sendResponse({ success: false, error: 'hub not connected' });
+        return;
+      }
+      handleTranslateAsk(tabId, message.text, sendResponse);
+    });
     return true;
   }
   if (message.cmd === 'video_ask') {
@@ -795,30 +856,32 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse({ success: false, error: 'no tab/url' });
       return true;
     }
-    if (!hubConnected) {
-      sendResponse({ success: false, error: 'hub not connected' });
-      return true;
-    }
-    const id = String(message.id || `dl-${tabId}-${Date.now()}`);
-    const timer = setTimeout(() => {
-      if (mediaDlTabs.delete(id)) {
-        chrome.tabs
-          .sendMessage(tabId, {
-            target: 'video-ask',
-            cmd: 'download_result',
-            ok: false,
-            error: 'download timed out',
-          })
-          .catch((err) => console.warn('[agentbrowser] download timeout notify failed', err));
+    waitForHubConnected().then((ok) => {
+      if (!ok) {
+        sendResponse({ success: false, error: 'hub not connected' });
+        return;
       }
-    }, 11 * 60 * 1000); // just past the hub's 10min yt-dlp cap
-    mediaDlTabs.set(id, { tabId, timer });
-    sendToOffscreen({
-      target: 'offscreen',
-      cmd: 'send',
-      payload: { type: 'media_download', id, url: String(message.url) },
+      const id = String(message.id || `dl-${tabId}-${Date.now()}`);
+      const timer = setTimeout(() => {
+        if (mediaDlTabs.delete(id)) {
+          chrome.tabs
+            .sendMessage(tabId, {
+              target: 'video-ask',
+              cmd: 'download_result',
+              ok: false,
+              error: 'download timed out',
+            })
+            .catch((err) => console.warn('[agentbrowser] download timeout notify failed', err));
+        }
+      }, 11 * 60 * 1000); // just past the hub's 10min yt-dlp cap
+      mediaDlTabs.set(id, { tabId, timer });
+      sendToOffscreen({
+        target: 'offscreen',
+        cmd: 'send',
+        payload: { type: 'media_download', id, url: String(message.url) },
+      });
+      sendResponse({ success: true, started: true });
     });
-    sendResponse({ success: true, started: true });
     return true;
   }
   if (message.cmd === 'subtitle_fetch') {
@@ -987,6 +1050,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.cmd === 'ws_status') {
     hubConnected = !!message.connected;
     if (hubConnected) {
+      for (const done of hubConnectWaiters) done();
+      hubConnectWaiters.clear();
       browserIdentity().then((browser) => {
         sendToOffscreen({
           target: 'offscreen',
@@ -1062,6 +1127,16 @@ function handleHubMessage(payload) {
       }
     } else if (!subtitle.onResult(payload)) {
       translate.onResult(payload);
+    }
+  } else if (payload.type === 'analyze_result') {
+    const settle = analyzeAsks.get(String(payload.id || ''));
+    analyzeAsks.delete(String(payload.id || ''));
+    if (settle) {
+      if (payload.error) {
+        settle({ success: false, error: String(payload.error) });
+      } else {
+        settle({ success: true, text: payload.text, segments: payload.segments });
+      }
     }
   } else if (payload.type === 'media_download_result') {
     const rec = mediaDlTabs.get(String(payload.id || ''));

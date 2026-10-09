@@ -351,3 +351,60 @@ test('token bucket paces provider calls at ratePerSec', async () => {
   assert.equal(calls.length, 3);
   assert.ok(Date.now() - t0 >= 30);
 });
+
+// --- analyze_request (selection popup 词典/长难句) --------------------------
+
+test('analyze dict returns the entry text and caches it', async () => {
+  const calls = [];
+  const tr = createTranslator({
+    config: { provider: 'openai' },
+    fetchImpl: async (url, init) => {
+      calls.push(JSON.parse(init.body));
+      return {
+        ok: true,
+        json: async () => ({ choices: [{ message: { content: 'word /wɜːd/\nn. 单词 — a single word' } }] }),
+      };
+    },
+    cacheDir: tmpCache(),
+    getKey: openaiKey,
+  });
+  const r = await tr.analyze({ mode: 'dict', text: 'word', targetLang: 'zh' });
+  assert.match(r.text, /单词/);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].messages[0].role, 'system');
+  const r2 = await tr.analyze({ mode: 'dict', text: 'word', targetLang: 'zh' });
+  assert.equal(calls.length, 1); // cache hit — no second provider call
+  assert.equal(r2.text, r.text);
+});
+
+test('analyze parse extracts the JSON array from a fenced reply', async () => {
+  const tr = createTranslator({
+    config: { provider: 'openai' },
+    fetchImpl: async () => ({
+      ok: true,
+      json: async () => ({
+        choices: [{ message: { content: '```json\n[{"text":"The cat","role":"主句","note":"主语部分"},{"text":"sat","role":"谓语","note":"动作"}]\n```' } }],
+      }),
+    }),
+    cacheDir: tmpCache(),
+    getKey: openaiKey,
+  });
+  const r = await tr.analyze({ mode: 'parse', text: 'The cat sat.' });
+  assert.equal(r.segments.length, 2);
+  assert.equal(r.segments[0].role, '主句');
+});
+
+test('parseSegments rejects junk and drops empty segments', () => {
+  const tr = createTranslator({ config: { provider: 'openai' }, fetchImpl: fakeFetch([]), cacheDir: tmpCache(), getKey: openaiKey });
+  assert.equal(tr.parseSegments('no json here'), null);
+  assert.equal(tr.parseSegments('[{"role":"x"}]'), null); // no text field
+  const segs = tr.parseSegments('[{"text":"a","role":"主句","note":""}]');
+  assert.equal(segs.length, 1);
+});
+
+test('analyze rejects unknown modes and translator-only providers', async () => {
+  const tr = createTranslator({ config: { provider: 'openai' }, fetchImpl: fakeFetch([]), cacheDir: tmpCache(), getKey: openaiKey });
+  await assert.rejects(() => tr.analyze({ mode: 'nope', text: 'x' }), /unknown analyze mode/);
+  const trFree = createTranslator({ config: { provider: 'free' }, fetchImpl: fakeFetch([]), cacheDir: tmpCache(), getKey: openaiKey });
+  await assert.rejects(() => trFree.analyze({ mode: 'dict', text: 'x' }), /cannot analyze/);
+});

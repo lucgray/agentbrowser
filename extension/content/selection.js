@@ -16,12 +16,16 @@
 (function () {
 
 const BTN_ID = "agentbrowser-ask-btn";
+const MENU_ID = "agentbrowser-sel-menu";
 const POP_ID = "agentbrowser-sel-tr-pop";
+const CHIP_ID = "agentbrowser-sel-vocab-chip";
+const VOCAB_KEY = "abVocab"; // chrome.storage.local: [{w, host, ts}] 生词本
 const FLOAT_ASK_KEY = "floatingAskEnabled"; // chrome.storage.local, set by sw
 const AUTO_SEL_KEY = "autoSelectionEnabled"; // chrome.storage.local, set by the panel settings
 const FLOAT_THEME_KEY = "floatTheme"; // chrome.storage.local, frost | ink | paper
 const FLOAT_THEMES = new Set(["frost", "ink", "paper"]);
 const SPACE_TR_KEY = "abSpaceTranslate"; // triple-space input-translation toggle
+const YIELD_KEY = "abYieldForeign"; // yield our floaters to foreign overlays
 
 let floatBtn = null;
 let trPop = null;
@@ -33,8 +37,10 @@ let floatingAskEnabled = true; // cached; kept in sync below
 let autoSelectionEnabled = true; // cached; panel 设置开关
 let floatTheme = "frost"; // cached; settings select
 let spaceTrEnabled = false; // cached; settings checkbox — opt-in
+let yieldForeign = true; // cached; settings toggle — foreign overlays win
 let spaceRun = 0;
 let spaceTimer = null;
+let lastSelBounds = null; // viewport rect of the last selection, for the guard
 
 // Editable field the triple-space input translation acts on — input/textarea
 // (except passwords) or any contentEditable host.
@@ -107,12 +113,14 @@ if (isContextValid()) {
       [AUTO_SEL_KEY]: true,
       [FLOAT_THEME_KEY]: "frost",
       [SPACE_TR_KEY]: false,
+      [YIELD_KEY]: true,
     })
     .then((r) => {
       floatingAskEnabled = r[FLOAT_ASK_KEY] !== false;
       autoSelectionEnabled = r[AUTO_SEL_KEY] !== false;
       floatTheme = FLOAT_THEMES.has(r[FLOAT_THEME_KEY]) ? r[FLOAT_THEME_KEY] : "frost";
       spaceTrEnabled = r[SPACE_TR_KEY] === true;
+      yieldForeign = r[YIELD_KEY] !== false;
     })
     .catch((err) => {
       logWarn("floating-ask setting read failed", err);
@@ -130,6 +138,9 @@ if (isContextValid()) {
     }
     if (SPACE_TR_KEY in changes) {
       spaceTrEnabled = changes[SPACE_TR_KEY].newValue === true;
+    }
+    if (YIELD_KEY in changes) {
+      yieldForeign = changes[YIELD_KEY].newValue !== false;
     }
     if (FLOAT_THEME_KEY in changes) {
       const v = changes[FLOAT_THEME_KEY].newValue;
@@ -499,6 +510,7 @@ const ICONS = {
   ask: "M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z",
   translate: "M5 8l6 6 M4 14l6-6 2-3 M2 5h12 M7 2h1 M22 22l-5-10-5 10 M14 18h6",
   copy: "M9 9h13v13H9z M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1",
+  more: "M5 12h.01 M12 12h.01 M19 12h.01",
 };
 
 function svgIcon(d) {
@@ -535,6 +547,55 @@ function mkSep() {
   return i;
 }
 
+// The bar stays lean — everything beyond Ask/translate lives in the ⋯ menu
+// (read-frog parks its extra actions in "more" the same way).
+let moreMenu = null;
+
+function createMoreMenu() {
+  if (moreMenu) return moreMenu;
+  moreMenu = document.createElement("div");
+  moreMenu.id = MENU_ID;
+  const items = [
+    ["📋", "复制", () => handleCopyClick()],
+    ["🔊", "朗读", () => speakText(currentSelectionContext && currentSelectionContext.text)],
+    ["📖", "词典", () => openPopupWith("dict")],
+    ["🧩", "长难句", () => openPopupWith("parse")],
+  ];
+  for (const [ico, label, fn] of items) {
+    const it = document.createElement("button");
+    it.type = "button";
+    it.className = "ab-menu-item";
+    it.append(spEl("span", "ab-menu-ico", ico), document.createTextNode(label));
+    it.addEventListener("mousedown", (e) => e.preventDefault());
+    it.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      hideMoreMenu();
+      fn();
+    });
+    moreMenu.appendChild(it);
+  }
+  (document.body || document.documentElement).appendChild(moreMenu);
+  return moreMenu;
+}
+
+function hideMoreMenu() {
+  if (moreMenu) moreMenu.classList.remove("ab-show");
+}
+
+function toggleMoreMenu() {
+  const m = createMoreMenu();
+  m.dataset.abtheme = floatTheme;
+  if (m.classList.contains("ab-show")) {
+    hideMoreMenu();
+    return;
+  }
+  const r = floatBtn.getBoundingClientRect();
+  m.style.left = `${r.left + window.scrollX}px`;
+  m.style.top = `${r.bottom + window.scrollY + 6}px`;
+  requestAnimationFrame(() => m.classList.add("ab-show"));
+}
+
 function createFloatingButton() {
   if (floatBtn) return floatBtn;
   floatBtn = document.createElement("div");
@@ -546,13 +607,14 @@ function createFloatingButton() {
     mkSep(),
     mkItem(ICONS.translate, "翻译", (e) => handleTranslateClick(e)),
     mkSep(),
-    mkItem(ICONS.copy, "复制", (e) => handleCopyClick(e))
+    mkItem(ICONS.more, "更多", () => toggleMoreMenu())
   );
   (document.body || document.documentElement).appendChild(floatBtn);
   return floatBtn;
 }
 
 function hideButton() {
+  hideMoreMenu();
   if (foreignStop) {
     foreignStop();
     foreignStop = null;
@@ -566,14 +628,20 @@ function hideButton() {
 }
 
 function hideTrPop() {
+  hideVocabChip();
   if (trPop) {
     trPop.classList.remove("ab-show");
     trPop.style.top = "";
     trPop.style.left = "";
   }
+  if (popSpeaking && window.speechSynthesis) {
+    try { window.speechSynthesis.cancel(); } catch (err) { logWarn("speech cancel failed", err); }
+  }
+  popSpeaking = false;
+  popBusy = "";
 }
 
-// Bar rect estimate before layout: three labelled items ≈ 190x30. After
+// Bar rect estimate before layout: [问AI|翻译|⋯] ≈ 150x30. After
 // showing once we can measure the real box for the guard's probe rect.
 function barRectEstimate(left, top) {
   if (floatBtn && !floatBtn.classList.contains("agentbrowser-hidden")) {
@@ -582,20 +650,45 @@ function barRectEstimate(left, top) {
       return { left: left - window.scrollX, top: top - window.scrollY, width: r.width, height: r.height };
     }
   }
-  return { left: left - window.scrollX, top: top - window.scrollY, width: 190, height: 30 };
+  return { left: left - window.scrollX, top: top - window.scrollY, width: 150, height: 30 };
+}
+
+// The guard probes a zone covering the selection plus our bar: another
+// extension's toolbar docking onto the same selection counts as a conflict
+// even when it doesn't literally overlap our bar's pixels.
+function probeRect(left, top) {
+  const bar = barRectEstimate(left, top);
+  const s = lastSelBounds;
+  if (!s) return bar;
+  const left2 = Math.min(bar.left, s.left);
+  const top2 = Math.min(bar.top, s.top);
+  const right2 = Math.max(bar.left + bar.width, s.right);
+  const bottom2 = Math.max(bar.top + bar.height, s.bottom);
+  return { left: left2, top: top2, width: right2 - left2, height: bottom2 - top2 };
 }
 
 // returns true when a foreign overlay already owns the spot.
 function foreignBlocks(left, top) {
+  if (!yieldForeign) return false;
   const g = window.__abFloatGuard;
   if (!g) return false;
-  return !!g.foreignAtRect(barRectEstimate(left, top));
+  return !!g.foreignAtRect(probeRect(left, top), 80);
 }
 
 function armForeignWatcher() {
+  if (!yieldForeign) return;
   const g = window.__abFloatGuard;
   if (!g || foreignStop) return;
-  const r = floatBtn.getBoundingClientRect();
+  const b = floatBtn.getBoundingClientRect();
+  const s = lastSelBounds;
+  const r = s
+    ? {
+        left: Math.min(b.left, s.left),
+        top: Math.min(b.top, s.top),
+        right: Math.max(b.right, s.right),
+        bottom: Math.max(b.bottom, s.bottom),
+      }
+    : b;
   foreignStop = g.watchForeign(r, hideButton);
 }
 
@@ -609,8 +702,9 @@ function showButtonAtSelection(selection) {
     const rects = range.getClientRects();
     let rect = rects.length > 0 ? rects[rects.length - 1] : range.getBoundingClientRect();
     if (!rect || (rect.width === 0 && rect.height === 0)) return;
+    lastSelBounds = range.getBoundingClientRect();
 
-    const btnWidth = 190;
+    const btnWidth = 150;
     const btnHeight = 30;
     const maxLeft = window.innerWidth + window.scrollX - btnWidth - 16;
     const minLeft = window.scrollX + 16;
@@ -639,53 +733,465 @@ function showButtonAtSelection(selection) {
 
 // --- toolbar actions ----------------------------------------------------------
 
-function showTrPop(text) {
-  if (!trPop) {
-    trPop = document.createElement("div");
-    trPop.id = POP_ID;
-    (document.body || document.documentElement).appendChild(trPop);
+// --- selection popup ---------------------------------------------------------
+// Read-frog-style popover in our own theme: 原文 / 译文 / action row
+// (朗读·复制·词典·长难句) / expandable section for dictionary and
+// long-sentence analyses, which can also be annotated onto the page.
+
+let popText = "";
+let popTranslated = "";
+let popSpeaking = false;
+let popBusy = ""; // "tr" | "dict" | "parse" | ""
+let popExtra = null; // {mode:'dict'|'parse', data, err}
+let popMode = "tr"; // "tr" | "dict" | "parse" — which surface opened the popup
+const POP_TITLES = { tr: "翻译", dict: "词典", parse: "长难句解析" };
+
+// 生词本：chrome.storage.local abVocab — [{w, host, ts}], newest first,
+// deduped case-insensitively, capped at 500.
+async function vocabAdd(word) {
+  const w = String(word || "").trim();
+  if (!w) return false;
+  try {
+    const r = await chrome.storage.local.get({ [VOCAB_KEY]: [] });
+    const list = Array.isArray(r[VOCAB_KEY]) ? r[VOCAB_KEY] : [];
+    const lower = w.toLowerCase();
+    const rest = list.filter((e) => String(e && e.w).toLowerCase() !== lower);
+    rest.unshift({ w, host: location.host, ts: Date.now() });
+    await chrome.storage.local.set({ [VOCAB_KEY]: rest.slice(0, 500) });
+    return true;
+  } catch (err) {
+    logWarn("vocab add failed", err);
+    return false;
   }
-  trPop.dataset.abtheme = floatTheme;
-  trPop.textContent = text;
+}
+
+async function vocabHas(word) {
+  const w = String(word || "").trim().toLowerCase();
+  if (!w) return false;
+  try {
+    const r = await chrome.storage.local.get({ [VOCAB_KEY]: [] });
+    return (Array.isArray(r[VOCAB_KEY]) ? r[VOCAB_KEY] : []).some(
+      (e) => String(e && e.w).toLowerCase() === w
+    );
+  } catch (err) {
+    logWarn("vocab read failed", err);
+    return false;
+  }
+}
+
+// Mini "＋生词" chip that appears when the user selects a word inside the
+// popup's 原文/译文 blocks — the "选词添加" path into the dictionary.
+let vocabChip = null;
+
+function hideVocabChip() {
+  if (vocabChip) vocabChip.classList.remove("ab-show");
+}
+
+function showVocabChip(word, rect) {
+  if (!vocabChip) {
+    vocabChip = document.createElement("button");
+    vocabChip.id = CHIP_ID;
+    vocabChip.type = "button";
+    vocabChip.addEventListener("mousedown", (e) => e.preventDefault());
+    vocabChip.addEventListener("click", async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const w = vocabChip.dataset.word || "";
+      const ok = await vocabAdd(w);
+      vocabChip.textContent = ok ? "✓ 已加入生词本" : "加入失败";
+      setTimeout(hideVocabChip, 1100);
+    });
+    (document.body || document.documentElement).appendChild(vocabChip);
+  }
+  vocabChip.dataset.abtheme = floatTheme;
+  vocabChip.dataset.word = word;
+  vocabChip.textContent = "＋ 生词";
+  vocabChip.style.left = `${rect.left + window.scrollX}px`;
+  vocabChip.style.top = `${rect.bottom + window.scrollY + 4}px`;
+  vocabChip.classList.add("ab-show");
+}
+
+function spEl(tag, cls, text) {
+  const d = document.createElement(tag);
+  if (cls) d.className = cls;
+  if (text != null) d.textContent = text;
+  return d;
+}
+
+// Labels shaped "<emoji> <text>" wrap the emoji in .ab-sp-ico so icon and
+// text share one baseline; plain labels stay untouched.
+function spBtn(label, title, onClick) {
+  const b = spEl("button", "ab-sp-act");
+  const m = /^(\S+)\s(.+)$/.exec(String(label || ""));
+  if (m && /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{FE0F}]/u.test(m[1])) {
+    b.append(spEl("span", "ab-sp-ico", m[1]), document.createTextNode(m[2]));
+  } else {
+    b.textContent = String(label || "");
+  }
+  b.type = "button";
+  if (title) b.title = title;
+  b.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    onClick();
+  });
+  return b;
+}
+
+function isWordLike(text) {
+  const t = String(text || "").trim();
+  return t.length > 0 && t.length <= 60 && t.split(/\s+/).length <= 4 && !/[\n\r]/.test(t);
+}
+
+function roleColor(i) {
+  const palette = ["#7c3aed", "#2563eb", "#0891b2", "#d97706", "#059669", "#be185d", "#dc2626", "#9333ea"];
+  return palette[i % palette.length];
+}
+
+function ensureTrPop() {
+  // Sites that sweep foreign extension DOM can detach the popup — re-parent
+  // the cached element instead of rendering into a disconnected node.
+  if (trPop) {
+    if (!trPop.isConnected) (document.body || document.documentElement).appendChild(trPop);
+    return trPop;
+  }
+  trPop = document.createElement("div");
+  trPop.id = POP_ID;
+  const head = spEl("div", "ab-sp-head");
+  head.append(spEl("span", "ab-sp-title", POP_TITLES.tr));
+  // Selecting a word inside the popup offers a quick path into the
+  // vocabulary — check on mouseup within the source/result blocks.
+  trPop.addEventListener("mouseup", () => {
+    setTimeout(() => {
+      const sel = window.getSelection();
+      if (!sel || sel.rangeCount === 0) return;
+      const range = sel.getRangeAt(0);
+      const container = range.commonAncestorContainer;
+      const host = container.nodeType === Node.TEXT_NODE ? container.parentElement : container;
+      if (!host || !trPop.contains(host)) return;
+      const text = sel.toString().trim();
+      if (!isWordLike(text)) return;
+      showVocabChip(text, range.getBoundingClientRect());
+    }, 10);
+  });
+  const close = spBtn("×", "关闭", () => hideTrPop());
+  close.classList.add("ab-sp-x");
+  head.append(close);
+  trPop.append(
+    head,
+    spEl("div", "ab-sp-src"),
+    spEl("div", "ab-sp-tr"),
+    spEl("div", "ab-sp-acts"),
+    spEl("div", "ab-sp-extra")
+  );
+  (document.body || document.documentElement).appendChild(trPop);
+  return trPop;
+}
+
+function renderPop() {
+  if (!trPop) return;
+  const src = trPop.querySelector(".ab-sp-src");
+  const tr = trPop.querySelector(".ab-sp-tr");
+  const acts = trPop.querySelector(".ab-sp-acts");
+  const extra = trPop.querySelector(".ab-sp-extra");
+  const title = trPop.querySelector(".ab-sp-title");
+  if (title) title.textContent = POP_TITLES[popMode] || POP_TITLES.tr;
+  src.textContent = popText;
+  tr.textContent = "";
+  tr.classList.remove("ab-sp-err");
+  if (popMode === "tr") {
+    tr.style.display = "";
+    if (popBusy === "tr") {
+      tr.append(spEl("span", "ab-sp-loading", "翻译中…"));
+    } else if (popTranslated) {
+      tr.textContent = popTranslated;
+    } else {
+      tr.textContent = "—";
+    }
+  } else {
+    // dict/parse popups skip the translation block entirely — the
+    // vocabulary/analysis lives in the extra section below.
+    tr.style.display = "none";
+  }
+
+  acts.textContent = "";
+  const speakBtn = spBtn(popSpeaking ? "⏹ 停止" : "🔊 朗读", "朗读", () => toggleSpeak());
+  const copyBtn = spBtn("📋 复制", "复制", () => {
+    navigator.clipboard.writeText(popTranslated || popText).catch((err) => logWarn("clipboard write failed", err));
+  });
+  acts.append(speakBtn, copyBtn);
+  // Inside a 翻译 popup these expand the extra section instead of switching
+  // surfaces — the translation stays on screen (popMode only changes when a
+  // surface is opened directly from the ⋯ menu).
+  if (isWordLike(popText)) {
+    const dictBtn = spBtn(popBusy === "dict" ? "词典…" : "📖 词典", "词典释义", () => runDict());
+    if (popBusy === "dict") dictBtn.classList.add("ab-busy");
+    acts.append(dictBtn);
+  }
+  if (popText.trim().length > 15) {
+    const parseBtn = spBtn(popBusy === "parse" ? "解析…" : "🧩 长难句", "长难句结构解析", () => runParse());
+    if (popBusy === "parse") parseBtn.classList.add("ab-busy");
+    acts.append(parseBtn);
+  }
+
+  extra.textContent = "";
+  extra.style.display = "none";
+  if (popExtra) {
+    extra.style.display = "block";
+    const title = spEl("div", "ab-sp-extra-title", popExtra.mode === "dict" ? "词典" : "长难句解析");
+    extra.append(title);
+    if (popExtra.err) {
+      extra.append(spEl("div", "ab-sp-extra-err", popExtra.err));
+    } else if (popExtra.mode === "dict") {
+      const body = spEl("div", "ab-sp-dict");
+      body.textContent = popExtra.data;
+      extra.append(body);
+      // 加入生词本 — the dict card doubles as the vocabulary's front door.
+      const vb = spBtn("＋ 生词", "加入生词本", async () => {
+        vb.disabled = true;
+        const ok = await vocabAdd(popText);
+        vb.textContent = ok ? "✓ 已加入生词本" : "加入失败";
+        if (!ok) vb.disabled = false;
+      });
+      vb.classList.add("ab-sp-annotate");
+      vocabHas(popText).then((has) => {
+        if (has) {
+          vb.textContent = "✓ 已在生词本";
+          vb.disabled = true;
+        }
+      });
+      extra.append(vb);
+    } else if (popExtra.mode === "parse" && Array.isArray(popExtra.data)) {
+      const list = spEl("div", "ab-sp-parse");
+      popExtra.data.forEach((seg, i) => {
+        const row = spEl("div", "ab-sp-seg");
+        const dot = spEl("span", "ab-sp-dot");
+        dot.style.background = roleColor(i);
+        row.append(dot, spEl("span", "ab-sp-role", seg.role || `片段${i + 1}`));
+        const tx = spEl("span", "ab-sp-segtext", seg.text || "");
+        row.append(tx);
+        if (seg.zh) row.append(spEl("div", "ab-sp-zh", seg.zh));
+        if (seg.note) row.append(spEl("div", "ab-sp-note", seg.note));
+        list.append(row);
+      });
+      extra.append(list);
+      if (popExtra.annotated == null) {
+        const annotateBtn = spBtn("✎ 标注到页面", "把每个成分画到原句上", () => annotateSegments(popExtra));
+        annotateBtn.classList.add("ab-sp-annotate");
+        extra.append(annotateBtn);
+      } else {
+        extra.append(spEl("div", "ab-sp-done", `已在页面标注 ${popExtra.annotated} 处`));
+      }
+    }
+  }
+}
+
+function speakText(text) {
+  if (!window.speechSynthesis || !text) return;
+  try {
+    window.speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = /[\u4e00-\u9fff]/.test(text) ? "zh-CN" : "en-US";
+    window.speechSynthesis.speak(u);
+  } catch (err) {
+    logWarn("speech synthesis failed", err);
+  }
+}
+
+function toggleSpeak() {
+  if (!window.speechSynthesis) return;
+  if (popSpeaking) {
+    window.speechSynthesis.cancel();
+    popSpeaking = false;
+    renderPop();
+    return;
+  }
+  const text = popTranslated || popText;
+  if (!text) return;
+  try {
+    window.speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = /[\u4e00-\u9fff]/.test(text) ? "zh-CN" : "en-US";
+    u.onend = u.onerror = () => {
+      popSpeaking = false;
+      renderPop();
+    };
+    window.speechSynthesis.speak(u);
+    popSpeaking = true;
+    renderPop();
+  } catch (err) {
+    logWarn("speech synthesis failed", err);
+  }
+}
+
+async function analyzeAsk(mode, text) {
+  const response = await chrome.runtime.sendMessage({
+    target: "sw",
+    cmd: "analyze_ask",
+    mode,
+    text,
+  });
+  return response;
+}
+
+async function runDict() {
+  if (popBusy) return;
+  popBusy = "dict";
+  popExtra = null;
+  renderPop();
+  try {
+    const res = await analyzeAsk("dict", popText);
+    popBusy = "";
+    if (res && res.success && res.text) {
+      popExtra = { mode: "dict", data: String(res.text) };
+    } else {
+      popExtra = { mode: "dict", data: null, err: `查询失败：${(res && res.error) || "未知错误"}` };
+    }
+  } catch (err) {
+    popBusy = "";
+    popExtra = { mode: "dict", data: null, err: "扩展未连接" };
+    logWarn("dict analyze failed", err);
+  }
+  renderPop();
+}
+
+async function runParse() {
+  if (popBusy) return;
+  popBusy = "parse";
+  popExtra = null;
+  renderPop();
+  try {
+    const res = await analyzeAsk("parse", popText);
+    popBusy = "";
+    if (res && res.success && Array.isArray(res.segments) && res.segments.length) {
+      popExtra = { mode: "parse", data: res.segments };
+    } else {
+      popExtra = { mode: "parse", data: null, err: `解析失败：${(res && res.error) || "未返回成分"}` };
+    }
+  } catch (err) {
+    popBusy = "";
+    popExtra = { mode: "parse", data: null, err: "扩展未连接" };
+    logWarn("parse analyze failed", err);
+  }
+  renderPop();
+}
+
+function annotateSegments(extraState) {
+  const api = window.__abAnnotate;
+  if (!api || typeof api.add !== "function") {
+    logWarn("annotate API unavailable");
+    return;
+  }
+  let done = 0;
+  extraState.data.forEach((seg, i) => {
+    const quote = String((seg && seg.text) || "").trim();
+    if (!quote) return;
+    const r = api.add({
+      quote,
+      style: "underline",
+      comment: `${seg.role || "成分"}${seg.note ? " — " + seg.note : ""}`,
+      color: roleColor(i),
+      author: "agent",
+    });
+    if (r && r.ok) done++;
+  });
+  extraState.annotated = done;
+  renderPop();
+}
+
+// Position the popup: left edge under the selection's left (the read-frog
+// anchor), flipped above when the card would not fit below.
+function placeTrPop(pop) {
+  const selRect = lastSelBounds;
   const anchor =
     floatBtn && !floatBtn.classList.contains("agentbrowser-hidden")
       ? floatBtn.getBoundingClientRect()
       : null;
-  const left = anchor ? anchor.left + window.scrollX : window.scrollX + 40;
-  const top = anchor ? anchor.bottom + window.scrollY + 8 : window.scrollY + 80;
-  trPop.style.left = `${Math.min(left, window.innerWidth + window.scrollX - 340 - 16)}px`;
-  trPop.style.top = `${top}px`;
-  requestAnimationFrame(() => trPop.classList.add("ab-show"));
+  const baseLeft = selRect
+    ? selRect.left + window.scrollX
+    : anchor
+      ? anchor.left + window.scrollX
+      : window.scrollX + 40;
+  let top = anchor ? anchor.bottom + window.scrollY + 8 : selRect ? selRect.bottom + window.scrollY + 8 : window.scrollY + 80;
+  const maxH = Math.round(window.innerHeight * 0.62);
+  if (top - window.scrollY + maxH > window.innerHeight - 12) {
+    const above = (selRect ? selRect.top : anchor ? anchor.top : 200) + window.scrollY - 8 - Math.min(360, maxH);
+    if (above > window.scrollY + 8) top = above;
+  }
+  const popW = Math.min(360, window.innerWidth - 32);
+  pop.style.left = `${Math.max(window.scrollX + 12, Math.min(baseLeft, window.innerWidth + window.scrollX - popW - 16))}px`;
+  pop.style.top = `${top}px`;
+  requestAnimationFrame(() => pop.classList.add("ab-show"));
+}
+
+function resetPop(text, mode, busy) {
+  popText = String(text || "");
+  popTranslated = "";
+  popSpeaking = false;
+  popBusy = busy;
+  popExtra = null;
+  popMode = mode;
+}
+
+function showTrPop(text) {
+  resetPop(text, "tr", "tr");
+  const pop = ensureTrPop();
+  pop.dataset.abtheme = floatTheme;
+  renderPop();
+  placeTrPop(pop);
+}
+
+// ⋯ menu surfaces: open the popup straight into dict or parse mode — same
+// card, different title and no translation block.
+function openPopupWith(mode) {
+  if (!isContextValid() || !currentSelectionContext) return;
+  const text = currentSelectionContext.text;
+  resetPop(text, mode === "dict" || mode === "parse" ? mode : "tr", "");
+  const pop = ensureTrPop();
+  pop.dataset.abtheme = floatTheme;
+  renderPop();
+  placeTrPop(pop);
+  hideButton();
+  if (popMode === "dict") runDict();
+  else if (popMode === "parse") runParse();
 }
 
 async function handleTranslateClick(e) {
-  e.preventDefault();
-  e.stopPropagation();
+  if (e) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
   if (!isContextValid() || !currentSelectionContext) return;
   const text = currentSelectionContext.text;
+  showTrPop(text);
+  hideButton();
   try {
     const response = await chrome.runtime.sendMessage({
       target: "sw",
       cmd: "translate_ask",
       text,
     });
+    popBusy = "";
     if (response && response.success && response.text) {
-      showTrPop(response.text);
-      hideButton();
+      popTranslated = String(response.text);
     } else {
-      showTrPop(`翻译失败：${(response && response.error) || "未知错误"}`);
-      hideButton();
+      popTranslated = `翻译失败：${(response && response.error) || "未知错误"}`;
+      if (trPop) trPop.querySelector(".ab-sp-tr").classList.add("ab-sp-err");
     }
+    renderPop();
   } catch (err) {
+    popBusy = "";
+    popTranslated = "翻译不可用：扩展未连接";
+    renderPop();
     logWarn("translate_ask send failed", err);
-    showTrPop("翻译不可用：扩展未连接");
-    hideButton();
   }
 }
 
 async function handleCopyClick(e) {
-  e.preventDefault();
-  e.stopPropagation();
+  if (e) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
   if (!currentSelectionContext) return;
   try {
     await navigator.clipboard.writeText(currentSelectionContext.text);
@@ -704,7 +1210,9 @@ function handleMouseUp(e) {
   }
   setTimeout(() => {
     if (!isContextValid()) return;
-    if (e.target && e.target.closest && e.target.closest(`#${BTN_ID}`)) return;
+    // Selections inside our own surfaces (popup, menu, vocab chip) are the
+    // user interacting with the card — never trigger the floating bar.
+    if (e.target && e.target.closest && e.target.closest(`#${BTN_ID}, #${POP_ID}, #${MENU_ID}, #${CHIP_ID}`)) return;
 
     const selection = window.getSelection();
     if (!selection) return;
@@ -793,8 +1301,10 @@ function handleKeyUp(e) {
 }
 
 async function handleAskClick(e) {
-  e.preventDefault();
-  e.stopPropagation();
+  if (e) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
 
   if (!isContextValid() || !currentSelectionContext) return;
 
@@ -861,6 +1371,8 @@ function handleMouseDown(e) {
     document.removeEventListener("mousedown", handleMouseDown);
     return;
   }
+  if (vocabChip && (!e.target.closest || !e.target.closest(`#${CHIP_ID}`))) hideVocabChip();
+  if (moreMenu && (!e.target.closest || !e.target.closest(`#${MENU_ID}, #${BTN_ID}`))) hideMoreMenu();
   if (trPop && !trPop.classList.contains("agentbrowser-hidden") && trPop.classList.contains("ab-show")) {
     if (!e.target.closest || !e.target.closest(`#${POP_ID}`)) hideTrPop();
   }

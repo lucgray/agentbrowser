@@ -602,4 +602,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   return true;
 });
 
+// Same-world content scripts (selection.js's long-sentence 标注) call this
+// directly — chrome.runtime messaging does not loop back into this script.
+window.__abAnnotate = { add: addAnnotation };
+
 })();
