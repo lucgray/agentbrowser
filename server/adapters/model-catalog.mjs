@@ -177,7 +177,8 @@ async function runCommand(bin, args, timeoutMs = PROBE_TIMEOUT_MS) {
     try {
       child = spawn(binPath, args, {
         stdio: ["ignore", "pipe", "pipe"],
-        shell: cliShell
+        shell: cliShell,
+        windowsHide: true
       });
     } catch (err) {
       logWarn(`spawn ${bin} failed`, err);

@@ -391,7 +391,8 @@ export function createAcpSpecSession(name, spec, ctx) {
       const proc = spawn(binPath, spec.args, {
         env,
         stdio: ['pipe', 'pipe', 'pipe'],
-        shell: cliShell
+        shell: cliShell,
+        windowsHide: true
       });
       state.proc = proc;
       state.lineBuffer = '';

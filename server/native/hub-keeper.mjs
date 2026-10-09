@@ -80,6 +80,7 @@ function spawnHub(logPath) {
     const child = spawn(process.execPath, [HUB], {
       detached: true,
       stdio: ["ignore", out, out],
+      windowsHide: true,
     });
     child.unref();
   } finally {

@@ -807,7 +807,8 @@ export function createGenericCliSession(name, ctx) {
             proc = spawn(binPath, argv, {
               cwd: preset.runInTempDir ? state.tempDir : undefined,
               stdio: ['ignore', 'pipe', 'pipe'],
-              shell: cliShell
+              shell: cliShell,
+              windowsHide: true
             });
           } catch (err) {
             endTurn(`${name} failed to start: ${err && err.message ? err.message : String(err)}`);
