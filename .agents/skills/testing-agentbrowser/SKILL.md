@@ -179,6 +179,12 @@ None for the stub-hub or shim paths. Real adapters need their provider keys/CLIs
 - `chrome-extension://` navigations are blocked from http pages — to open the real panel for composer tests, use the extension's own `navigate` tool or a `chrome.tabs.create` from the SW.
 - Paste test: dispatch `ClipboardEvent('paste')` with a real `File` on `#input` — `defaultPrevented:true` + chip in `#attachments` proves the wiring; a text-only event must stay unprevented.
 
+## Media @ chip anchoring / coverage tests (v2.22+)
+
+- **`pointer-events:none` overlays are invisible to `elementsFromPoint`** — coverage/occlusion test rigs MUST use intercepting overlays (no `pointer-events:none`), else the element under test reads as topmost and the covered case silently passes wrong.
+- The chip anchors at the media's first *uncovered* left-edge point, not blindly at `r.top+8`: rig a `position:fixed` header over a scrolled video to exercise the under-header anchoring path.
+- Sites that sweep foreign DOM nodes detach our `btn`/`menu` — `ensureButton`/`ensureMenu` re-parent on next use; test by `.remove()`ing the node, then hover again.
+
 ## Learn popup / media-menu / keyboard triggers
 
 - `#agentbrowser-learn` opens via the media `@` menu item 学习弹窗 (needs the video-hovered control-bar icon `.ab-media-cb`, which sets `hoverEl`). Tabs: 字幕/汇总/弹幕热议 (danmaku tab is `display:none` off bilibili).
