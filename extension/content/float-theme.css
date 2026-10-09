@@ -645,3 +645,8 @@ button.ab-media-cb svg { display: block; pointer-events: none; }
 #agentbrowser-learn[data-abtheme="frost"] .ab-learn-gen { background: rgba(124, 58, 237, 0.14) !important; color: #6d28d9 !important; }
 #agentbrowser-learn[data-abtheme="ink"] .ab-learn-gen { background: rgba(167, 139, 250, 0.18) !important; color: #c4b5fd !important; }
 #agentbrowser-learn[data-abtheme="paper"] .ab-learn-gen { background: rgba(124, 58, 237, 0.12) !important; color: #6d28d9 !important; }
+#agentbrowser-sel-tr-pop .ab-sp-done {
+  font-size: 11px;
+  opacity: 0.65;
+  margin-top: 8px;
+}

@@ -51,6 +51,24 @@ function browserIdentity() {
 // panelPort this replaced let the last-opened window steal every chat event).
 const panelRouter = createPanelRouter();
 let hubConnected = false;
+const hubConnectWaiters = new Set(); // resolved when ws_status reports connected
+// MV3 wakes the SW with hubConnected=false; the offscreen re-report lands a
+// few hundred ms later. Commands arriving in that window wait for it instead
+// of failing 'hub not connected' on a live socket.
+function waitForHubConnected(timeoutMs = 4000) {
+  if (hubConnected) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      hubConnectWaiters.delete(done);
+      resolve(hubConnected);
+    }, timeoutMs);
+    const done = () => {
+      clearTimeout(timer);
+      resolve(true);
+    };
+    hubConnectWaiters.add(done);
+  });
+}
 let lastCapabilities = null; // last {type:'capabilities'} from the hub, replayed on panel connect
 let lastPanelAdapter = null; // adapter of the panel's most recent chat; default for annotation threads
 
@@ -742,30 +760,32 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse({ success: false, error: 'bad analyze_ask' });
       return true;
     }
-    if (!hubConnected) {
-      sendResponse({ success: false, error: 'hub not connected' });
-      return true;
-    }
-    const reqId = `an-${tabId}-${++analyzeAskSeq}`;
-    const timer = setTimeout(() => {
-      if (analyzeAsks.delete(reqId)) {
-        sendResponse({ success: false, error: 'analyze timeout' });
+    waitForHubConnected().then((ok) => {
+      if (!ok) {
+        sendResponse({ success: false, error: 'hub not connected' });
+        return;
       }
-    }, 30000);
-    analyzeAsks.set(reqId, (res) => {
-      clearTimeout(timer);
-      sendResponse(res);
-    });
-    sendToOffscreen({
-      target: 'offscreen',
-      cmd: 'send',
-      payload: {
-        type: 'analyze_request',
-        id: reqId,
-        tabId,
-        mode,
-        text: String(message.text).slice(0, 4000),
-      },
+      const reqId = `an-${tabId}-${++analyzeAskSeq}`;
+      const timer = setTimeout(() => {
+        if (analyzeAsks.delete(reqId)) {
+          sendResponse({ success: false, error: 'analyze timeout' });
+        }
+      }, 30000);
+      analyzeAsks.set(reqId, (res) => {
+        clearTimeout(timer);
+        sendResponse(res);
+      });
+      sendToOffscreen({
+        target: 'offscreen',
+        cmd: 'send',
+        payload: {
+          type: 'analyze_request',
+          id: reqId,
+          tabId,
+          mode,
+          text: String(message.text).slice(0, 4000),
+        },
+      });
     });
     return true;
   }
@@ -775,11 +795,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse({ success: false, error: 'no tab' });
       return true;
     }
-    if (!hubConnected) {
-      sendResponse({ success: false, error: 'hub not connected' });
-      return true;
-    }
-    handleTranslateAsk(tabId, message.text, sendResponse);
+    waitForHubConnected().then((ok) => {
+      if (!ok) {
+        sendResponse({ success: false, error: 'hub not connected' });
+        return;
+      }
+      handleTranslateAsk(tabId, message.text, sendResponse);
+    });
     return true;
   }
   if (message.cmd === 'video_ask') {
@@ -805,30 +827,32 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse({ success: false, error: 'no tab/url' });
       return true;
     }
-    if (!hubConnected) {
-      sendResponse({ success: false, error: 'hub not connected' });
-      return true;
-    }
-    const id = String(message.id || `dl-${tabId}-${Date.now()}`);
-    const timer = setTimeout(() => {
-      if (mediaDlTabs.delete(id)) {
-        chrome.tabs
-          .sendMessage(tabId, {
-            target: 'video-ask',
-            cmd: 'download_result',
-            ok: false,
-            error: 'download timed out',
-          })
-          .catch((err) => console.warn('[agentbrowser] download timeout notify failed', err));
+    waitForHubConnected().then((ok) => {
+      if (!ok) {
+        sendResponse({ success: false, error: 'hub not connected' });
+        return;
       }
-    }, 11 * 60 * 1000); // just past the hub's 10min yt-dlp cap
-    mediaDlTabs.set(id, { tabId, timer });
-    sendToOffscreen({
-      target: 'offscreen',
-      cmd: 'send',
-      payload: { type: 'media_download', id, url: String(message.url) },
+      const id = String(message.id || `dl-${tabId}-${Date.now()}`);
+      const timer = setTimeout(() => {
+        if (mediaDlTabs.delete(id)) {
+          chrome.tabs
+            .sendMessage(tabId, {
+              target: 'video-ask',
+              cmd: 'download_result',
+              ok: false,
+              error: 'download timed out',
+            })
+            .catch((err) => console.warn('[agentbrowser] download timeout notify failed', err));
+        }
+      }, 11 * 60 * 1000); // just past the hub's 10min yt-dlp cap
+      mediaDlTabs.set(id, { tabId, timer });
+      sendToOffscreen({
+        target: 'offscreen',
+        cmd: 'send',
+        payload: { type: 'media_download', id, url: String(message.url) },
+      });
+      sendResponse({ success: true, started: true });
     });
-    sendResponse({ success: true, started: true });
     return true;
   }
   if (message.cmd === 'subtitle_fetch') {
@@ -997,6 +1021,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.cmd === 'ws_status') {
     hubConnected = !!message.connected;
     if (hubConnected) {
+      for (const done of hubConnectWaiters) done();
+      hubConnectWaiters.clear();
       browserIdentity().then((browser) => {
         sendToOffscreen({
           target: 'offscreen',

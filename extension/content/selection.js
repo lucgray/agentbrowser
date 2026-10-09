@@ -719,7 +719,12 @@ function roleColor(i) {
 }
 
 function ensureTrPop() {
-  if (trPop) return trPop;
+  // Sites that sweep foreign extension DOM can detach the popup — re-parent
+  // the cached element instead of rendering into a disconnected node.
+  if (trPop) {
+    if (!trPop.isConnected) (document.body || document.documentElement).appendChild(trPop);
+    return trPop;
+  }
   trPop = document.createElement("div");
   trPop.id = POP_ID;
   const head = spEl("div", "ab-sp-head");
@@ -797,9 +802,13 @@ function renderPop() {
         list.append(row);
       });
       extra.append(list);
-      const annotateBtn = spBtn("✎ 标注到页面", "把每个成分画到原句上", () => annotateSegments(popExtra.data));
-      annotateBtn.classList.add("ab-sp-annotate");
-      extra.append(annotateBtn);
+      if (popExtra.annotated == null) {
+        const annotateBtn = spBtn("✎ 标注到页面", "把每个成分画到原句上", () => annotateSegments(popExtra));
+        annotateBtn.classList.add("ab-sp-annotate");
+        extra.append(annotateBtn);
+      } else {
+        extra.append(spEl("div", "ab-sp-done", `已在页面标注 ${popExtra.annotated} 处`));
+      }
     }
   }
 }
@@ -882,14 +891,14 @@ async function runParse() {
   renderPop();
 }
 
-function annotateSegments(segments) {
+function annotateSegments(extraState) {
   const api = window.__abAnnotate;
   if (!api || typeof api.add !== "function") {
     logWarn("annotate API unavailable");
     return;
   }
   let done = 0;
-  segments.forEach((seg, i) => {
+  extraState.data.forEach((seg, i) => {
     const quote = String((seg && seg.text) || "").trim();
     if (!quote) return;
     const r = api.add({
@@ -901,8 +910,8 @@ function annotateSegments(segments) {
     });
     if (r && r.ok) done++;
   });
-  const extra = trPop && trPop.querySelector(".ab-sp-extra");
-  if (extra) extra.append(spEl("div", "ab-sp-note", `已在页面标注 ${done} 处`));
+  extraState.annotated = done;
+  renderPop();
 }
 
 function showTrPop(text) {
