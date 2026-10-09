@@ -110,6 +110,9 @@ function openPanel(tabId) {
 const CONTEXT_MENU_ID = 'ask-agentbrowser';
 const FLOAT_ASK_TOGGLE_ID = 'ask-floating-toggle';
 const FLOAT_ASK_KEY = 'floatingAskEnabled'; // chrome.storage.local, default true
+const NOTES_MENU_ID = 'notes-sidebar';
+const NOTES_HANDLE_TOGGLE_ID = 'notes-handle-toggle';
+const NOTES_HANDLE_KEY = 'notesEdgeHandle'; // chrome.storage.local, default false
 const SELECTION_CACHE_MS = 5000;
 const rightClickContexts = new Map(); // tabId -> {selection, timestamp}
 
@@ -143,7 +146,42 @@ function registerContextMenu() {
     .catch((err) => {
       console.warn('[agentbrowser] floating-ask setting read failed', err);
     });
+  chrome.contextMenus.create(
+    {
+      id: NOTES_MENU_ID,
+      title: '笔记侧边栏 AgentBrowser',
+      contexts: ['all'],
+    },
+    () => void chrome.runtime.lastError
+  );
+  // Edge handle is opt-in (standing rule: nothing persistent on the page
+  // unless the user asked for it) — same checkbox pattern as floating-ask.
+  chrome.storage.local
+    .get({ [NOTES_HANDLE_KEY]: false })
+    .then((r) => {
+      chrome.contextMenus.create(
+        {
+          id: NOTES_HANDLE_TOGGLE_ID,
+          title: 'Notes edge handle on page',
+          contexts: ['all'],
+          type: 'checkbox',
+          checked: r[NOTES_HANDLE_KEY],
+        },
+        () => void chrome.runtime.lastError
+      );
+    })
+    .catch((err) => {
+      console.warn('[agentbrowser] notes-handle setting read failed', err);
+    });
 }
+
+// Alt+Shift+N toggles the sidebar too (manifest commands).
+chrome.commands.onCommand.addListener((command, tab) => {
+  if (command !== 'toggle-notes-sidebar' || !tab || tab.id == null) return;
+  chrome.tabs
+    .sendMessage(tab.id, { target: 'notes', cmd: 'toggle' })
+    .catch((err) => console.warn('[agentbrowser] notes toggle delivery failed', err));
+});
 
 registerContextMenu();
 chrome.runtime.onInstalled.addListener(() => {
@@ -395,6 +433,21 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
       .catch((err) => {
         console.warn('[agentbrowser] floating-ask setting write failed', err);
       });
+    return;
+  }
+  if (info.menuItemId === NOTES_HANDLE_TOGGLE_ID) {
+    chrome.storage.local
+      .set({ [NOTES_HANDLE_KEY]: info.checked === true })
+      .catch((err) => {
+        console.warn('[agentbrowser] notes-handle setting write failed', err);
+      });
+    return;
+  }
+  if (info.menuItemId === NOTES_MENU_ID) {
+    if (!tab || tab.id == null) return;
+    chrome.tabs
+      .sendMessage(tab.id, { target: 'notes', cmd: 'toggle' })
+      .catch((err) => console.warn('[agentbrowser] notes toggle delivery failed', err));
     return;
   }
   if (info.menuItemId !== CONTEXT_MENU_ID || !tab || tab.id == null) return;
@@ -674,6 +727,32 @@ let analyzeAskSeq = 0;
 // can be pushed back to the tab that asked (minutes-long; no response held).
 const mediaDlTabs = new Map();
 
+// Notes plugin (v2.23): note_op calls from the page sidebar are relayed to
+// the hub over the offscreen socket; results go back to the asking tab via
+// chrome.tabs.sendMessage (target 'notes'), not the message response, so
+// nothing is held open across the network hop.
+const noteOpTabs = new Map(); // reqId -> tabId
+
+function notesPluginEnabled() {
+  const ps = (lastCapabilities && lastCapabilities.plugins) || [];
+  const p = ps.find((pl) => pl && pl.id === 'notes');
+  return !!(p && p.enabled);
+}
+
+function handleNoteOpMessage(tabId, message) {
+  const reqId = String(message.reqId || '');
+  if (!reqId || tabId == null) return;
+  noteOpTabs.set(reqId, tabId);
+  const payload = { type: 'note_op', reqId, op: message.op };
+  for (const k of [
+    'id', 'q', 'tag', 'domain', 'url', 'limit', 'title', 'content', 'text',
+    'tags', 'name', 'data', 'prefix', 'suffix', 'anchor', 'color', 'markId', 'scope',
+  ]) {
+    if (message[k] !== undefined) payload[k] = message[k];
+  }
+  sendToOffscreen({ target: 'offscreen', cmd: 'send', payload });
+}
+
 function handleTranslateAsk(tabId, text, sendResponse) {
   const reqId = `ts-${tabId}-${++translateAskSeq}`;
   const timer = setTimeout(() => {
@@ -751,6 +830,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       (ok) => sendResponse({ success: ok }),
       () => sendResponse({ success: false })
     );
+    return true;
+  }
+  if (message.cmd === 'note_op') {
+    handleNoteOpMessage(sender && sender.tab && sender.tab.id, message);
+    sendResponse({ success: true });
+    return true;
+  }
+  if (message.cmd === 'notes_state') {
+    sendResponse({ enabled: notesPluginEnabled() });
     return true;
   }
   if (message.cmd === 'analyze_ask') {
@@ -1127,6 +1215,21 @@ function handleHubMessage(payload) {
       }
     } else if (!subtitle.onResult(payload)) {
       translate.onResult(payload);
+    }
+  } else if (payload.type === 'note_op_result') {
+    const tabId = noteOpTabs.get(String(payload.reqId || ''));
+    noteOpTabs.delete(String(payload.reqId || ''));
+    if (tabId != null) {
+      chrome.tabs
+        .sendMessage(tabId, {
+          target: 'notes',
+          cmd: 'op_result',
+          reqId: payload.reqId,
+          ok: payload.ok === true,
+          result: payload.result,
+          error: payload.error,
+        })
+        .catch((err) => console.warn('[agentbrowser] note_op_result delivery failed', err));
     }
   } else if (payload.type === 'analyze_result') {
     const settle = analyzeAsks.get(String(payload.id || ''));

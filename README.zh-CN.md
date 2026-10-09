@@ -526,6 +526,31 @@ tools = await client.get_tools()
 省略 `tabId` 即当前活动标签页。service worker 按需 attach
 debugger，每个标签页串行执行命令，被 Chrome 断开后自动重连。
 
+## 笔记插件（pipebox 式网页笔记）
+
+内置 `notes` 插件把扩展变成网页笔记工具：
+
+- **侧边栏** — shadow DOM 固定面板，默认视图是本页信息卡 + 本页笔记 +
+  高亮列表；点高亮行进该高亮专属批注的覆盖层编辑器（markdown 自动保存、
+  标签、Ctrl+V 粘贴图片进 `/notes-assets/`）。从右键菜单「笔记侧边栏」、
+  `Alt+Shift+N` 或可选的页缘把手打开（右键菜单勾选 `notesEdgeHandle`，
+  默认关——不主动开启页面上不留任何痕迹）。
+- **高亮** — 划词 ⋯ 菜单三个独立控件：🖌高亮（只画）、📝批注（画完直接
+  开批注）、🎨高亮色（选笔色，5 色）。高亮存于
+  `~/.agentchat/notes/marks.json`，刷新后恢复；有批注的高亮带虚线勾画
+  + 📝角标，点击即可编辑。
+- **笔记库 + API** — 笔记以 JSON 存于 `~/.agentchat/notes/`，管理页
+  Notes 卡片有统计条/颜色分布/高亮明细表并可导出 markdown，另有
+  `GET|POST /admin/api/notes*` 接口供工作流调用（对应 pipebox 的
+  Api 接口，自托管）。
+- **agent 侧** — `notes_list`/`note_get`/`note_save`/`note_append`/
+  `note_quote`/`note_delete`/`notes_stats` 工具让 agent 读写同一笔记库
+  （对它说「记到笔记里」即可）。
+- **对话导出** — 在 chatgpt.com / claude.ai / gemini 页面侧边栏出现
+  「导出对话」按钮，把整段对话追加为 markdown。
+
+存储全在本地，不像 pipebox 那样依赖云账号。
+
 ## 测试
 
 ```bash

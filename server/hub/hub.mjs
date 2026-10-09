@@ -15,9 +15,12 @@ import { TOOLS } from "./tools.mjs";
 import {
   describePlugins,
   effectiveTools,
+  isEnabled,
+  listPlugins,
   pluginPrompt,
   toolVisible
 } from "./plugins.mjs";
+import * as notes from "./notes.mjs";
 import { createTranslator } from "./translate.mjs";
 import { loadCatalog } from "../adapters/model-catalog.mjs";
 import {
@@ -536,6 +539,83 @@ function hubTranslateTool(tool, args = {}) {
   return translator.clearCache();
 }
 
+// Notes tools (v2.23) — declared by the notes plugin's extraTools and
+// answered on the hub against ~/.agentchat/notes/. Unlike translate tools
+// these are absent from effectiveTools when the plugin is disabled, so the
+// enabled check here is the authoritative gate.
+const HUB_NOTES_TOOLS = new Set([
+  "notes_list", "note_get", "note_save", "note_append", "note_quote",
+  "note_delete", "notes_stats",
+]);
+
+function notesEnabled() {
+  const p = listPlugins().find((pl) => pl.id === "notes");
+  return !!(p && isEnabled(p, config));
+}
+
+function hubNotesTool(tool, args = {}) {
+  const fail = (r) => {
+    if (r && r.error) throw new Error(r.error);
+    return r;
+  };
+  switch (tool) {
+    case "notes_list": return { notes: notes.listNotes(args) };
+    case "note_get": {
+      const n = notes.getNote(args.id);
+      if (!n) throw new Error("note not found: " + args.id);
+      return { note: n };
+    }
+    case "note_save": return fail(notes.saveNote(args));
+    case "note_append": return fail(notes.appendContent(args.id, args.text));
+    case "note_quote": return fail(notes.appendQuote(args.id, args));
+    case "note_delete": return fail(notes.deleteNote(args.id));
+    case "notes_stats": return notes.notesStats();
+    default: throw new Error("unknown notes tool: " + tool);
+  }
+}
+
+// Content-script note_op relay (v2.23): the page sidebar calls these ops;
+// replies go back as note_op_result with the same reqId. All ops are gated
+// by the notes plugin being enabled.
+const NOTE_OPS = {
+  list: (a) => ({ notes: notes.listNotes(a) }),
+  get: (a) => {
+    const n = notes.getNote(a.id);
+    return n ? { note: n } : { error: "note not found: " + a.id };
+  },
+  save: (a) => notes.saveNote(a),
+  update: (a) => notes.saveNote(a),
+  delete: (a) => notes.deleteNote(a.id),
+  append: (a) => notes.appendContent(a.id, a.text),
+  quote: (a) => notes.appendQuote(a.id, a),
+  asset: (a) => notes.addAsset(a.name, a.data),
+  tags: () => ({ tags: notes.listTags() }),
+  quotes_for_url: (a) => ({ quotes: notes.quotesForUrl(a.url) }),
+  marks_for_url: (a) => ({ marks: notes.marksForUrl(a.url) }),
+  mark_save: (a) => notes.saveMark(a),
+  mark_update: (a) => notes.updateMark(a),
+  mark_remove: (a) => notes.removeMark(a.id),
+  note_for_mark: (a) => ({ note: notes.noteForMark(a.markId) }),
+  stats: () => notes.notesStats(),
+};
+
+function handleNoteOp(ws, msg) {
+  const reqId = String(msg.reqId || "");
+  const op = NOTE_OPS[String(msg.op || "")];
+  const done = (ok, result, error) =>
+    safeSend(ws, { type: "note_op_result", reqId, ok, ...(ok ? { result } : { error }) });
+  if (!notesEnabled()) return done(false, null, "notes plugin disabled");
+  if (!op) return done(false, null, "unknown note op: " + msg.op);
+  try {
+    const r = op(msg);
+    if (r && r.error) return done(false, null, r.error);
+    return done(true, r);
+  } catch (err) {
+    log("note_op " + msg.op + " failed:", err && err.message);
+    return done(false, null, String((err && err.message) || err));
+  }
+}
+
 // video_download (v2.18): shells out to yt-dlp on the hub host — the right
 // place for it (the extension can't write arbitrary files or spawn anyway).
 // Resolves yt-dlp on PATH, else `python3 -m yt_dlp`.
@@ -613,6 +693,12 @@ function callBrowserTool(tool, args = {}, opts = {}) {
       return Promise.resolve(hubTranslateTool(tool, args));
     }
     return Promise.reject(new Error(`tool hidden by disabled plugin: ${tool}`));
+  }
+  if (HUB_NOTES_TOOLS.has(tool)) {
+    if (!notesEnabled()) {
+      return Promise.reject(new Error("notes plugin disabled"));
+    }
+    return Promise.resolve(hubNotesTool(tool, args));
   }
   if (tool === "browsers_list") {
     const target = resolveBrowserTarget(args.browser, boundId);
@@ -1903,6 +1989,20 @@ function handleHarnessToolCall(ws, msg) {
     );
     return;
   }
+  if (HUB_NOTES_TOOLS.has(tool)) {
+    if (!notesEnabled()) {
+      safeSend(ws, {
+        type: "tool_result", id, ok: false,
+        error: "notes plugin disabled"
+      });
+      return;
+    }
+    Promise.resolve().then(() => hubNotesTool(tool, args)).then(
+      (result) => safeSend(ws, { type: "tool_result", id, ok: true, result }),
+      (err) => safeSend(ws, { type: "tool_result", id, ok: false, error: String((err && err.message) || err) })
+    );
+    return;
+  }
   if (tool === "browsers_list") {
     const target = resolveBrowserTarget(args.browser, null);
     safeSend(ws, {
@@ -1988,6 +2088,7 @@ function handleMessage(ws, msg) {
       handleTranslateAdmin(ws, msg);
     else if (msg.type === "plugins_list") handlePluginsList(ws);
     else if (msg.type === "plugin_set") handlePluginSet(ws, msg);
+    else if (msg.type === "note_op") handleNoteOp(ws, msg);
   }
 }
 
@@ -2298,6 +2399,7 @@ const adminHandler = createAdminHandler({
     return r;
   },
   getConfig: () => config,
+  notes,
 });
 
 const httpServer = http.createServer((req, res) => {
@@ -2323,6 +2425,20 @@ const httpServer = http.createServer((req, res) => {
       "content-disposition": `attachment; filename*=UTF-8''${encodeURIComponent(name)}`,
     });
     createReadStream(rec.file).pipe(res);
+    return;
+  }
+  // Pasted-note images: embedded in note markdown as /notes-assets/<file>,
+  // served from ~/.agentchat/notes/assets/ (v2.23).
+  if (req.method === "GET" && req.url && req.url.startsWith("/notes-assets/")) {
+    const fname = decodeURIComponent(req.url.slice(14).split("?")[0]);
+    const a = notes.readAsset(fname);
+    if (!a) {
+      res.writeHead(404, { "content-type": "text/plain" });
+      res.end("not found");
+      return;
+    }
+    res.writeHead(200, { "content-type": a.mime, "cache-control": "private, max-age=60" });
+    res.end(a.data);
     return;
   }
   if (req.url && req.url.startsWith("/admin")) {
