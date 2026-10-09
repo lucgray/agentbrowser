@@ -224,6 +224,40 @@ function pickMedia(target) {
   return null;
 }
 
+function ours(node) {
+  return !!(node && node.closest && node.closest("[id^='agentbrowser-']"));
+}
+
+// The player wrapper framing a media's own overlays (control chrome, poster,
+// captions). Foreign overlays covering the media — a sticky site header the
+// video scrolled under, an overlapping card — sit OUTSIDE this box, which is
+// how we tell "own chrome" from "media is covered by the page".
+function mediaBox(el) {
+  return (
+    el.closest(
+      "[data-testid='videoPlayer'],[data-testid='videoComponent']," +
+        "[data-testid='videoPlayerContainer'],.html5-video-player," +
+        ".bpx-player-container,.bilibili-player,[data-testid='tweetPhoto']",
+    ) || el.parentElement
+  );
+}
+
+// At this stack's point, is the media covered by something outside its own
+// player wrapper? Own overlays (player chrome inside mediaBox) don't count,
+// and a wrapping ancestor (link around an img) doesn't either.
+function mediaCovered(stack, el, box) {
+  let top = null;
+  for (const n of stack) {
+    if (!ours(n)) {
+      top = n;
+      break;
+    }
+  }
+  if (!top) return true;
+  if (top === el || top.contains(el)) return false;
+  return !(box && box.contains(top));
+}
+
 // Ancestor-walk misses media covered by sibling overlays — YouTube parks an
 // invisible control layer on top of <video>, so the pointer's target is never
 // the media itself. elementsFromPoint sees through the cover; scan the whole
@@ -253,7 +287,13 @@ function pickMediaAt(e) {
   // no chip; an uncovered img still hits via the ancestor walk above.
   for (const el of stack) {
     if (el.id && String(el.id).startsWith("agentbrowser-")) continue;
-    if (el.tagName === "VIDEO") return { el, kind: "video" };
+    // The stack can also contain a video hidden BENEATH foreign content —
+    // e.g. a player scrolled under x.com's sticky header. Anchoring there
+    // lands the chip on the header. Only videos whose point is actually
+    // visible (topmost is the video or its own chrome) qualify.
+    if (el.tagName === "VIDEO" && !mediaCovered(stack, el, mediaBox(el))) {
+      return { el, kind: "video" };
+    }
   }
   return null;
 }
@@ -613,12 +653,32 @@ function placeButton(el, kind) {
   const minW = kind === "video" ? 120 : 80;
   const minH = 80;
   if (r.width < minW || r.height < minH) return false; // ignore thumbnails/icons
-  const b = ensureButton();
-  // Round to whole pixels: a streaming page can wobble the rect by a
-  // fraction of a pixel every scroll tick, and writing each wobble reads
-  // as the chip shaking.
+  // The ideal anchor can be covered while the media is still mostly visible —
+  // e.g. a video scrolled under x.com's sticky header pins the chip against
+  // the header, reading as a stray badge at the page corner. Anchor at the
+  // first point down the left edge the media actually owns; covered
+  // everywhere → hide.
   const left = Math.round(Math.max(4, r.left + 8));
-  const top = Math.round(Math.max(4, r.top + 8));
+  if (left > window.innerWidth - 28) return false;
+  const box = kind === "video" ? mediaBox(el) : null;
+  let top = -1;
+  const hi = Math.min(r.bottom - 24, window.innerHeight - 28);
+  for (let y = Math.round(Math.max(4, r.top + 8)); y <= hi; y += 24) {
+    let stack;
+    try {
+      stack = document.elementsFromPoint(left + 10, y + 10);
+    } catch (err) {
+      logWarn("elementsFromPoint failed", err);
+      top = y;
+      break;
+    }
+    if (!mediaCovered(stack, el, box)) {
+      top = y;
+      break;
+    }
+  }
+  if (top < 0) return false;
+  const b = ensureButton();
   // Deadzone: identical/sub-pixel writes on every scroll event re-run layout
   // for nothing — and visible restarts of the pop-in transition read as
   // jitter at edges.
