@@ -15,8 +15,8 @@
   },
   "scripts": {
     "start": "node hub/hub.mjs",
-    "test": "node --test ../tests/server/pricing.test.mjs ../tests/server/api-adapters.test.mjs ../tests/server/protocol-v13.test.mjs ../tests/server/cli.test.mjs ../tests/server/label.test.mjs",
-    "test:e2e": "node --test ../tests/server/hub-e2e.test.mjs ../tests/server/cli-session.e2e.test.mjs",
+    "test": "node --test ../tests/server/pricing.test.mjs ../tests/server/api-adapters.test.mjs ../tests/server/protocol-v13.test.mjs ../tests/server/cli.test.mjs ../tests/server/label.test.mjs ../tests/server/tools.test.mjs ../tests/server/acp.test.mjs ../tests/server/generic-cli.test.mjs ../tests/server/model-catalog.test.mjs ../tests/server/mcp-bridge.test.mjs ../tests/server/translate.test.mjs ../tests/server/plugins.test.mjs ../tests/server/admin.test.mjs",
+    "test:e2e": "node --test ../tests/server/hub-e2e.test.mjs ../tests/server/cli-session.e2e.test.mjs ../tests/server/multi-browser.e2e.test.mjs",
     "smoke": "node proxy/smoke.mjs",
     "cli": "node proxy/agentbrowser-cli.mjs",
     "install-skill": "node proxy/install-skill.mjs"

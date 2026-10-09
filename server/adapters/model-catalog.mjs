@@ -33,7 +33,10 @@ function home() {
 }
 
 function cacheFile() {
-  return path.join(home(), ".agentchat", "model-catalog.json");
+  // Test/hermetic override: keeps suite runs from touching the real catalog
+  // (os.homedir() ignores HOME on Windows, so env-only redirection can't).
+  const dir = process.env.AGENTCHAT_CATALOG_DIR || path.join(home(), ".agentchat");
+  return path.join(dir, "model-catalog.json");
 }
 
 function readCache() {
@@ -310,7 +313,8 @@ const PROBES = {
 
 export async function loadCatalog({ force = false } = {}) {
   const names = Object.keys(PROBES);
-  const cache = force ? null : readCache();
+  const previous = readCache();
+  const cache = force ? null : previous;
   const fresh = cache && Date.now() - cache.probedAt < CATALOG_TTL_MS;
   // A fresh cache still lacks keys added since it was written (a probe added
   // in a later release never ran) — probe exactly the missing names, not the
@@ -326,12 +330,15 @@ export async function loadCatalog({ force = false } = {}) {
       models[probeNames[i]] = result.status === "fulfilled" ? result.value : [];
     }
   }
-  // A stale cache beats an empty probe (flaky shell, machine asleep): keep
-  // whatever the last successful run found for families that came back empty.
-  if (cache && cache.models) {
+  // An empty probe must never erase a known-good list — a flaky shell, a
+  // spawn timeout under load, or a broken PATH would otherwise blank a
+  // family's models for a whole TTL window. Keep whatever the last
+  // successful run found for families that came back empty (the previous
+  // read is kept even under force, so forced re-probes are safe too).
+  if (previous && previous.models) {
     for (const name of names) {
-      if ((!models[name] || models[name].length === 0) && Array.isArray(cache.models[name])) {
-        models[name] = cache.models[name];
+      if ((!models[name] || models[name].length === 0) && Array.isArray(previous.models[name])) {
+        models[name] = previous.models[name];
       }
     }
   }
