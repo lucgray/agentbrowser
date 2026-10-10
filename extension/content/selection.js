@@ -1405,7 +1405,7 @@ async function handleAskClick(e) {
   const P = window.__abPlugins;
   if (P && P.has("ask")) {
     const r = P.call("ask", "run", currentSelectionContext);
-    if (r !== false && r !== null) {
+    if (r !== false) {
       suppressClearOnce = true;
       window.getSelection().removeAllRanges();
       hideButton();
