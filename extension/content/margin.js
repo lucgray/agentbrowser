@@ -314,7 +314,7 @@
       markColor: opts.markColor,
     });
     if (!card) return null;
-    card.body.classList.add("streaming");
+    card.el.classList.add("streaming");
     chrome.runtime
       .sendMessage({
         target: "sw",
