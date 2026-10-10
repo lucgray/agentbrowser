@@ -799,10 +799,53 @@ const mediaDlTabs = new Map();
 // nothing is held open across the network hop.
 const noteOpTabs = new Map(); // reqId -> {tabId, timer}
 
-function notesPluginEnabled() {
+function pluginEnabled(id) {
   const ps = (lastCapabilities && lastCapabilities.plugins) || [];
-  const p = ps.find((pl) => pl && pl.id === 'notes');
+  const p = ps.find((pl) => pl && pl.id === id);
   return !!(p && p.enabled);
+}
+
+function notesPluginEnabled() {
+  return pluginEnabled('notes');
+}
+
+// plugin_state/notes_state with cold capabilities (v2.25): after an MV3
+// restart lastCapabilities is null and the offscreen's hello guard means
+// no fresh broadcast is coming — a false 'disabled' answer here disables
+// the plugin for the page's whole lifetime. Fetch plugins_list from the
+// hub once and answer every waiter when it lands; timeout answers false.
+const pluginStateWaits = []; // {id, respond}
+let pluginStateTimer = null;
+
+function pluginStateResponse(id, sendResponse) {
+  if (lastCapabilities || !hubConnected) {
+    sendResponse({ enabled: pluginEnabled(id) });
+    return;
+  }
+  pluginStateWaits.push({ id, respond: sendResponse });
+  if (pluginStateTimer) return; // one fetch covers the whole queue
+  sendToOffscreen({
+    target: 'offscreen',
+    cmd: 'send',
+    payload: { type: 'plugins_list' },
+  });
+  pluginStateTimer = setTimeout(() => {
+    pluginStateTimer = null;
+    const waits = pluginStateWaits.splice(0);
+    for (const w of waits) w.respond({ enabled: false });
+  }, 5000);
+}
+
+function handlePluginsList(payload) {
+  const list = Array.isArray(payload.plugins) ? payload.plugins : [];
+  // Merge into the capabilities view so later queries answer immediately.
+  lastCapabilities = { ...(lastCapabilities || {}), plugins: list };
+  if (pluginStateTimer) {
+    clearTimeout(pluginStateTimer);
+    pluginStateTimer = null;
+  }
+  const waits = pluginStateWaits.splice(0);
+  for (const w of waits) w.respond({ enabled: pluginEnabled(w.id) });
 }
 
 function handleNoteOpMessage(tabId, message) {
@@ -917,15 +960,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
   if (message.cmd === 'notes_state') {
-    sendResponse({ enabled: notesPluginEnabled() });
+    pluginStateResponse('notes', sendResponse);
     return true;
   }
   if (message.cmd === 'plugin_state') {
     // Generic per-plugin gate (v2.25): any content plugin resolves its
     // hub-side enabled flag the same way notes does.
-    const ps = (lastCapabilities && lastCapabilities.plugins) || [];
-    const p = ps.find((pl) => pl && pl.id === message.id);
-    sendResponse({ enabled: !!(p && p.enabled) });
+    pluginStateResponse(String(message.id || ''), sendResponse);
     return true;
   }
   if (message.cmd === 'analyze_ask') {
@@ -1284,6 +1325,8 @@ function handleHubMessage(payload) {
     handleToolCall(payload);
   } else if (payload.type === 'chat_event') {
     emitChatEvent(payload.chatId, payload.event, payload.browser);
+  } else if (payload.type === 'plugins') {
+    handlePluginsList(payload);
   } else if (payload.type === 'capabilities') {
     // Relayed verbatim — except in direct mode, where the panel keeps the
     // synthetic adapter its chats actually run through.
