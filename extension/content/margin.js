@@ -227,9 +227,12 @@
   function redrawLinks() {
     if (!linksSvg) return;
     linksSvg.textContent = "";
-    if (mode === "strip" || !activeId) return;
+    if (!activeId) return;
     const c = cards.get(activeId);
     if (!c || c.mini || !c.el.isConnected) return;
+    // Strip mode parks cards behind markers; threads only make sense once
+    // one is expanded over the page (rail overlay).
+    if (mode === "strip" && !c.el.classList.contains("open")) return;
     const cr = c.el.getBoundingClientRect();
     const x4 = cr.left - 2;
     const y4 = cr.top + 14;
@@ -377,7 +380,9 @@
 
     const body = document.createElement("div");
     body.className = "cbody";
-    skeleton(body);
+    // Skeleton only when a stream is expected (ask/retry) — a plain mount
+    // with no pending write would otherwise shimmer forever.
+    if (opts.skeleton) skeleton(body);
     el.appendChild(body);
 
     const foot = document.createElement("div");
@@ -635,6 +640,7 @@
       para: opts.para,
       question: String(text || ""),
       selection: opts.selection || null,
+      skeleton: true,
     });
     if (!card) return null;
     const c = cards.get(card.id);
