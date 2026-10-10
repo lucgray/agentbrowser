@@ -128,6 +128,10 @@
   try {
     chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       if (!message || message.target !== "plugins" || message.cmd !== "op") return;
+      // all_frames injects the bus everywhere; without frameId every frame
+      // would run the op and the first sendResponse wins — only the top
+      // frame may answer page tools.
+      if (window.top !== window) return;
       Promise.resolve(window.__abPlugins.callPageTool(message.tool, message.args)).then(sendResponse);
       return true; // callPageTool resolves async
     });

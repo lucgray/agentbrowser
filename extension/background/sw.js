@@ -2331,7 +2331,7 @@ async function executeTool(tool, args, permissions) {
   const tabId = await resolveTabId(args && args.tabId).catch(() => null);
   if (tabId != null) {
     const r = await chrome.tabs
-      .sendMessage(tabId, { target: 'plugins', cmd: 'op', tool, args: args || {} })
+      .sendMessage(tabId, { target: 'plugins', cmd: 'op', tool, args: args || {} }, { frameId: 0 })
       .catch(() => null);
     if (r && r.ok) return r.result;
     if (r && r.error && !String(r.error).startsWith('no page tool')) {

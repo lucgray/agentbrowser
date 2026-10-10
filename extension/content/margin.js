@@ -390,12 +390,23 @@
     if (!readerMain) readerMain = findMain();
     const main = readerMain;
     if (!main) return { mode, error: "no main content found" };
-    // Hide every body child that isn't the main content or an ancestor of it.
+    // Hide siblings at EVERY level of main's ancestor chain — not just
+    // top-level children. Single-root apps (body > div#app > everything)
+    // need the walk inside #app or nothing visible changes.
     hiddenEls = [];
-    for (const el of document.body.children) {
-      if (el === host || el.contains(main) || main.contains(el) || el === main) continue;
-      hiddenEls.push([el, el.style.display]);
-      el.style.display = "none";
+    const SKIP_TAGS = new Set(["SCRIPT", "NOSCRIPT", "LINK", "META", "STYLE", "TEMPLATE"]);
+    for (let el = main; el && el !== document.body && el !== document.documentElement; ) {
+      const parent = el.parentElement;
+      if (!parent) break;
+      for (const sib of parent.children) {
+        if (sib === el) continue;
+        if (sib === host || SKIP_TAGS.has(sib.tagName)) continue;
+        if (sib.id && sib.id.startsWith("agentbrowser-")) continue;
+        if (sib.contains(main)) continue;
+        hiddenEls.push([sib, sib.style.display]);
+        sib.style.display = "none";
+      }
+      el = parent;
     }
     // Center the main content so a right margin opens for the rail.
     readerStyle = document.createElement("style");
