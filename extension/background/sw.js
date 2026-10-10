@@ -535,6 +535,11 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 const annChats = new Map(); // chatId -> { tabId, annId }
 // Learn popup chats (chatId 'learn-<tabId>'): 汇总/弹幕热议 generations
 // stream back to the page dialog, same pattern as annChats.
+// Page-ask chats (v2.25): pg-<tabId>-<n> streams back to the tab's margin
+// cards instead of the side panel — same prefix route as ann-/learn-.
+const pgChats = new Map(); // chatId -> {tabId}
+let pgSeq = 0;
+
 const learnChats = new Map(); // chatId -> { tabId }
 let learnChatSeq = 0; // nonce so each generation is a fresh chat, not a turn
 
@@ -617,6 +622,9 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   }
   for (const [chatId, learn] of learnChats) {
     if (learn.tabId === tabId) learnChats.delete(chatId);
+  }
+  for (const [chatId, pg] of pgChats) {
+    if (pg.tabId === tabId) pgChats.delete(chatId);
   }
   recordings.delete(tabId);
 });
@@ -912,6 +920,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     sendResponse({ enabled: notesPluginEnabled() });
     return true;
   }
+  if (message.cmd === 'plugin_state') {
+    // Generic per-plugin gate (v2.25): any content plugin resolves its
+    // hub-side enabled flag the same way notes does.
+    const ps = (lastCapabilities && lastCapabilities.plugins) || [];
+    const p = ps.find((pl) => pl && pl.id === message.id);
+    sendResponse({ enabled: !!(p && p.enabled) });
+    return true;
+  }
   if (message.cmd === 'analyze_ask') {
     const tabId = sender && sender.tab && sender.tab.id;
     const mode = message.mode === 'dict' || message.mode === 'parse' ? message.mode : null;
@@ -1171,6 +1187,34 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       .catch((err) =>
         sendResponse({ success: false, error: String((err && err.message) || err) })
       );
+    return true;
+  }
+  if (message.cmd === 'page_ask') {
+    // In-page ask (v2.25): the margin host (or any page plugin) starts a
+    // chat whose events stream back to the tab as {target:'page-ask'}
+    // instead of opening the side panel.
+    const tabId = sender && sender.tab && sender.tab.id;
+    if (tabId == null || !message.text) {
+      sendResponse({ success: false, error: 'missing tabId/text' });
+      return true;
+    }
+    const chatId = `pg-${tabId}-${++pgSeq}`;
+    pgChats.set(chatId, { tabId });
+    dispatchChat({
+      type: 'chat',
+      chatId,
+      text: String(message.text),
+      adapter: message.adapter || lastPanelAdapter || undefined,
+      context: {
+        currentTab: {
+          tabId,
+          url: (sender.tab && sender.tab.url) || '',
+          title: (sender.tab && sender.tab.title) || '',
+        },
+        selection: message.selection || undefined,
+      },
+    });
+    sendResponse({ success: true, chatId });
     return true;
   }
   if (message.cmd === 'annotation_comment') {
@@ -2232,8 +2276,20 @@ const TOOLS = {
 
 async function executeTool(tool, args, permissions) {
   const fn = TOOLS[tool];
-  if (!fn) throw new Error(`unknown tool: ${tool}`);
-  return fn(args, permissions);
+  if (fn) return fn(args, permissions);
+  // plugin_op route (v2.25): tools no built-in owns may be page-side plugin
+  // tools — the tab's plugin bus answers via {target:'plugins', cmd:'op'}.
+  const tabId = await resolveTabId(args && args.tabId).catch(() => null);
+  if (tabId != null) {
+    const r = await chrome.tabs
+      .sendMessage(tabId, { target: 'plugins', cmd: 'op', tool, args: args || {} })
+      .catch(() => null);
+    if (r && r.ok) return r.result;
+    if (r && r.error && !String(r.error).startsWith('no page tool')) {
+      throw new Error(r.error);
+    }
+  }
+  throw new Error(`unknown tool: ${tool}`);
 }
 
 // Chat-event fan-out shared by hub replies and direct-mode turns: ann-*/
@@ -2251,6 +2307,20 @@ function emitChatEvent(chatId, event, browser) {
       })
       .catch((err) => {
         console.warn('[agentbrowser] annotation event delivery failed', err);
+      });
+    return;
+  }
+  const pg = pgChats.get(chatId);
+  if (pg) {
+    chrome.tabs
+      .sendMessage(pg.tabId, {
+        target: 'page-ask',
+        cmd: 'event',
+        chatId,
+        event,
+      })
+      .catch((err) => {
+        console.warn('[agentbrowser] page-ask event delivery failed', err);
       });
     return;
   }

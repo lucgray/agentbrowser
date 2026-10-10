@@ -74,3 +74,55 @@ test('pluginToolbar storage change updates the gate live', async () => {
   listeners.forEach((fn) => fn({ pluginToolbar: { newValue: { 'core:ask': false } } }, 'local'));
   assert.equal(bus.toolbarEnabled('core:ask'), false);
 });
+
+test('page tools register and dispatch; unknown tool reports no page tool', async () => {
+  chromeStore = { pluginToolbar: {} };
+  const msgs = [];
+  globalThis.window = {};
+  globalThis.chrome = {
+    storage: {
+      local: {
+        get: (defaults) => Promise.resolve({ ...defaults, ...chromeStore }),
+        set: (v) => { Object.assign(chromeStore, v); return Promise.resolve(); },
+      },
+      onChanged: { addListener: () => {} },
+    },
+    runtime: { onMessage: { addListener: (fn) => msgs.push(fn) } },
+  };
+  new Function(src)();
+  const bus = globalThis.window.__abPlugins;
+  bus.registerPageTool('page_reader', (args) => ({ mode: 'compat', got: args.action }));
+  assert.deepEqual(await bus.callPageTool('page_reader', { action: 'status' }), {
+    ok: true,
+    result: { mode: 'compat', got: 'status' },
+  });
+  assert.deepEqual(await bus.callPageTool('nope', {}), { ok: false, error: 'no page tool: nope' });
+  // async handlers resolve through the same envelope
+  bus.registerPageTool('slow', () => Promise.resolve({ done: 1 }));
+  assert.deepEqual(await bus.callPageTool('slow'), { ok: true, result: { done: 1 } });
+  // thrown/rejected handlers surface as ok:false, never propagate
+  bus.registerPageTool('bad', () => { throw new Error('x'); });
+  const r = await bus.callPageTool('bad');
+  assert.equal(r.ok, false);
+  assert.match(r.error, /x/);
+  // the plugin_op message route resolves sendResponse with the envelope
+  const handler = msgs.find((fn) => {
+    let hit = null;
+    fn({ target: 'plugins', cmd: 'op', tool: 'page_reader', args: { action: 'enter' } }, null, (res) => { hit = res; });
+    return hit === null || true;
+  });
+  assert.ok(handler);
+  const res = await new Promise((resolve) =>
+    handler({ target: 'plugins', cmd: 'op', tool: 'page_reader', args: { action: 'status' } }, null, resolve)
+  );
+  assert.equal(res.ok, true);
+  assert.equal(res.result.got, 'status');
+});
+
+test('input-kind toolbar actions pass through registration like buttons', () => {
+  const { bus } = load();
+  bus.registerToolbarAction({ plugin: 'ask', id: 'ask', kind: 'input', icon: '✎', label: '问…', run: () => {} });
+  const a = bus.toolbarActions().find((x) => x.kind === 'input');
+  assert.ok(a);
+  assert.equal(a.plugin, 'ask');
+});

@@ -6,7 +6,15 @@
 //   call(ns, fn, ...args) cross-plugin calls (sync; the bus passes through)
 //   registerToolbarAction({plugin, id, icon, label, run, kind})
 //                         a plugin adds a slot on the selection toolbar —
-//                         kind 'button' (default) or 'palette' (swatch row)
+//                         kind 'button' (default), 'palette' (swatch row)
+//                         or 'input' (inline text field; Enter → run(text, ctx))
+//   registerPageTool(name, fn)
+//                         a plugin exposes a function agents invoke as a
+//                         tool: the hub declares it via plugin.json
+//                         extraTools; the call lands here through the sw
+//                         plugin_op route and fn(args) returns the result
+//   callPageTool(name, args)
+//                         the page-side dispatch behind {target:'plugins'}
 //   toolbarActions()      current slots; selection.js renders them each open
 //   toolbarEnabled(id)    per-action config gate — pluginToolbar map in
 //                         chrome.storage.local; default ON. ASK itself is a
@@ -21,6 +29,7 @@
   if (window.__abPlugins) return; // all_frames + retries: single-run
   const TAG = "[agentbrowser]";
   const services = new Map(); // ns -> api
+  const pageTools = new Map(); // tool name -> fn(args)
   const actions = []; // {plugin, id, icon, label, run, kind, colors, get, set}
   let toolbarCfg = null; // pluginToolbar map (null = not loaded yet → all on)
 
@@ -50,6 +59,26 @@
       } catch (err) {
         logWarn(`plugin call ${ns}.${fn} failed`, err);
         return null;
+      }
+    },
+    registerPageTool(name, fn) {
+      if (!name || typeof fn !== "function") return;
+      pageTools.set(String(name), fn);
+    },
+    callPageTool(name, args) {
+      const fn = pageTools.get(String(name));
+      if (!fn) return { ok: false, error: "no page tool: " + name };
+      try {
+        return Promise.resolve(fn(args || {})).then(
+          (result) => ({ ok: true, result: result === undefined ? {} : result }),
+          (err) => {
+            logWarn(`page tool ${name} failed`, err);
+            return { ok: false, error: String((err && err.message) || err) };
+          }
+        );
+      } catch (err) {
+        logWarn(`page tool ${name} threw`, err);
+        return Promise.resolve({ ok: false, error: String((err && err.message) || err) });
       }
     },
     registerToolbarAction(a) {
@@ -92,5 +121,17 @@
     window.__abPlugins.loadToolbarConfig();
   } catch (err) {
     logWarn("pluginToolbar listener failed", err);
+  }
+
+  // plugin_op route (v2.25): the service worker relays agent tool calls that
+  // no built-in tool owns; the matching registerPageTool handler answers.
+  try {
+    chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+      if (!message || message.target !== "plugins" || message.cmd !== "op") return;
+      Promise.resolve(window.__abPlugins.callPageTool(message.tool, message.args)).then(sendResponse);
+      return true; // callPageTool resolves async
+    });
+  } catch (err) {
+    logWarn("plugin_op listener failed", err);
   }
 })();

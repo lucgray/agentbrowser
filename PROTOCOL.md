@@ -1620,3 +1620,14 @@ Plugin framework contract (content side):
   - `toolbarEnabled("plugin:id")` — reads the `pluginToolbar` map in `chrome.storage.local`; default ON, explicit `false` hides the slot. Live via `storage.onChanged`.
 - Core bar/menu items are slots too: `core:ask`, `core:translate`, `core:copy`, `core:speak`, `core:dict`, `core:parse`. Context-menu submenu `划词条显示` (checkbox per slot, ids `pt-<plugin:id>`) writes the map — ASK itself is configurable, nothing on the floating bar is mandatory.
 - notes plugin registers `notes:hl` / `notes:annotate` / `notes:color`(palette) actions and provides the `marks` service: `paint(range,{color})`, `list()`, `get(id)`, `setNoted(id)`, `remove(id)`, `openAnnotation(id)`, `colors()` — other plugins (annotation, 长难句, AI ask) reuse the same anchors/paints instead of re-implementing highlights.
+
+## protocol v2.25
+
+Plugin frame: page-side tools, input slots, page-ask channel, margin host.
+
+- **plugin_op route** — a `tool_call` the sw's built-in table doesn't own falls through to the page: `chrome.tabs.sendMessage(tabId, {target:'plugins', cmd:'op', tool, args})` → `__abPlugins.callPageTool(tool, args)` → `{ok, result|error}` response becomes the tool_result. `no page tool` answers keep falling through to `unknown tool`. Plugins register handlers via `__abPlugins.registerPageTool(name, fn)`; agent-visible schemas come from the plugin's `extraTools`, so a disabled plugin's tools never reach the page.
+- **kind:"input" toolbar actions** — a plugin action may render as an inline text field in the ⋯ menu; Enter calls `run(text, {selection})` instead of `run()`.
+- **ask override** — the bar's `core:ask` first offers the gesture to `__abPlugins.call('ask','run', ctx)`; a provider returning non-false consumes it (in-page ask UX), otherwise the default path runs: selection context — or, with nothing selected, the whole tab's readable text (capped, `pageContext:true`) — delivered into the Agent chat input, panel auto-opened.
+- **page_ask channel** — content → sw `{cmd:'page_ask', text, selection?, adapter?}` starts a chat on `pg-<tabId>-<n>`; `emitChatEvent` routes `pg-` chats back to the tab as `{target:'page-ask', cmd:'event', chatId, event}` (same prefix pattern as `ann-`/`learn-`) so answers stream onto page cards instead of the side panel.
+- **plugin_state** — content → sw `{cmd:'plugin_state', id}` → `{enabled}`; the generic form of `notes_state`, answered from `lastCapabilities.plugins`.
+- **margin plugin** (`content/margin.js`, hub plugin `margin`, opt-in — default disabled): provides `margin` service `mount()/type()/setText()/close()/focusCard()/collapseAll()/ask()/mode()/setMode()`. Modes degrade by space: `reader` (page_reader entered — non-main content hidden), `compat` (fixed right-edge sticky stack), `strip` (thin right-edge strip; vertical color markers expand cards leftward). Registers page tool `page_reader {action: enter|exit|status}`.
