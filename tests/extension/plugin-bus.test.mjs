@@ -79,6 +79,7 @@ test('page tools register and dispatch; unknown tool reports no page tool', asyn
   chromeStore = { pluginToolbar: {} };
   const msgs = [];
   globalThis.window = {};
+  globalThis.window.top = globalThis.window; // top frame — the op guard lets it through
   globalThis.chrome = {
     storage: {
       local: {
