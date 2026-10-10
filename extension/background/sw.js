@@ -535,6 +535,11 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 const annChats = new Map(); // chatId -> { tabId, annId }
 // Learn popup chats (chatId 'learn-<tabId>'): 汇总/弹幕热议 generations
 // stream back to the page dialog, same pattern as annChats.
+// Page-ask chats (v2.25): pg-<tabId>-<n> streams back to the tab's margin
+// cards instead of the side panel — same prefix route as ann-/learn-.
+const pgChats = new Map(); // chatId -> {tabId}
+let pgSeq = 0;
+
 const learnChats = new Map(); // chatId -> { tabId }
 let learnChatSeq = 0; // nonce so each generation is a fresh chat, not a turn
 
@@ -617,6 +622,9 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   }
   for (const [chatId, learn] of learnChats) {
     if (learn.tabId === tabId) learnChats.delete(chatId);
+  }
+  for (const [chatId, pg] of pgChats) {
+    if (pg.tabId === tabId) pgChats.delete(chatId);
   }
   recordings.delete(tabId);
 });
@@ -791,10 +799,59 @@ const mediaDlTabs = new Map();
 // nothing is held open across the network hop.
 const noteOpTabs = new Map(); // reqId -> {tabId, timer}
 
-function notesPluginEnabled() {
+function pluginEnabled(id) {
   const ps = (lastCapabilities && lastCapabilities.plugins) || [];
-  const p = ps.find((pl) => pl && pl.id === 'notes');
+  const p = ps.find((pl) => pl && pl.id === id);
   return !!(p && p.enabled);
+}
+
+function notesPluginEnabled() {
+  return pluginEnabled('notes');
+}
+
+// plugin_state/notes_state with cold capabilities (v2.25): after an MV3
+// restart lastCapabilities is null and the offscreen's hello guard means
+// no fresh broadcast is coming — a false 'disabled' answer here disables
+// the plugin for the page's whole lifetime. Fetch plugins_list from the
+// hub once and answer every waiter when it lands; timeout answers false.
+const pluginStateWaits = []; // {id, respond}
+let pluginStateTimer = null;
+
+function pluginStateResponse(id, sendResponse) {
+  if (lastCapabilities) {
+    sendResponse({ enabled: pluginEnabled(id) });
+    return;
+  }
+  // Queue even before hubConnected: a page loading while the SW sleeps
+  // makes this query the wake trigger — answering false here disables the
+  // plugin for that page's lifetime. Wait for the re-report, then fetch.
+  pluginStateWaits.push({ id, respond: sendResponse });
+  if (pluginStateTimer) return; // one fetch covers the whole queue
+  pluginStateTimer = setTimeout(() => {
+    pluginStateTimer = null;
+    const waits = pluginStateWaits.splice(0);
+    for (const w of waits) w.respond({ enabled: false });
+  }, 6000);
+  waitForHubConnected().then((ok) => {
+    if (!ok) return; // the wait timer flushes waiters to false
+    sendToOffscreen({
+      target: 'offscreen',
+      cmd: 'send',
+      payload: { type: 'plugins_list' },
+    });
+  });
+}
+
+function handlePluginsList(payload) {
+  const list = Array.isArray(payload.plugins) ? payload.plugins : [];
+  // Merge into the capabilities view so later queries answer immediately.
+  lastCapabilities = { ...(lastCapabilities || {}), plugins: list };
+  if (pluginStateTimer) {
+    clearTimeout(pluginStateTimer);
+    pluginStateTimer = null;
+  }
+  const waits = pluginStateWaits.splice(0);
+  for (const w of waits) w.respond({ enabled: pluginEnabled(w.id) });
 }
 
 function handleNoteOpMessage(tabId, message) {
@@ -909,7 +966,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
   if (message.cmd === 'notes_state') {
-    sendResponse({ enabled: notesPluginEnabled() });
+    pluginStateResponse('notes', sendResponse);
+    return true;
+  }
+  if (message.cmd === 'plugin_state') {
+    // Generic per-plugin gate (v2.25): any content plugin resolves its
+    // hub-side enabled flag the same way notes does.
+    pluginStateResponse(String(message.id || ''), sendResponse);
     return true;
   }
   if (message.cmd === 'analyze_ask') {
@@ -1173,6 +1236,39 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       );
     return true;
   }
+  if (message.cmd === 'page_ask') {
+    // In-page ask (v2.25): the margin host (or any page plugin) starts a
+    // chat whose events stream back to the tab as {target:'page-ask'}
+    // instead of opening the side panel.
+    const tabId = sender && sender.tab && sender.tab.id;
+    if (tabId == null || !message.text) {
+      sendResponse({ success: false, error: 'missing tabId/text' });
+      return true;
+    }
+    // Follow-up turns reuse the same pg- chatId so the card's thread
+    // continues in the hub; only fresh asks mint a new id.
+    let chatId = String(message.chatId || "");
+    if (!/^pg-\d+-\d+$/.test(chatId) || (pgChats.get(chatId) || {}).tabId !== tabId) {
+      chatId = `pg-${tabId}-${++pgSeq}`;
+      pgChats.set(chatId, { tabId });
+    }
+    dispatchChat({
+      type: 'chat',
+      chatId,
+      text: String(message.text),
+      adapter: message.adapter || lastPanelAdapter || undefined,
+      context: {
+        currentTab: {
+          tabId,
+          url: (sender.tab && sender.tab.url) || '',
+          title: (sender.tab && sender.tab.title) || '',
+        },
+        selection: message.selection || undefined,
+      },
+    });
+    sendResponse({ success: true, chatId });
+    return true;
+  }
   if (message.cmd === 'annotation_comment') {
     const tabId = sender && sender.tab && sender.tab.id;
     if (tabId == null || !message.annId || !message.text) {
@@ -1240,6 +1336,8 @@ function handleHubMessage(payload) {
     handleToolCall(payload);
   } else if (payload.type === 'chat_event') {
     emitChatEvent(payload.chatId, payload.event, payload.browser);
+  } else if (payload.type === 'plugins') {
+    handlePluginsList(payload);
   } else if (payload.type === 'capabilities') {
     // Relayed verbatim — except in direct mode, where the panel keeps the
     // synthetic adapter its chats actually run through.
@@ -2232,8 +2330,20 @@ const TOOLS = {
 
 async function executeTool(tool, args, permissions) {
   const fn = TOOLS[tool];
-  if (!fn) throw new Error(`unknown tool: ${tool}`);
-  return fn(args, permissions);
+  if (fn) return fn(args, permissions);
+  // plugin_op route (v2.25): tools no built-in owns may be page-side plugin
+  // tools — the tab's plugin bus answers via {target:'plugins', cmd:'op'}.
+  const tabId = await resolveTabId(args && args.tabId).catch(() => null);
+  if (tabId != null) {
+    const r = await chrome.tabs
+      .sendMessage(tabId, { target: 'plugins', cmd: 'op', tool, args: args || {} }, { frameId: 0 })
+      .catch(() => null);
+    if (r && r.ok) return r.result;
+    if (r && r.error && !String(r.error).startsWith('no page tool')) {
+      throw new Error(r.error);
+    }
+  }
+  throw new Error(`unknown tool: ${tool}`);
 }
 
 // Chat-event fan-out shared by hub replies and direct-mode turns: ann-*/
@@ -2251,6 +2361,20 @@ function emitChatEvent(chatId, event, browser) {
       })
       .catch((err) => {
         console.warn('[agentbrowser] annotation event delivery failed', err);
+      });
+    return;
+  }
+  const pg = pgChats.get(chatId);
+  if (pg) {
+    chrome.tabs
+      .sendMessage(pg.tabId, {
+        target: 'page-ask',
+        cmd: 'event',
+        chatId,
+        event,
+      })
+      .catch((err) => {
+        console.warn('[agentbrowser] page-ask event delivery failed', err);
       });
     return;
   }
