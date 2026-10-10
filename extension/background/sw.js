@@ -818,22 +818,28 @@ const pluginStateWaits = []; // {id, respond}
 let pluginStateTimer = null;
 
 function pluginStateResponse(id, sendResponse) {
-  if (lastCapabilities || !hubConnected) {
+  if (lastCapabilities) {
     sendResponse({ enabled: pluginEnabled(id) });
     return;
   }
+  // Queue even before hubConnected: a page loading while the SW sleeps
+  // makes this query the wake trigger — answering false here disables the
+  // plugin for that page's lifetime. Wait for the re-report, then fetch.
   pluginStateWaits.push({ id, respond: sendResponse });
   if (pluginStateTimer) return; // one fetch covers the whole queue
-  sendToOffscreen({
-    target: 'offscreen',
-    cmd: 'send',
-    payload: { type: 'plugins_list' },
-  });
   pluginStateTimer = setTimeout(() => {
     pluginStateTimer = null;
     const waits = pluginStateWaits.splice(0);
     for (const w of waits) w.respond({ enabled: false });
-  }, 5000);
+  }, 6000);
+  waitForHubConnected().then((ok) => {
+    if (!ok) return; // the wait timer flushes waiters to false
+    sendToOffscreen({
+      target: 'offscreen',
+      cmd: 'send',
+      payload: { type: 'plugins_list' },
+    });
+  });
 }
 
 function handlePluginsList(payload) {
