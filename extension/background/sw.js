@@ -789,7 +789,7 @@ const mediaDlTabs = new Map();
 // the hub over the offscreen socket; results go back to the asking tab via
 // chrome.tabs.sendMessage (target 'notes'), not the message response, so
 // nothing is held open across the network hop.
-const noteOpTabs = new Map(); // reqId -> tabId
+const noteOpTabs = new Map(); // reqId -> {tabId, timer}
 
 function notesPluginEnabled() {
   const ps = (lastCapabilities && lastCapabilities.plugins) || [];
@@ -800,7 +800,20 @@ function notesPluginEnabled() {
 function handleNoteOpMessage(tabId, message) {
   const reqId = String(message.reqId || '');
   if (!reqId || tabId == null) return;
-  noteOpTabs.set(reqId, tabId);
+  const timer = setTimeout(() => {
+    if (noteOpTabs.delete(reqId)) {
+      chrome.tabs
+        .sendMessage(tabId, {
+          target: 'notes',
+          cmd: 'op_result',
+          reqId,
+          ok: false,
+          error: 'note_op timeout',
+        })
+        .catch((err) => console.warn('[agentbrowser] note_op timeout delivery failed', err));
+    }
+  }, 30000);
+  noteOpTabs.set(reqId, { tabId, timer });
   const payload = { type: 'note_op', reqId, op: message.op };
   for (const k of [
     'id', 'q', 'tag', 'domain', 'url', 'limit', 'title', 'content', 'text',
@@ -1275,11 +1288,12 @@ function handleHubMessage(payload) {
       translate.onResult(payload);
     }
   } else if (payload.type === 'note_op_result') {
-    const tabId = noteOpTabs.get(String(payload.reqId || ''));
+    const rec = noteOpTabs.get(String(payload.reqId || ''));
     noteOpTabs.delete(String(payload.reqId || ''));
-    if (tabId != null) {
+    if (rec) {
+      clearTimeout(rec.timer);
       chrome.tabs
-        .sendMessage(tabId, {
+        .sendMessage(rec.tabId, {
           target: 'notes',
           cmd: 'op_result',
           reqId: payload.reqId,
