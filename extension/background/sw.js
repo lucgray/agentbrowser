@@ -114,6 +114,21 @@ const NOTES_MENU_ID = 'notes-sidebar';
 const NOTES_HANDLE_TOGGLE_ID = 'notes-handle-toggle';
 const NOTES_HANDLE_KEY = 'notesEdgeHandle'; // chrome.storage.local, default false
 const SELECTION_CACHE_MS = 5000;
+const TOOLBAR_MENU_PARENT = 'sel-toolbar-slots';
+// Selection-toolbar slot toggles (v2.24): each checkbox flips one entry in the
+// pluginToolbar map; content side renders only enabled actions — ASK included,
+// nothing on the bar is mandatory.
+const TOOLBAR_SLOTS = [
+  ['core:ask', '问 AI'],
+  ['core:translate', '翻译'],
+  ['core:copy', '复制'],
+  ['core:speak', '朗读'],
+  ['core:dict', '词典'],
+  ['core:parse', '长难句'],
+  ['notes:hl', '🖌 高亮 (notes)'],
+  ['notes:annotate', '📝 批注 (notes)'],
+  ['notes:color', '🎨 高亮色 (notes)'],
+];
 const rightClickContexts = new Map(); // tabId -> {selection, timestamp}
 
 function registerContextMenu() {
@@ -172,6 +187,35 @@ function registerContextMenu() {
     })
     .catch((err) => {
       console.warn('[agentbrowser] notes-handle setting read failed', err);
+    });
+  chrome.contextMenus.create(
+    {
+      id: TOOLBAR_MENU_PARENT,
+      title: '划词条显示',
+      contexts: ['all'],
+    },
+    () => void chrome.runtime.lastError
+  );
+  chrome.storage.local
+    .get({ pluginToolbar: {} })
+    .then((r) => {
+      const cfg = r.pluginToolbar || {};
+      for (const [id, label] of TOOLBAR_SLOTS) {
+        chrome.contextMenus.create(
+          {
+            id: `pt-${id}`,
+            parentId: TOOLBAR_MENU_PARENT,
+            title: label,
+            contexts: ['all'],
+            type: 'checkbox',
+            checked: cfg[id] !== false,
+          },
+          () => void chrome.runtime.lastError
+        );
+      }
+    })
+    .catch((err) => {
+      console.warn('[agentbrowser] pluginToolbar setting read failed', err);
     });
 }
 
@@ -440,6 +484,20 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
       .set({ [NOTES_HANDLE_KEY]: info.checked === true })
       .catch((err) => {
         console.warn('[agentbrowser] notes-handle setting write failed', err);
+      });
+    return;
+  }
+  if (String(info.menuItemId || '').startsWith('pt-')) {
+    const slot = info.menuItemId.slice(3);
+    chrome.storage.local
+      .get({ pluginToolbar: {} })
+      .then((r) => {
+        const cfg = { ...(r.pluginToolbar || {}) };
+        cfg[slot] = info.checked === true;
+        return chrome.storage.local.set({ pluginToolbar: cfg });
+      })
+      .catch((err) => {
+        console.warn('[agentbrowser] pluginToolbar write failed', err);
       });
     return;
   }
@@ -731,7 +789,7 @@ const mediaDlTabs = new Map();
 // the hub over the offscreen socket; results go back to the asking tab via
 // chrome.tabs.sendMessage (target 'notes'), not the message response, so
 // nothing is held open across the network hop.
-const noteOpTabs = new Map(); // reqId -> tabId
+const noteOpTabs = new Map(); // reqId -> {tabId, timer}
 
 function notesPluginEnabled() {
   const ps = (lastCapabilities && lastCapabilities.plugins) || [];
@@ -742,7 +800,20 @@ function notesPluginEnabled() {
 function handleNoteOpMessage(tabId, message) {
   const reqId = String(message.reqId || '');
   if (!reqId || tabId == null) return;
-  noteOpTabs.set(reqId, tabId);
+  const timer = setTimeout(() => {
+    if (noteOpTabs.delete(reqId)) {
+      chrome.tabs
+        .sendMessage(tabId, {
+          target: 'notes',
+          cmd: 'op_result',
+          reqId,
+          ok: false,
+          error: 'note_op timeout',
+        })
+        .catch((err) => console.warn('[agentbrowser] note_op timeout delivery failed', err));
+    }
+  }, 30000);
+  noteOpTabs.set(reqId, { tabId, timer });
   const payload = { type: 'note_op', reqId, op: message.op };
   for (const k of [
     'id', 'q', 'tag', 'domain', 'url', 'limit', 'title', 'content', 'text',
@@ -1217,11 +1288,12 @@ function handleHubMessage(payload) {
       translate.onResult(payload);
     }
   } else if (payload.type === 'note_op_result') {
-    const tabId = noteOpTabs.get(String(payload.reqId || ''));
+    const rec = noteOpTabs.get(String(payload.reqId || ''));
     noteOpTabs.delete(String(payload.reqId || ''));
-    if (tabId != null) {
+    if (rec) {
+      clearTimeout(rec.timer);
       chrome.tabs
-        .sendMessage(tabId, {
+        .sendMessage(rec.tabId, {
           target: 'notes',
           cmd: 'op_result',
           reqId: payload.reqId,
