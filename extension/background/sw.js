@@ -1245,8 +1245,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse({ success: false, error: 'missing tabId/text' });
       return true;
     }
-    const chatId = `pg-${tabId}-${++pgSeq}`;
-    pgChats.set(chatId, { tabId });
+    // Follow-up turns reuse the same pg- chatId so the card's thread
+    // continues in the hub; only fresh asks mint a new id.
+    let chatId = String(message.chatId || "");
+    if (!/^pg-\d+-\d+$/.test(chatId) || (pgChats.get(chatId) || {}).tabId !== tabId) {
+      chatId = `pg-${tabId}-${++pgSeq}`;
+      pgChats.set(chatId, { tabId });
+    }
     dispatchChat({
       type: 'chat',
       chatId,

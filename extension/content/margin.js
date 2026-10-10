@@ -1,15 +1,17 @@
 // Margin card host (v2.25): a plugin that owns the shared card surface other
-// plugins write to. Three display modes, degrading by available space:
+// plugins write to. Card anatomy and rail follow the demo's margin host —
+// pill badge head, quote chip, skeleton→streamed body, foot actions,
+// per-card follow-up input, mini collapse rows, and colored anchor threads.
+// Three display modes, degrading by available space:
 //
 //   reader  page_reader tool entered reading mode — non-main content is
 //           hidden, the rail docks over the freed right margin
-//   compat  default — a fixed sticky-note stack pinned to the viewport's
-//           right edge
+//   compat  default — the rail pins to the viewport's right edge
 //   strip   collapsed — a thin white strip; each card is a vertical color
 //           marker, click expands the card leftward over the page
 //
-// Card API via __abPlugins.provide('margin'): mount() returns {id, el} and
-// the plugin fills el; type()/setText() append stream text; ask() mounts a
+// Card API via __abPlugins.provide('margin'): mount() returns {id, el} where
+// el is the card body; type()/setText() write stream text; ask() mounts a
 // card and routes the question through the page_ask channel (pg-<tab>-<n>
 // chatIds) so the reply streams into the card, not the side panel.
 //
@@ -19,20 +21,33 @@
 (function () {
   const TAG = "[agentbrowser]";
   const HOST_ID = "agentbrowser-margin";
-  const RAIL_W = 300;
+  const RAIL_W = 330;
   let enabled = false;
   let host = null; // shadow host element
   let root = null; // shadow root
-  let rail = null; // card stack element
+  let rail = null; // rail element
+  let box = null; // card stack inside the rail
+  let countEl = null; // mhead counter pill
   let stripEl = null; // strip-mode bar
+  let linksSvg = null; // anchor→card connector layer
   let mode = "compat"; // compat | reader | strip
-  const cards = new Map(); // id -> {el, body, head, mini, markColor, chatId, texts}
+  const cards = new Map(); // id -> card record
   let cardSeq = 0;
+  let activeId = null;
   const chatCards = new Map(); // chatId -> cardId
   // Reader-mode restore: elements we display:none'd + the style tag.
   let hiddenEls = [];
   let readerStyle = null;
   let readerMain = null;
+
+  const MARK_HUES = {
+    red: "#e27474",
+    yellow: "#d9a514",
+    blue: "#4a90d9",
+    green: "#4cae5c",
+    pink: "#e26a9e",
+    purple: "#8f6fd8",
+  };
 
   function logWarn(...a) {
     console.warn(TAG, "margin:", ...a);
@@ -45,72 +60,108 @@
   // ---- DOM -----------------------------------------------------------------
 
   const CSS = `
-    :host { all: initial; }
+    :host {
+      all: initial;
+      --ink: #1c1917; --mut: #78716c; --line: #e7e5e4;
+      --acc: #4f46e5; --acc-soft: #eef2ff;
+    }
     .rail {
       position: fixed; top: 0; right: 0; z-index: 2147483645;
-      width: ${RAIL_W}px; max-height: 100vh;
-      display: flex; flex-direction: column; gap: 8px;
-      padding: 12px 10px 12px 0; box-sizing: border-box;
-      pointer-events: none; overflow-y: auto;
-      font: 400 13px/1.55 ui-sans-serif, system-ui, sans-serif;
+      width: ${RAIL_W}px; max-height: 100vh; overflow-y: auto;
+      border-left: 1px solid var(--line); background: #fbfaf9;
+      padding: 16px 14px; box-sizing: border-box;
+      font: 12.5px/1.55 ui-sans-serif, system-ui, sans-serif; color: var(--ink);
     }
+    .rail.expand { background: #fbfaf9f2; box-shadow: -8px 0 24px -12px rgba(28,25,23,.3); }
+    .mhead { display: flex; align-items: center; gap: 7px; margin-bottom: 10px; }
+    .mhead .t { font-weight: 700; font-size: 12px; letter-spacing: .06em; color: var(--mut); text-transform: uppercase; }
+    .mhead .pi { font-size: 10.5px; color: #a8a29e; border: 1px solid var(--line); border-radius: 99px; padding: 1px 8px; }
+    .mhead .mode { margin-left: auto; font-size: 10px; color: #a8a29e; cursor: pointer; border: 1px solid var(--line); border-radius: 99px; padding: 1px 8px; }
+    .mhead .mode:hover { color: var(--ink); border-color: var(--mut); }
+
     .card {
-      pointer-events: auto;
-      background: rgba(255,255,255,0.97);
-      border: 1px solid rgba(28,25,23,0.12);
-      border-left: 3px solid var(--ab-mc, #eab308);
-      border-radius: 10px;
-      box-shadow: 0 8px 28px -8px rgba(28,25,23,0.28);
-      color: #292524; overflow: hidden;
-      transition: all .15s ease;
+      background: #fff; border: 1px solid var(--line); border-radius: 12px;
+      padding: 12px 13px; margin-bottom: 12px;
+      box-shadow: 0 1px 2px rgba(28,25,23,.05);
+      animation: cardin .26s ease;
     }
-    .card .head {
-      display: flex; align-items: center; gap: 6px;
-      padding: 7px 10px; font-size: 11.5px; font-weight: 600;
-      color: #57534e; background: rgba(28,25,23,0.035);
+    @keyframes cardin { from { opacity: 0; transform: translateY(9px); } }
+    .card.flash { box-shadow: 0 0 0 2px var(--acc); }
+    .card .chead { display: flex; align-items: center; gap: 6px; margin-bottom: 7px; }
+    .card .chead .pi { font-size: 10.5px; font-weight: 600; color: var(--acc); background: var(--acc-soft); border-radius: 99px; padding: 1.5px 8px; }
+    .card .chead .pc { font-size: 11px; color: var(--mut); }
+    .card .cx { margin-left: auto; color: #a8a29e; cursor: pointer; font-size: 13px; }
+    .card .cx:hover { color: var(--ink); }
+    .card .qchip {
+      display: block; border-left: 2px solid var(--mc, var(--acc));
+      padding: 1px 0 1px 9px; font-size: 12.5px; color: #44403c;
+      margin: 4px 0 7px; max-height: 4.5em; overflow: hidden;
     }
-    .card .head .plugin { flex: none; }
-    .card .head .title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .card .head button {
-      all: unset; cursor: pointer; padding: 0 4px; color: #78716c; font-size: 12px;
+    .card .cbody { font-size: 13px; white-space: pre-wrap; word-break: break-word; }
+    .card .cbody.typing { color: #8d8880; }
+    .card .cbody .sk {
+      height: 9px; border-radius: 99px; margin: 7px 0;
+      background: linear-gradient(90deg, #f1efe9 25%, #e8e5e0 50%, #f1efe9 75%);
+      background-size: 200% 100%; animation: sk 1.1s infinite linear;
     }
-    .card .head button:hover { color: #292524; }
-    .card .quote {
-      margin: 8px 10px 0; padding: 5px 8px;
-      font-size: 11.5px; color: #57534e;
-      border-left: 2px solid var(--ab-mc, #eab308);
-      background: rgba(28,25,23,0.04); border-radius: 4px;
-      max-height: 3.6em; overflow: hidden;
+    @keyframes sk { to { background-position: -200% 0; } }
+    .card .cbody b, .card .cbody strong { background: rgba(250,164,164,.35); border-radius: 2px; padding: 0 1px; font-weight: 600; }
+    .card .err { color: #b91c1c; font-size: 12px; padding: 8px 0 0; }
+    .card .ctx {
+      display: inline-flex; align-items: center; gap: 5px; margin-top: 6px;
+      background: var(--acc-soft); color: var(--acc);
+      border-radius: 99px; padding: 2.5px 9px; font-size: 11px;
     }
-    .card .body { padding: 9px 11px; white-space: pre-wrap; word-break: break-word; }
-    .card .body.streaming::after {
-      content: "▌"; color: var(--ab-mc, #eab308);
-      animation: ab-blink 1s steps(2) infinite;
+    .card .ctx .cx2 { cursor: pointer; opacity: .6; }
+    .card .ctx .cx2:hover { opacity: 1; }
+    .card .cfoot { display: flex; gap: 6px; align-items: center; margin-top: 9px; }
+    .card .cfoot .src { font-size: 10.5px; color: var(--mut); }
+    .card .cfoot button {
+      border: none; background: none; cursor: pointer;
+      font-size: 12px; color: var(--mut); padding: 2px 5px; border-radius: 5px;
     }
-    @keyframes ab-blink { 50% { opacity: 0; } }
-    .card .err { color: #b91c1c; font-size: 12px; padding: 0 11px 8px; }
-    .card.mini .quote, .card.mini .body, .card.mini .err { display: none; }
-    .card.mini .head { background: transparent; }
+    .card .cfoot button:hover { background: #f5f4f2; }
+    .card .cfoot button.on { color: var(--acc); }
+    .card .askin { display: flex; gap: 6px; margin-top: 8px; }
+    .card .askin input {
+      flex: 1; border: 1px solid var(--line); border-radius: 8px;
+      padding: 6px 9px; font: 12.5px/1 ui-sans-serif, system-ui; outline: none;
+    }
+    .card .askin input:focus { border-color: var(--acc); }
+    .card .askin button {
+      border: 1px solid var(--line); background: #fff; border-radius: 8px;
+      cursor: pointer; color: var(--mut); padding: 0 9px; font-size: 12px;
+    }
+    .card .askin button:hover { color: var(--ink); border-color: var(--mut); }
+
+    .card.mini { padding: 9px 12px; cursor: pointer; }
+    .card.mini > :not(.mini-body) { display: none; }
+    .card.mini .mini-t { font-size: 12px; font-weight: 600; }
+    .card.mini .mini-t .pc { font-weight: 400; color: var(--mut); margin-left: 6px; font-size: 10.5px; }
+    .card.mini .mini-x {
+      margin-top: 4px; font-size: 11.5px; color: #a8a29e;
+      display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+    }
+
     .strip {
       position: fixed; top: 20vh; right: 0; z-index: 2147483645;
       display: flex; flex-direction: column; gap: 3px;
       width: 12px; padding: 6px 0;
       background: rgba(255,255,255,0.95);
-      border: 1px solid rgba(28,25,23,0.14); border-right: none;
+      border: 1px solid var(--line); border-right: none;
       border-radius: 6px 0 0 6px;
-      box-shadow: 0 4px 16px -4px rgba(28,25,23,0.25);
+      box-shadow: 0 4px 16px -4px rgba(28,25,23,.25);
     }
     .strip .mark {
       height: 26px; width: 6px; margin: 0 auto;
-      border-radius: 3px; cursor: pointer; opacity: 0.75;
+      border-radius: 3px; cursor: pointer; opacity: .75;
     }
-    .strip .mark:hover { opacity: 1; }
-    .strip .mark.sel { opacity: 1; outline: 1px solid #292524; }
-    .expand {
-      position: fixed; top: 0; right: 12px; z-index: 2147483645;
-      width: ${RAIL_W}px; max-height: 100vh; overflow-y: auto;
-      padding: 12px 10px 12px 0; box-sizing: border-box;
-      font: 400 13px/1.55 ui-sans-serif, system-ui, sans-serif;
+    .strip .mark:hover, .strip .mark.sel { opacity: 1; }
+    .strip .mark.sel { outline: 1px solid var(--ink); }
+
+    svg.links {
+      position: fixed; inset: 0; z-index: 2147483644;
+      width: 100vw; height: 100vh; pointer-events: none;
     }
   `;
 
@@ -123,12 +174,415 @@
     style.textContent = CSS;
     rail = document.createElement("div");
     rail.className = "rail";
+    const mh = document.createElement("div");
+    mh.className = "mhead";
+    const t = document.createElement("span");
+    t.className = "t";
+    t.textContent = "Margin";
+    countEl = document.createElement("span");
+    countEl.className = "pi";
+    const modeBtn = document.createElement("span");
+    modeBtn.className = "mode";
+    modeBtn.textContent = "strip";
+    modeBtn.title = "收起为边条";
+    modeBtn.addEventListener("click", () => setMode("strip"));
+    mh.append(t, countEl, modeBtn);
+    box = document.createElement("div");
+    rail.append(mh, box);
     stripEl = document.createElement("div");
     stripEl.className = "strip";
     stripEl.style.display = "none";
-    root.append(style, rail, stripEl);
+    linksSvg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    linksSvg.setAttribute("class", "links");
+    root.append(style, rail, stripEl, linksSvg);
     (document.documentElement || document.body).appendChild(host);
   }
+
+  function updateCount() {
+    if (countEl) countEl.textContent = cards.size ? `${cards.size} card${cards.size > 1 ? "s" : ""}` : "card host";
+  }
+
+  // ---- anchors + connector threads -------------------------------------------
+
+  // opts.anchor: Element | Range | {x,y} | markId (resolves [data-mid]).
+  function anchorPoint(spec) {
+    if (!spec) return null;
+    if (typeof spec === "string") {
+      const el = document.querySelector(`[data-mid="${CSS.escape(spec)}"]`);
+      return el ? anchorPoint(el) : null;
+    }
+    if (spec instanceof Element) {
+      if (!spec.isConnected) return null;
+      const r = spec.getBoundingClientRect();
+      return { x: r.right + 2, y: r.top + r.height / 2 };
+    }
+    if (typeof Range !== "undefined" && spec instanceof Range) {
+      const r = spec.getBoundingClientRect();
+      return { x: r.right + 2, y: r.top + r.height / 2 };
+    }
+    if (typeof spec.x === "number" && typeof spec.y === "number") return spec;
+    return null;
+  }
+
+  function redrawLinks() {
+    if (!linksSvg) return;
+    linksSvg.textContent = "";
+    if (mode === "strip" || !activeId) return;
+    const c = cards.get(activeId);
+    if (!c || c.mini || !c.el.isConnected) return;
+    const cr = c.el.getBoundingClientRect();
+    const x4 = cr.left - 2;
+    const y4 = cr.top + 14;
+    for (const spec of c.anchors) {
+      const p0 = anchorPoint(spec);
+      if (!p0) continue;
+      const hue = c.markColor || "#bbb";
+      const p = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      p.setAttribute("d", `M ${p0.x} ${p0.y} C ${p0.x + 24} ${p0.y}, ${x4 - 30} ${y4}, ${x4} ${y4}`);
+      p.setAttribute("stroke", hue);
+      p.setAttribute("fill", "none");
+      p.setAttribute("stroke-opacity", "0.55");
+      const dot = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+      dot.setAttribute("cx", p0.x);
+      dot.setAttribute("cy", p0.y);
+      dot.setAttribute("r", 2.6);
+      dot.setAttribute("fill", hue);
+      linksSvg.append(p, dot);
+    }
+  }
+
+  window.addEventListener("scroll", redrawLinks, { passive: true, capture: true });
+  window.addEventListener("resize", redrawLinks);
+  setInterval(redrawLinks, 900); // streams shift layout — keep threads fresh
+
+  function anchorEls(c) {
+    const els = [];
+    for (const spec of c.anchors) {
+      if (spec instanceof Element && spec.isConnected) els.push(spec);
+      else if (typeof spec === "string") {
+        for (const el of document.querySelectorAll(`[data-mid="${CSS.escape(spec)}"]`)) els.push(el);
+      }
+    }
+    return els;
+  }
+
+  function setAnchorHover(c, on) {
+    for (const el of anchorEls(c)) {
+      if (on) {
+        el._abMarginHover = el.style.outline;
+        el.style.outline = `2px solid ${c.markColor || "#bbb"}`;
+      } else if (el._abMarginHover !== undefined) {
+        el.style.outline = el._abMarginHover;
+        delete el._abMarginHover;
+      }
+    }
+  }
+
+  // ---- cards -----------------------------------------------------------------
+
+  function skeleton(body) {
+    body.textContent = "";
+    for (const w of ["92%", "78%", "60%"]) {
+      const sk = document.createElement("div");
+      sk.className = "sk";
+      sk.style.width = w;
+      body.appendChild(sk);
+    }
+  }
+
+  function miniTitle(c) {
+    const base =
+      c.title ||
+      c.plugin +
+        (c.quote ? ` “${c.quote.slice(0, 34)}${c.quote.length > 34 ? "…" : ""}”` : "");
+    return base || "card";
+  }
+
+  function collapse(c) {
+    if (c.mini || c.pinned) return;
+    const mb = document.createElement("div");
+    mb.className = "mini-body";
+    const mt = document.createElement("div");
+    mt.className = "mini-t";
+    mt.textContent = miniTitle(c);
+    if (c.para) {
+      const pc = document.createElement("span");
+      pc.className = "pc";
+      pc.textContent = c.para;
+      mt.appendChild(pc);
+    }
+    const mx = document.createElement("div");
+    mx.className = "mini-x";
+    mx.textContent = c.texts.slice(0, 150);
+    mb.append(mt, mx);
+    c.el.appendChild(mb);
+    c.el.classList.add("mini");
+    c.mini = true;
+    mb.addEventListener("click", () => {
+      expand(c);
+      collapseAll(c.id);
+      redrawLinks();
+    });
+  }
+
+  function expand(c) {
+    if (!c.mini) return;
+    c.el.classList.remove("mini");
+    const mb = c.el.querySelector(".mini-body");
+    if (mb) mb.remove();
+    c.mini = false;
+    activeId = c.id;
+  }
+
+  function collapseAll(exceptId) {
+    for (const c of cards.values()) if (c.id !== exceptId) collapse(c);
+  }
+
+  function mount(opts = {}) {
+    if (!enabled) return null;
+    ensureHost();
+    const id = "mc-" + ++cardSeq;
+    const el = document.createElement("div");
+    el.className = "card";
+    el.dataset.cid = id;
+
+    const chead = document.createElement("div");
+    chead.className = "chead";
+    const pi = document.createElement("span");
+    pi.className = "pi";
+    pi.textContent = opts.plugin || "plugin";
+    chead.appendChild(pi);
+    if (opts.para) {
+      const pc = document.createElement("span");
+      pc.className = "pc";
+      pc.textContent = opts.para;
+      chead.appendChild(pc);
+    }
+    const cx = document.createElement("span");
+    cx.className = "cx";
+    cx.title = "close";
+    cx.textContent = "×";
+    cx.addEventListener("click", () => close(id));
+    chead.appendChild(cx);
+    el.appendChild(chead);
+
+    let qchip = null;
+    if (opts.quote) {
+      qchip = document.createElement("div");
+      qchip.className = "qchip";
+      qchip.title = String(opts.quote);
+      qchip.textContent = String(opts.quote).slice(0, 220);
+      el.appendChild(qchip);
+    }
+
+    const body = document.createElement("div");
+    body.className = "cbody";
+    skeleton(body);
+    el.appendChild(body);
+
+    const foot = document.createElement("div");
+    foot.className = "cfoot";
+    const src = document.createElement("span");
+    src.className = "src";
+    src.textContent = opts.src || "";
+    foot.appendChild(src);
+    const gap = document.createElement("span");
+    gap.style.flex = "1";
+    foot.appendChild(gap);
+    el.appendChild(foot);
+
+    const askin = document.createElement("div");
+    askin.className = "askin";
+    const inp = document.createElement("input");
+    inp.placeholder = "Ask a follow-up";
+    const sendBtn = document.createElement("button");
+    sendBtn.textContent = "↑";
+    askin.append(inp, sendBtn);
+    el.appendChild(askin);
+
+    const c = {
+      id,
+      el,
+      body,
+      qchip,
+      plugin: opts.plugin || "",
+      title: opts.title || "",
+      quote: String(opts.quote || ""),
+      para: opts.para || "",
+      mini: false,
+      pinned: false,
+      anchors: opts.anchor ? [opts.anchor] : [],
+      markColor: opts.markColor || null,
+      chatId: opts.chatId || null,
+      texts: "",
+      question: opts.question || null,
+      selection: opts.selection || null,
+    };
+    if (c.markColor) el.style.setProperty("--mc", c.markColor);
+    if (opts.markColorName && MARK_HUES[opts.markColorName]) {
+      c.markColor = MARK_HUES[opts.markColorName];
+      el.style.setProperty("--mc", c.markColor);
+    }
+    cards.set(id, c);
+    if (c.chatId) chatCards.set(c.chatId, id);
+
+    // foot actions — ⧉ copy, ↻ retry (ask cards), 📌 pin, 🗑 delete
+    const addBtn = (label, tip, fn) => {
+      const b = document.createElement("button");
+      b.textContent = label;
+      b.title = tip;
+      b.addEventListener("click", fn);
+      foot.appendChild(b);
+      return b;
+    };
+    addBtn("⧉", "copy", () => {
+      navigator.clipboard.writeText(c.texts).catch((err) => logWarn("copy failed", err));
+    });
+    addBtn("↻", "retry", () => retry(id));
+    const pinBtn = addBtn("⊙", "pin", () => {
+      c.pinned = !c.pinned;
+      pinBtn.classList.toggle("on", c.pinned);
+    });
+    addBtn("✕", "delete", () => close(id));
+
+    const send = () => {
+      const text = inp.value.trim();
+      inp.value = "";
+      if (!text) return;
+      if (c.chatId) {
+        followUp(c, text);
+      } else {
+        const P = bus();
+        if (P) P.call(c.plugin, "followUp", id, text);
+      }
+    };
+    sendBtn.addEventListener("click", send);
+    inp.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") send();
+      e.stopPropagation();
+    });
+    inp.addEventListener("keyup", (e) => e.stopPropagation());
+    inp.addEventListener("keypress", (e) => e.stopPropagation());
+
+    el.addEventListener("mouseenter", () => setAnchorHover(c, true));
+    el.addEventListener("mouseleave", () => setAnchorHover(c, false));
+    el.addEventListener("mousedown", () => {
+      if (activeId !== id) {
+        activeId = id;
+        redrawLinks();
+      }
+    });
+
+    collapseAll(id); // only the newest card stays expanded
+    activeId = id;
+    box.appendChild(el);
+    updateCount();
+    renderStrip();
+    redrawLinks();
+    return { id, el: body };
+  }
+
+  function getCard(id) {
+    return cards.get(String(id || "")) || null;
+  }
+
+  function type(id, text) {
+    const c = getCard(id);
+    if (!c) return false;
+    c.texts += String(text);
+    c.body.textContent = c.texts;
+    c.body.classList.add("typing");
+    return true;
+  }
+
+  function setText(id, text) {
+    const c = getCard(id);
+    if (!c) return false;
+    c.texts = String(text);
+    c.body.textContent = c.texts;
+    c.body.classList.remove("typing");
+    return true;
+  }
+
+  function cardError(id, msg) {
+    const c = getCard(id);
+    if (!c) return;
+    c.body.classList.remove("typing");
+    const e = document.createElement("div");
+    e.className = "err";
+    e.textContent = String(msg || "error").slice(0, 300);
+    c.el.appendChild(e);
+  }
+
+  function close(id) {
+    const c = getCard(id);
+    if (!c) return;
+    if (c.chatId) chatCards.delete(c.chatId);
+    setAnchorHover(c, false);
+    c.el.remove();
+    cards.delete(String(id));
+    if (activeId === id) activeId = [...cards.keys()].pop() || null;
+    updateCount();
+    renderStrip();
+    redrawLinks();
+    if (!cards.size && host) {
+      host.remove();
+      host = null;
+    }
+  }
+
+  function focusCard(id) {
+    const c = getCard(id);
+    if (!c) return;
+    activeId = id;
+    if (mode === "strip") {
+      // Expand as an overlay card sliding in from the right edge.
+      for (const o of cards.values()) o.el.classList.remove("open");
+      rail.style.display = "flex";
+      rail.classList.add("expand");
+      c.el.classList.add("open");
+      expand(c);
+      c.el.scrollIntoView({ block: "nearest" });
+      renderStrip();
+      redrawLinks();
+      return;
+    }
+    expand(c);
+    collapseAll(id);
+    c.el.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    c.el.classList.add("flash");
+    setTimeout(() => c.el.classList.remove("flash"), 1200);
+    redrawLinks();
+  }
+
+  function hoverCard(id, on) {
+    const c = getCard(id);
+    if (c) c.el.classList.toggle("flash", on);
+  }
+
+  function focusInput(id) {
+    const c = getCard(id);
+    if (c) {
+      const inp = c.el.querySelector(".askin input");
+      if (inp) inp.focus();
+    }
+  }
+
+  function addCtx(id, text) {
+    const c = getCard(id);
+    if (!c) return;
+    const chip = document.createElement("div");
+    chip.className = "ctx";
+    chip.textContent = String(text);
+    const x = document.createElement("span");
+    x.className = "cx2";
+    x.textContent = "×";
+    x.addEventListener("click", () => chip.remove());
+    chip.append(" ", x);
+    c.body.appendChild(chip);
+  }
+
+  // ---- strip mode -------------------------------------------------------------
 
   function renderStrip() {
     if (!stripEl) return;
@@ -140,8 +594,8 @@
     for (const [id, c] of cards) {
       const m = document.createElement("div");
       m.className = "mark" + (c.el.classList.contains("open") ? " sel" : "");
-      m.style.background = c.markColor || "#eab308";
-      m.title = c.title || c.plugin || "card";
+      m.style.background = c.markColor || "#a8a29e";
+      m.title = miniTitle(c);
       m.addEventListener("click", () => focusCard(id));
       stripEl.appendChild(m);
     }
@@ -150,149 +604,13 @@
 
   function applyMode() {
     if (!host) return;
+    rail.classList.remove("expand");
     rail.style.display = mode === "strip" ? "none" : "flex";
     renderStrip();
     if (mode === "strip") {
-      // Strip mode parks every card; focusCard re-opens one as an overlay.
       for (const c of cards.values()) c.el.classList.remove("open");
     }
-  }
-
-  function mount(opts = {}) {
-    if (!enabled) return null;
-    ensureHost();
-    const id = "mc-" + ++cardSeq;
-    const el = document.createElement("div");
-    el.className = "card";
-    const head = document.createElement("div");
-    head.className = "head";
-    const plugin = document.createElement("span");
-    plugin.className = "plugin";
-    plugin.textContent = opts.plugin || "plugin";
-    const title = document.createElement("span");
-    title.className = "title";
-    title.textContent = opts.title || "";
-    const miniBtn = document.createElement("button");
-    miniBtn.textContent = "–";
-    miniBtn.title = "折叠";
-    miniBtn.addEventListener("click", () => {
-      el.classList.toggle("mini");
-      c.mini = el.classList.contains("mini");
-    });
-    const closeBtn = document.createElement("button");
-    closeBtn.textContent = "×";
-    closeBtn.title = "关闭";
-    closeBtn.addEventListener("click", () => close(id));
-    head.append(plugin, title, miniBtn, closeBtn);
-    el.appendChild(head);
-    if (opts.quote) {
-      const q = document.createElement("div");
-      q.className = "quote";
-      q.textContent = String(opts.quote).slice(0, 300);
-      el.appendChild(q);
-    }
-    const body = document.createElement("div");
-    body.className = "body";
-    el.appendChild(body);
-    const c = {
-      el, body, head,
-      title: opts.title || "",
-      plugin: opts.plugin || "",
-      mini: false,
-      markColor: opts.markColor || null,
-      chatId: opts.chatId || null,
-      texts: "",
-    };
-    if (c.markColor) el.style.setProperty("--ab-mc", c.markColor);
-    cards.set(id, c);
-    if (c.chatId) chatCards.set(c.chatId, id);
-    rail.appendChild(el);
-    // New card arrives → older cards fold to mini rows.
-    collapseOthers(id);
-    renderStrip();
-    return { id, el: body };
-  }
-
-  function collapseOthers(keepId) {
-    for (const [cid, c] of cards) {
-      if (cid !== keepId && !c.mini) {
-        c.el.classList.add("mini");
-        c.mini = true;
-      }
-    }
-  }
-
-  function getCard(id) {
-    const c = cards.get(String(id || ""));
-    return c || null;
-  }
-
-  function type(id, text) {
-    const c = getCard(id);
-    if (!c) return false;
-    c.texts += String(text);
-    c.body.textContent = c.texts;
-    c.body.classList.add("streaming");
-    return true;
-  }
-
-  function setText(id, text) {
-    const c = getCard(id);
-    if (!c) return false;
-    c.texts = String(text);
-    c.body.textContent = c.texts;
-    c.body.classList.remove("streaming");
-    return true;
-  }
-
-  function cardError(id, msg) {
-    const c = getCard(id);
-    if (!c) return;
-    c.body.classList.remove("streaming");
-    const e = document.createElement("div");
-    e.className = "err";
-    e.textContent = String(msg || "error").slice(0, 300);
-    c.el.appendChild(e);
-  }
-
-  function close(id) {
-    const c = getCard(id);
-    if (!c) return;
-    if (c.chatId) chatCards.delete(c.chatId);
-    c.el.remove();
-    cards.delete(String(id));
-    renderStrip();
-    if (!cards.size && host) {
-      host.remove();
-      host = null;
-    }
-  }
-
-  function focusCard(id) {
-    const c = getCard(id);
-    if (!c) return;
-    if (mode === "strip") {
-      // Expand as an overlay card sliding in from the right edge.
-      for (const o of cards.values()) o.el.classList.remove("open");
-      rail.style.display = "flex";
-      rail.classList.add("expand");
-      c.el.classList.add("open");
-      c.el.classList.remove("mini");
-      c.mini = false;
-      c.el.scrollIntoView({ block: "nearest" });
-      renderStrip();
-      return;
-    }
-    c.el.classList.remove("mini");
-    c.mini = false;
-    c.el.scrollIntoView({ block: "nearest", behavior: "smooth" });
-  }
-
-  function collapseAll() {
-    for (const c of cards.values()) {
-      c.el.classList.add("mini");
-      c.mini = true;
-    }
+    redrawLinks();
   }
 
   function setMode(m) {
@@ -309,33 +627,68 @@
   function ask(text, opts = {}) {
     const card = mount({
       plugin: opts.plugin || "ask",
-      title: opts.title || "问 AI",
+      title: opts.title || "",
       quote: opts.quote || (opts.selection && opts.selection.text),
       markColor: opts.markColor,
+      anchor: opts.anchor,
+      src: opts.src,
+      para: opts.para,
+      question: String(text || ""),
+      selection: opts.selection || null,
     });
     if (!card) return null;
-    card.el.classList.add("streaming");
+    const c = cards.get(card.id);
+    c.body.classList.add("typing");
+    sendAsk(c, String(text || ""), null);
+    return card;
+  }
+
+  function sendAsk(c, text, chatId) {
     chrome.runtime
       .sendMessage({
         target: "sw",
         cmd: "page_ask",
-        text: String(text || ""),
-        selection: opts.selection || undefined,
-        adapter: opts.adapter || undefined,
+        chatId: chatId || undefined,
+        text,
+        selection: c.selection || undefined,
+        adapter: undefined,
       })
       .then((r) => {
         if (r && r.success && r.chatId) {
-          chatCards.set(r.chatId, card.id);
-          cards.get(card.id).chatId = r.chatId;
+          if (!c.chatId) {
+            c.chatId = r.chatId;
+            chatCards.set(r.chatId, c.id);
+          }
         } else {
-          cardError(card.id, (r && r.error) || "page_ask failed");
+          cardError(c.id, (r && r.error) || "page_ask failed");
         }
       })
       .catch((err) => {
         logWarn("page_ask send failed", err);
-        cardError(card.id, err && err.message);
+        cardError(c.id, err && err.message);
       });
-    return card;
+  }
+
+  // Follow-up / retry: continue the card's existing pg- thread so the hub
+  // keeps conversational context; tokens keep streaming into the same card.
+  function followUp(c, text) {
+    if (!c.chatId) return;
+    c.texts += `\n\n› ${text}\n\n`;
+    c.body.textContent = c.texts;
+    c.body.classList.add("typing");
+    expand(c);
+    collapseAll(c.id);
+    sendAsk(c, text, c.chatId);
+  }
+
+  function retry(id) {
+    const c = getCard(id);
+    if (!c || !c.question) return;
+    c.texts = "";
+    skeleton(c.body);
+    c.body.classList.add("typing");
+    expand(c);
+    sendAsk(c, c.question, c.chatId);
   }
 
   function cardEvent(chatId, event) {
@@ -349,7 +702,8 @@
       type(cid, event.text || "");
     } else if (kind === "done") {
       const c = getCard(cid);
-      if (c) c.body.classList.remove("streaming");
+      if (c) c.body.classList.remove("typing");
+      redrawLinks();
     } else if (kind === "error") {
       cardError(cid, event.message);
     }
@@ -415,6 +769,7 @@
     document.documentElement.appendChild(readerStyle);
     setMode("reader");
     ensureHost();
+    updateCount();
     return {
       mode,
       hidden: hiddenEls.length,
@@ -430,7 +785,7 @@
       readerStyle = null;
     }
     readerMain = null;
-    if (mode === "reader") setMode(cards.size ? "compat" : "compat");
+    if (mode === "reader") setMode("compat");
     return { mode, restored: true };
   }
 
@@ -474,10 +829,15 @@
       error: cardError,
       close,
       focusCard,
+      hoverCard,
+      focusInput,
+      addCtx,
       collapseAll,
       ask,
       mode: () => mode,
       setMode,
+      active: () => activeId,
+      cardEl: (id) => (getCard(id) || {}).el || null,
       cards: () => cards.size,
     });
     P.registerPageTool("page_reader", pageReader);
