@@ -19,8 +19,8 @@
 const LAYER_ID = "agentbrowser-ann-layer";
 const SVG_NS = "http://www.w3.org/2000/svg";
 const STYLES = new Set(["underline", "highlight", "circle"]);
-const AGENT_COLOR = "#7c3aed"; // marks placed by the agent
-const USER_COLOR = "#d97706"; // reserved for marks the user places later
+const AGENT_COLOR = "#16a34a"; // agent marks — --ac-accent-pressed (hex: JS runs before CSS vars resolve)
+const USER_COLOR = "#b07817"; // reserved for marks the user places later — --ac-warn
 
 const annotations = new Map(); // id -> { data, spans:[Element], ellipse, card? }
 let seq = 0;

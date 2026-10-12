@@ -1,0 +1,72 @@
+/* AgentBrowser design tokens — the single source for every surface.
+   Consumers: side panel (link), hub admin (/admin/ac-tokens.css, served
+   from this file), page overlays (injected as a content script — the vars
+   land on the page's :root and inherit through shadow boundaries, so
+   shadow-DOM surfaces like margin cards and the notes sidebar consume
+   var(--ac-*) directly), plugin UIs (same mechanism).
+   Light is the product theme; keep token names stable, retune values here. */
+:root {
+  /* surfaces */
+  --ac-bg-0: #ffffff;
+  --ac-bg-1: #ffffff;
+  --ac-bg-2: #f4f7f5;
+  --ac-border: #dde5e0;
+  --ac-border-soft: #e7ede9;
+
+  /* text */
+  --ac-text: #1c2420;
+  --ac-text-secondary: #4d5b53;
+  --ac-text-muted: #77867d;
+
+  /* accent + status */
+  --ac-accent: #22c55e;
+  --ac-accent-hover: #2ee06d;
+  --ac-accent-pressed: #16a34a;
+  --ac-accent-tint: rgba(34, 197, 94, 0.13);
+  --ac-accent-tint-strong: rgba(34, 197, 94, 0.22);
+  --ac-on-accent: #ffffff;
+  --ac-success: #22c55e;
+  --ac-error: #dc2626;
+  --ac-error-bg: rgba(220, 38, 38, 0.08);
+  --ac-error-border: rgba(220, 38, 38, 0.32);
+  --ac-warn: #b07817;
+  --ac-warn-bg: rgba(176, 120, 23, 0.1);
+  --ac-warn-border: rgba(176, 120, 23, 0.32);
+  --ac-focus-ring: #22c55e;
+
+  /* type */
+  --ac-font: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  --ac-font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+    monospace;
+  --ac-font-features: "cv05" 1, "ss01" 1;
+  --ac-type-title: 600 16.5px/1.35 var(--ac-font);
+  --ac-type-body: 400 15px/1.6 var(--ac-font);
+  --ac-type-secondary: 400 13px/1.5 var(--ac-font);
+  --ac-type-code: 400 13px/1.55 var(--ac-font-mono);
+  --ac-type-micro: 500 11.5px/1.4 var(--ac-font);
+
+  /* spacing */
+  --ac-space-4: 4px;
+  --ac-space-8: 8px;
+  --ac-space-10: 10px;
+  --ac-space-12: 12px;
+  --ac-space-14: 14px;
+  --ac-space-16: 16px;
+  --ac-space-20: 20px;
+  --ac-space-24: 24px;
+
+  /* shape + elevation */
+  --ac-radius-control: 6px;
+  --ac-radius-card: 10px;
+  --ac-radius-pill: 999px;
+  --ac-shadow-card: 0 8px 24px rgba(16, 26, 21, 0.12);
+
+  /* motion */
+  --ac-dur-fast: 120ms;
+  --ac-dur-base: 200ms;
+  --ac-dur-exit: 400ms;
+  --ac-ease: cubic-bezier(0.2, 0, 0.2, 1);
+  --ac-ease-loop: ease-in-out;
+}

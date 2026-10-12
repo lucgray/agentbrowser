@@ -10,8 +10,8 @@
 // the caller crosses into the payload through JSON, and every label is written
 // with textContent, so a label can never become code.
 //
-// Colors follow agentchat/DESIGN.md section 2: #22c55e accent, #0b0f0d surface,
-// #dbe5df text, #9aa8a0 secondary. Motion follows section 6: 200ms in, 400ms
+// Colors consume the shared --ac-* tokens (extension/ui/ac-tokens.css lands on
+// the page :root via the manifest). Motion follows DESIGN.md section 6: 200ms in, 400ms
 // out, cubic-bezier(0.2, 0, 0.2, 1).
 
 export const OVERLAY_ROOT_ID = 'agentchat-overlay-root';
@@ -111,7 +111,7 @@ export function buildOverlayScript(action, detail) {
 
     var ID = D.id;
     var EASE = 'cubic-bezier(0.2,0,0.2,1)';
-    var ACCENT = '#22c55e';
+    var ACCENT = 'var(--ac-accent)';
     var FONT = '-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif';
 
     var reduce = false;
@@ -157,8 +157,8 @@ export function buildOverlayScript(action, detail) {
       border.setAttribute('data-agentchat', 'border');
       border.style.cssText =
         'position:fixed;left:0;top:0;right:0;bottom:0;' +
-        'border:2px solid rgba(34,197,94,0.55);' +
-        'box-shadow:inset 0 0 26px rgba(34,197,94,0.32);pointer-events:none;';
+        'border:2px solid var(--ac-accent-tint-strong);' +
+        'box-shadow:inset 0 0 26px var(--ac-accent-tint);pointer-events:none;';
       root.appendChild(border);
 
       // Status pill, bottom center.
@@ -167,16 +167,16 @@ export function buildOverlayScript(action, detail) {
       pill.style.cssText =
         'position:fixed;left:50%;bottom:24px;transform:translateX(-50%);' +
         'display:flex;align-items:center;gap:8px;max-width:92vw;' +
-        'padding:8px 14px;border-radius:999px;background:#0b0f0d;' +
-        'border:1px solid rgba(34,197,94,0.45);box-shadow:0 0 16px rgba(34,197,94,0.28);' +
-        'color:#dbe5df;font:600 14px/1.35 ' + FONT + ';white-space:nowrap;pointer-events:none;';
+        'padding:8px 14px;border-radius:999px;background:var(--ac-bg-0);border:1px solid var(--ac-border);box-shadow:var(--ac-shadow-card);' +
+        'border:1px solid var(--ac-accent-tint-strong);box-shadow:0 0 16px var(--ac-accent-tint);' +
+        'color:var(--ac-text);font:600 14px/1.35 ' + FONT + ';white-space:nowrap;pointer-events:none;';
 
       var NS = 'http://www.w3.org/2000/svg';
       var bolt = d.createElementNS(NS, 'svg');
       bolt.setAttribute('viewBox', '0 0 24 24');
       bolt.setAttribute('width', '14');
       bolt.setAttribute('height', '14');
-      bolt.setAttribute('fill', ACCENT);
+      bolt.style.fill = ACCENT;
       bolt.setAttribute('aria-hidden', 'true');
       var boltPath = d.createElementNS(NS, 'path');
       boltPath.setAttribute('d', 'M13 2 4.5 13.5H11L10 22l8.5-11.5H12L13 2z');
@@ -190,20 +190,20 @@ export function buildOverlayScript(action, detail) {
 
       var name = d.createElement('span');
       name.setAttribute('data-agentchat', 'name');
-      name.style.cssText = 'color:#dbe5df;font-weight:600;pointer-events:none;';
+      name.style.cssText = 'color:var(--ac-text);font-weight:600;pointer-events:none;';
       name.textContent = 'AgentBrowser';
       pill.appendChild(name);
 
       var sep = d.createElement('span');
       sep.setAttribute('data-agentchat', 'sep');
-      sep.style.cssText = 'color:#6f7d75;font-weight:400;pointer-events:none;';
+      sep.style.cssText = 'color:var(--ac-text-muted);font-weight:400;pointer-events:none;';
       sep.textContent = '\\u00b7';
       pill.appendChild(sep);
 
       var act = d.createElement('span');
       act.setAttribute('data-agentchat', 'action');
       act.style.cssText =
-        'color:#9aa8a0;font-weight:400;overflow:hidden;text-overflow:ellipsis;' +
+        'color:var(--ac-text-secondary);font-weight:400;overflow:hidden;text-overflow:ellipsis;' +
         'max-width:60vw;pointer-events:none;';
       pill.appendChild(act);
 
@@ -226,7 +226,7 @@ export function buildOverlayScript(action, detail) {
       ripple.style.cssText =
         'position:fixed;left:' + (D.x - 20) + 'px;top:' + (D.y - 20) + 'px;' +
         'width:40px;height:40px;border-radius:50%;border:2px solid ' + ACCENT + ';' +
-        'background:rgba(34,197,94,0.20);box-shadow:0 0 12px rgba(34,197,94,0.60);' +
+        'background:var(--ac-accent-tint-strong);box-shadow:0 0 12px var(--ac-accent-tint-strong);' +
         'pointer-events:none;animation:agentchat-ov-ripple 600ms ' + EASE + ' forwards;';
       root.appendChild(ripple);
       setTimeout(function () {
@@ -252,7 +252,7 @@ export function buildOverlayScript(action, detail) {
           'position:fixed;left:' + Math.round(rect.left + 10) + 'px;' +
           'top:' + Math.round(rect.top + (rect.height - h) / 2) + 'px;' +
           'width:2px;height:' + h + 'px;border-radius:1px;background:' + ACCENT + ';' +
-          'box-shadow:0 0 8px rgba(34,197,94,0.70);pointer-events:none;' +
+          'box-shadow:0 0 8px var(--ac-accent-tint-strong);pointer-events:none;' +
           'animation:agentchat-ov-caret 700ms ease-in-out 2;';
         root.appendChild(caret);
         setTimeout(function () {

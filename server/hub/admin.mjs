@@ -11,6 +11,8 @@ import { fileURLToPath } from "url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PAGE = readFileSync(path.join(__dirname, "admin.html"), "utf8");
 const LOGO = readFileSync(path.join(__dirname, "../../extension/icons/icon-128.png"));
+// shared design tokens — single source, also injected by the extension manifest
+const TOKENS_CSS = readFileSync(path.join(__dirname, "../../extension/ui/ac-tokens.css"), "utf8");
 const MAX_BODY = 256 * 1024;
 
 function json(res, code, obj) {
@@ -54,6 +56,11 @@ function readBody(req) {
 export function createAdminHandler(ctx) {
   return async function handle(req, res) {
     const url = new URL(req.url || "/", "http://localhost");
+    if (req.method === "GET" && url.pathname === "/admin/ac-tokens.css") {
+      res.writeHead(200, { "content-type": "text/css; charset=utf-8" });
+      res.end(TOKENS_CSS);
+      return;
+    }
     if (req.method === "GET" && url.pathname === "/admin/logo.png") {
       res.writeHead(200, { "content-type": "image/png", "cache-control": "public, max-age=86400" });
       res.end(LOGO);
