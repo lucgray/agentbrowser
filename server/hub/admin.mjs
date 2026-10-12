@@ -128,7 +128,10 @@ export function createAdminHandler(ctx) {
     }
 
     try {
-      if (url.pathname === "/admin/api/plugin") {
+      if (url.pathname === "/admin/api/remote") {
+        const r = await ctx.setRemote(body && typeof body === "object" ? body : {});
+        json(res, r && r.ok ? 200 : 400, r || { error: "empty result" });
+      } else if (url.pathname === "/admin/api/plugin") {
         const r = ctx.setPlugin(String(body.id || ""), body.enabled === true);
         json(res, r.ok ? 200 : 400, r);
       } else if (url.pathname === "/admin/api/translate") {

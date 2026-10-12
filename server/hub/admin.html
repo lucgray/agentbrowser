@@ -245,6 +245,31 @@ pre{background:#fafafa;border:1px solid var(--line);border-radius:10px;padding:1
   </div>
 </div>
 
+<div class="card wide" id="remote">
+  <div class="chead">
+    <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.5 3 14.5 0 18M12 3c-3 3.5-3 14.5 0 18"/></svg></div>
+    <div class="t">Remote access</div>
+    <div class="h" id="remote-status"></div>
+  </div>
+  <div class="cdesc">tailnet relay for off-machine AIs (grok bot etc.) — they connect as harness clients with the token URL; allowlists decide which tools/plugins are shared</div>
+  <div class="cbody">
+    <div class="row">
+      <label><input type="checkbox" id="remote-enabled"> enabled</label>
+      <label>port</label><input type="text" id="remote-port" style="width:60px">
+      <label>host</label><input type="text" id="remote-host" placeholder="auto = tailscale ip" style="width:150px">
+      <button id="save-remote">Save</button>
+      <button id="remote-regen" class="ghost">rotate token</button>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <label>allowTools</label><input type="text" id="remote-tools" placeholder="comma separated tool names" style="flex:1">
+    </div>
+    <div class="row" style="margin-top:8px">
+      <label>allowPlugins</label><input type="text" id="remote-plugins" placeholder="comma separated plugin ids" style="flex:1">
+    </div>
+    <div id="remote-url" style="margin-top:10px;font-family:monospace;font-size:11.5px;word-break:break-all"></div>
+  </div>
+</div>
+
 <div class="card wide">
   <div class="chead">
     <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg></div>
@@ -280,7 +305,7 @@ async function refresh() {
   $('status').className = 'status' + (n ? ' on' : '');
   $('status-txt').textContent = n ? `${n} browser${n > 1 ? 's' : ''} connected` : 'hub online · no browsers';
   $('hero-line').textContent = `adapter ${state.config.adapter || '?'} · ${(state.plugins || []).filter(p => p.enabled).length}/${(state.plugins || []).length} plugins enabled`;
-  renderBrowsers(); renderBackend(); renderKeys(); renderPlugins(); renderTranslate(); renderRaw(); renderNotes();
+  renderBrowsers(); renderBackend(); renderKeys(); renderPlugins(); renderTranslate(); renderRaw(); renderNotes(); renderRemote();
 }
 
 // --- notes library -----------------------------------------------------------
@@ -461,6 +486,38 @@ function renderTranslate() {
 }
 
 function renderRaw() { $('raw-config').value = JSON.stringify(state.config, null, 2); }
+
+function renderRemote() {
+  const r = state.remote || {};
+  const cfg = (state.config && state.config.remote) || {};
+  $('remote-status').textContent = r.running ? `ws://${r.host}:${r.port}` : (r.enabled ? 'enabled (not running)' : 'off');
+  $('remote-enabled').checked = !!r.enabled;
+  $('remote-port').value = cfg.port || r.port || 9011;
+  $('remote-host').value = cfg.host || '';
+  $('remote-tools').value = (r.allowTools || []).join(', ');
+  $('remote-plugins').value = (r.allowPlugins || []).join(', ');
+  $('remote-url').textContent = r.tokenSet
+    ? `remote clients use: ws://${r.host || "<tailscale ip>"}:${cfg.port || 9011}/?token=${r.token}`
+    : 'token generates on first enable';
+}
+
+const csv = (id) => $(id).value.split(',').map(s => s.trim()).filter(Boolean);
+$('save-remote').onclick = async () => {
+  const r = await api('remote', {
+    enabled: $('remote-enabled').checked,
+    port: Number($('remote-port').value) || 9011,
+    host: $('remote-host').value.trim() || 'auto',
+    allowTools: csv('remote-tools'),
+    allowPlugins: csv('remote-plugins'),
+  });
+  toast(r.error || (r.remote && r.remote.running ? 'relay running' : 'saved'));
+  refresh();
+};
+$('remote-regen').onclick = async () => {
+  const r = await api('remote', { regenerateToken: true });
+  toast(r.error || 'token rotated — old URLs revoked');
+  refresh();
+};
 
 $('save-backend').onclick = async () => {
   const r = await api('config', { adapter: $('adapter').value, model: $('model').value });

@@ -5,7 +5,7 @@ import {
   readFileSync, existsSync, mkdirSync, writeFileSync, rmSync, chmodSync,
   readdirSync, createReadStream, statSync
 } from "node:fs";
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import os from "node:os";
@@ -21,6 +21,7 @@ import {
   toolVisible
 } from "./plugins.mjs";
 import * as notes from "./notes.mjs";
+import { ensureRemoteToken, startRemote } from "../remote.mjs";
 import { createTranslator } from "./translate.mjs";
 import { loadCatalog } from "../adapters/model-catalog.mjs";
 import {
@@ -2338,6 +2339,7 @@ async function adminState() {
     translate: config.translate || {},
     translateProvider: await Promise.resolve(translator.provider()).catch(() => "free"),
     translateStats: translator.stats(),
+    remote: remoteStatus(),
     config,
     port: PORT,
   };
@@ -2373,8 +2375,87 @@ function setGeneralConfig(body) {
   return { ok: true };
 }
 
+// Remote relay lifecycle (v2.26): config.remote.enabled starts a tailnet
+// WS relay that lets off-machine AIs drive this browser through the harness
+// surface. The token is generated (and persisted) on first enable.
+let remoteHandle = null;
+async function applyRemoteConfig() {
+  const r = config.remote;
+  if (!r || r.enabled !== true) {
+    if (remoteHandle) {
+      try {
+        remoteHandle.close();
+      } catch (err) {
+        log("remote close failed:", err && err.message);
+      }
+      remoteHandle = null;
+      log("remote relay stopped");
+    }
+    return;
+  }
+  if (remoteHandle) return; // already running
+  const gen = ensureRemoteToken(config);
+  if (gen.generated) persistConfig();
+  const res = await startRemote(config, { hubUrl: `ws://127.0.0.1:${PORT}`, log });
+  if (res && res.ok) {
+    remoteHandle = res;
+    log(`remote relay up: ws://${res.host}:${res.port}`);
+  } else {
+    log("remote relay failed:", res && res.error);
+  }
+}
+
+// Admin wire for the remote section: {enabled, port, host, allowTools,
+// allowPlugins, regenerateToken}. Merges then applies; token regenerates
+// only on request (revoking every issued URL).
+async function setRemoteConfig(body) {
+  const r = { ...(config.remote || {}) };
+  for (const k of ["enabled", "port", "host", "allowTools", "allowPlugins"]) {
+    if (body[k] === undefined) continue;
+    r[k] = body[k];
+  }
+  if (r.enabled !== undefined && typeof r.enabled !== "boolean") {
+    return { ok: false, error: "remote.enabled must be a boolean" };
+  }
+  if (r.allowTools !== undefined && !Array.isArray(r.allowTools)) {
+    return { ok: false, error: "remote.allowTools must be an array" };
+  }
+  if (r.allowPlugins !== undefined && !Array.isArray(r.allowPlugins)) {
+    return { ok: false, error: "remote.allowPlugins must be an array" };
+  }
+  config.remote = r;
+  if (body.regenerateToken === true) {
+    config.remote.token = randomBytes(24).toString("base64url");
+    if (remoteHandle) {
+      remoteHandle.close();
+      remoteHandle = null;
+    }
+  }
+  persistConfig();
+  await applyRemoteConfig().catch((err) => log("remote apply failed:", err && err.message));
+  return { ok: true, remote: remoteStatus() };
+}
+
+function remoteStatus() {
+  const r = config.remote || {};
+  return {
+    enabled: r.enabled === true,
+    running: !!remoteHandle,
+    host: remoteHandle ? remoteHandle.host : null,
+    port: r.port || 9011,
+    allowTools: r.allowTools || [],
+    allowPlugins: r.allowPlugins || [],
+    tokenSet: typeof r.token === "string" && r.token.length >= 16,
+    // The admin surface is localhost-trusted like /admin/api/config, which
+    // already returns the whole config — showing the token here lets the
+    // page render the full connect URL.
+    token: r.token || null,
+  };
+}
+
 const adminHandler = createAdminHandler({
   state: adminState,
+  setRemote: (body) => setRemoteConfig(body || {}),
   setPlugin: (id, enabled) => {
     const r = setPluginEnabled(id, enabled);
     if (r.ok) broadcastCapabilities();
@@ -2468,6 +2549,7 @@ httpServer.on("error", (err) => {
 
 httpServer.listen(PORT, "127.0.0.1", () => {
   log("listening on ws://127.0.0.1:" + PORT + " (admin: http://127.0.0.1:" + PORT + "/admin)");
+  applyRemoteConfig().catch((err) => log("remote relay start failed:", err && err.message));
 });
 
 wss.on("connection", (ws) => {
