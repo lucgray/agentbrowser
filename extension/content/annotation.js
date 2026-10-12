@@ -52,25 +52,27 @@ function openConsentCard(req) {
   card.className = "ab-ann-card ab-consent-card";
 
   const head = document.createElement("div");
-  head.className = "ab-ann-card-head";
+  head.className = "ab-consent-head";
   head.textContent = "Agent wants to act";
+  const dom = document.createElement("span");
+  dom.className = "ab-consent-dom";
+  dom.textContent = `on ${String(req.domain || "")}`;
+  head.appendChild(dom);
   card.appendChild(head);
 
-  const body = document.createElement("div");
-  body.className = "ab-consent-body";
-  const strong = document.createElement("div");
-  strong.className = "ab-consent-tool";
-  strong.textContent = String(req.tool || "");
-  const detail = document.createElement("div");
-  detail.className = "ab-consent-summary";
-  detail.textContent = String(req.summary || "");
-  const domain = document.createElement("div");
-  domain.className = "ab-consent-domain";
-  domain.textContent = `on ${String(req.domain || "")}`;
-  body.appendChild(strong);
-  body.appendChild(detail);
-  body.appendChild(domain);
-  card.appendChild(body);
+  const call = document.createElement("div");
+  call.className = "ab-consent-call";
+  const tool = document.createElement("b");
+  tool.className = "ab-consent-tool";
+  const toolName = String(req.tool || "");
+  tool.textContent = toolName;
+  // summary typically opens by repeating the tool name ("click at (x, y)…")
+  // — drop the repeat so the call reads as one sentence.
+  let sum = String(req.summary || "");
+  if (toolName && sum.startsWith(toolName)) sum = sum.slice(toolName.length);
+  call.appendChild(tool);
+  call.appendChild(document.createTextNode(" " + sum.trim()));
+  card.appendChild(call);
 
   return new Promise((resolve) => {
     const timer = setTimeout(() => closeConsent("deny"), CONSENT_CARD_MS);
