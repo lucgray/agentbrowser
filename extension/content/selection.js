@@ -35,7 +35,7 @@ let lastRightClickContext = null; // compiled on contextmenu
 let lastRightClickElement = null;
 let floatingAskEnabled = true; // cached; kept in sync below
 let autoSelectionEnabled = true; // cached; panel 设置开关
-let floatTheme = "frost"; // cached; settings select
+let floatTheme = "ink"; // cached; settings select
 let spaceTrEnabled = false; // cached; settings checkbox — opt-in
 let yieldForeign = true; // cached; settings toggle — foreign overlays win
 let spaceRun = 0;
@@ -111,14 +111,14 @@ if (isContextValid()) {
     .get({
       [FLOAT_ASK_KEY]: true,
       [AUTO_SEL_KEY]: true,
-      [FLOAT_THEME_KEY]: "frost",
+      [FLOAT_THEME_KEY]: "ink",
       [SPACE_TR_KEY]: false,
       [YIELD_KEY]: true,
     })
     .then((r) => {
       floatingAskEnabled = r[FLOAT_ASK_KEY] !== false;
       autoSelectionEnabled = r[AUTO_SEL_KEY] !== false;
-      floatTheme = FLOAT_THEMES.has(r[FLOAT_THEME_KEY]) ? r[FLOAT_THEME_KEY] : "frost";
+      floatTheme = FLOAT_THEMES.has(r[FLOAT_THEME_KEY]) ? r[FLOAT_THEME_KEY] : "ink";
       spaceTrEnabled = r[SPACE_TR_KEY] === true;
       yieldForeign = r[YIELD_KEY] !== false;
     })
@@ -144,7 +144,7 @@ if (isContextValid()) {
     }
     if (FLOAT_THEME_KEY in changes) {
       const v = changes[FLOAT_THEME_KEY].newValue;
-      floatTheme = FLOAT_THEMES.has(v) ? v : "frost";
+      floatTheme = FLOAT_THEMES.has(v) ? v : "ink";
       applyTheme();
     }
   });

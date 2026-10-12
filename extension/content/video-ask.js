@@ -86,12 +86,12 @@ let lastContext = null;
 let dlPending = false;
 let dlDone = null;
 let lastPos = null; // last chip position — sub-pixel rewrites are jitter
-let floatTheme = "frost";
+let floatTheme = "ink";
 if (isContextValid()) {
   chrome.storage.local
-    .get({ [FLOAT_THEME_KEY]: "frost" })
+    .get({ [FLOAT_THEME_KEY]: "ink" })
     .then((r) => {
-      floatTheme = FLOAT_THEMES.has(r[FLOAT_THEME_KEY]) ? r[FLOAT_THEME_KEY] : "frost";
+      floatTheme = FLOAT_THEMES.has(r[FLOAT_THEME_KEY]) ? r[FLOAT_THEME_KEY] : "ink";
       for (const el of [btn, menu, toast, learn && learn.el]) {
         if (el) el.dataset.abtheme = floatTheme;
       }
@@ -100,7 +100,7 @@ if (isContextValid()) {
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== "local" || !(FLOAT_THEME_KEY in changes)) return;
     const v = changes[FLOAT_THEME_KEY].newValue;
-    floatTheme = FLOAT_THEMES.has(v) ? v : "frost";
+    floatTheme = FLOAT_THEMES.has(v) ? v : "ink";
     for (const el of [btn, menu, toast, learn && learn.el]) {
       if (el) el.dataset.abtheme = floatTheme;
     }
