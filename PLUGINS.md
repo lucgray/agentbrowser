@@ -185,3 +185,11 @@ UIs consume `var(--ac-*)` directly (`--ac-text`, `--ac-border`,
 hardcode chrome colors; only user-chosen categorical palettes (mark /
 highlight colors) keep literals. The `ink` float theme is a deliberate
 dark variant and keeps its own palette.
+
+A palette is the plugin's own asset: declare it in `plugin.json` as
+`ui.palette` (`{name: "#hex"}`) and optional `ui.paletteNames`
+(`{name: "label"}`). `describePlugins` ships the merged `ui` on the
+`plugins` frame; `plugin_state` answers `{enabled, ui}` so page-side code
+applies it (see notes.js / margin.js). Users pick their own colors via
+`config.plugins.<id>.ui.palette` — it merges per-key over the manifest's,
+so setting only `{"yellow": "#ffe58f"}` changes just that swatch.

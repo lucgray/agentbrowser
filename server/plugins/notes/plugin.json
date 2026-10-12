@@ -12,11 +12,23 @@
       "args": {
         "type": "object",
         "properties": {
-          "query": { "type": "string", "description": "Case-insensitive substring over title, content, tags, url." },
-          "tag": { "type": "string" },
-          "domain": { "type": "string" },
-          "url": { "type": "string" },
-          "limit": { "type": "number", "description": "Max results, 1-200, default 50." }
+          "query": {
+            "type": "string",
+            "description": "Case-insensitive substring over title, content, tags, url."
+          },
+          "tag": {
+            "type": "string"
+          },
+          "domain": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "number",
+            "description": "Max results, 1-200, default 50."
+          }
         },
         "required": []
       }
@@ -26,8 +38,14 @@
       "description": "Read one note in full — markdown content, tags, and collected page quotes (each quote carries the anchor that re-highlights it on the page).",
       "args": {
         "type": "object",
-        "properties": { "id": { "type": "string" } },
-        "required": ["id"]
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
       }
     },
     {
@@ -36,12 +54,29 @@
       "args": {
         "type": "object",
         "properties": {
-          "id": { "type": "string" },
-          "title": { "type": "string" },
-          "url": { "type": "string", "description": "Page the note belongs to — sets domain automatically." },
-          "domain": { "type": "string" },
-          "tags": { "type": "array", "items": { "type": "string" } },
-          "content": { "type": "string", "description": "Full markdown body (replaces existing)." }
+          "id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string",
+            "description": "Page the note belongs to — sets domain automatically."
+          },
+          "domain": {
+            "type": "string"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "content": {
+            "type": "string",
+            "description": "Full markdown body (replaces existing)."
+          }
         },
         "required": []
       }
@@ -52,10 +87,17 @@
       "args": {
         "type": "object",
         "properties": {
-          "id": { "type": "string" },
-          "text": { "type": "string" }
+          "id": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          }
         },
-        "required": ["id", "text"]
+        "required": [
+          "id",
+          "text"
+        ]
       }
     },
     {
@@ -64,14 +106,29 @@
       "args": {
         "type": "object",
         "properties": {
-          "id": { "type": "string" },
-          "text": { "type": "string" },
-          "url": { "type": "string" },
-          "prefix": { "type": "string" },
-          "suffix": { "type": "string" },
-          "anchor": { "type": "object" }
+          "id": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "prefix": {
+            "type": "string"
+          },
+          "suffix": {
+            "type": "string"
+          },
+          "anchor": {
+            "type": "object"
+          }
         },
-        "required": ["id", "text"]
+        "required": [
+          "id",
+          "text"
+        ]
       }
     },
     {
@@ -79,15 +136,41 @@
       "description": "Delete a note by id. Its quotes and tags go with it; pasted-image assets stay under ~/.agentchat/notes/assets/.",
       "args": {
         "type": "object",
-        "properties": { "id": { "type": "string" } },
-        "required": ["id"]
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
       }
     },
     {
       "name": "notes_stats",
       "description": "Notes store stats: {notes, quotes, tags, assets, bytes}. Answered by the hub — no tab needed.",
-      "args": { "type": "object", "properties": {}, "required": [] }
+      "args": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      }
     }
   ],
-  "prompt": "You have a page-notes plugin (local markdown notes under ~/.agentchat/notes/). Use it when the user wants to remember, collect, or organize findings on the web — prefer these tools over writing files elsewhere.\n\n- notes_list / note_get find and read notes; note_save creates or updates one (pass url of the page it belongs to so domain/tagging work); note_append adds a chunk without rewriting; note_delete removes.\n- When the user asks to 'save this', '记下来', or collect evidence from a page: note_quote attaches the exact text + source url (and DOM anchor when the page provides one) to a note — then confirm where it was saved.\n- The user can also take notes themselves in the in-page sidebar (right-edge handle or context menu) — their highlights and quotes land in the same store, so a note they started is readable via note_get.\n- Notes library lives on the admin page (http://127.0.0.1:9010/admin) — point the user there to browse cards by tag."
+  "prompt": "You have a page-notes plugin (local markdown notes under ~/.agentchat/notes/). Use it when the user wants to remember, collect, or organize findings on the web — prefer these tools over writing files elsewhere.\n\n- notes_list / note_get find and read notes; note_save creates or updates one (pass url of the page it belongs to so domain/tagging work); note_append adds a chunk without rewriting; note_delete removes.\n- When the user asks to 'save this', '记下来', or collect evidence from a page: note_quote attaches the exact text + source url (and DOM anchor when the page provides one) to a note — then confirm where it was saved.\n- The user can also take notes themselves in the in-page sidebar (right-edge handle or context menu) — their highlights and quotes land in the same store, so a note they started is readable via note_get.\n- Notes library lives on the admin page (http://127.0.0.1:9010/admin) — point the user there to browse cards by tag.",
+  "ui": {
+    "palette": {
+      "yellow": "#ffdb3c",
+      "green": "#8ce99a",
+      "blue": "#74c0fc",
+      "pink": "#faa2c1",
+      "purple": "#b197fc"
+    },
+    "paletteNames": {
+      "yellow": "黄",
+      "green": "绿",
+      "blue": "蓝",
+      "pink": "粉",
+      "purple": "紫"
+    }
+  }
 }

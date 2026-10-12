@@ -1639,3 +1639,20 @@ Remote relay: tailnet access for off-machine AIs.
 - **remote relay** (`server/remote.mjs`, `config.remote {enabled, host, port, token, allowTools, allowPlugins}`): a WS server bound to the tailscale IPv4 (default port 9011). Remote clients connect `ws://<tail-ip>:<port>/?token=<remote.token>`; the relay verifies the token, opens a `harness`-role client to `ws://127.0.0.1:PORT`, and pipes frames both ways. Hello roles other than `harness` are rejected; the remote's name is rewritten to `remote:<name>` for logging.
 - **sharing allowlist** — `allowTools` names core tools shared remotely; `allowPlugins` names plugins whose `extraTools` are shared. `tool_call`s outside the set get a `tool_result {ok:false, "tool not shared remotely"}` reply relay-side and never reach the hub. Discovery is rewritten too: `capabilities` frames get `plugins[]` clipped to shared plugins (each plugin's `tools` clipped to callable names) and a `tools` field injected carrying the real schemas of everything allowed (the frame never carries schemas — remotes get out-of-band-free discovery); `type:"plugins"` frames are filtered the same way.
 - **admin** — `POST /admin/api/remote {enabled?, port?, host?, allowTools?, allowPlugins?, regenerateToken?}` merges the section, persists config.json, and starts/stops the relay live; `GET /admin/api/state` reports `remote {enabled, running, host, port, allowTools, allowPlugins, token}` (localhost-trusted, same as `/admin/api/config`). Token auto-generates on first enable; `host: "auto"` resolves via `tailscale ip -4`.
+
+## protocol v2.27
+
+Plugin-owned UI config: palettes are a plugin's own asset, declared in its
+manifest and user-overridable — override, not migration.
+
+- `plugin.json` may carry `ui: {palette: {name: "#hex", ...}, paletteNames:
+  {name: "label", ...}, ...}` — the plugin's own cosmetics (notes' highlight
+  colors, margin's mark hues live there now).
+- `describePlugins` output gains `ui` (manifest `ui` merged with
+  `config.plugins.<id>.ui`; map fields like `palette` merge per-key, so a
+  user's `config.plugins.notes.ui.palette = {yellow: "#ffe58f"}` swaps just
+  that color — own palette where set, plugin's elsewhere). The merged `ui`
+  rides the `plugins` frame and `capabilities.plugins[]` like `tools` does.
+- `plugin_state` response gains `ui`: content asks
+  `{cmd:'plugin_state', id}` → `{enabled, ui}` and applies the palette it
+  finds — shipped literals stay only as the no-hub fallback.

@@ -898,6 +898,12 @@
       });
     });
     enabled = !!r.enabled;
+    if (r.ui && r.ui.palette) {
+      for (const k of Object.keys(r.ui.palette)) COLORS[k] = String(r.ui.palette[k]);
+    }
+    if (r.ui && r.ui.paletteNames) {
+      for (const k of Object.keys(r.ui.paletteNames)) COLOR_NAMES[k] = String(r.ui.paletteNames[k]);
+    }
     window.__abNotesEnabled = enabled; // selection.js hides note items when off
     return enabled;
   }

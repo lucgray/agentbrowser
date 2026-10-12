@@ -828,6 +828,9 @@
         cmd: "plugin_state",
         id: "margin",
       });
+      if (r && r.ui && r.ui.palette) {
+        for (const k of Object.keys(r.ui.palette)) MARK_HUES[k] = String(r.ui.palette[k]);
+      }
       return !!(r && r.enabled);
     } catch (err) {
       logWarn("plugin_state check failed", err);

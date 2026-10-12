@@ -14,14 +14,31 @@
         "properties": {
           "action": {
             "type": "string",
-            "enum": ["enter", "exit", "status"],
+            "enum": [
+              "enter",
+              "exit",
+              "status"
+            ],
             "description": "enter = hide non-main content and dock cards in the freed margin; exit = restore the page; status = current mode/card count."
           },
-          "tabId": { "type": "number", "description": "Target tab (defaults to the chat's current tab)." }
+          "tabId": {
+            "type": "number",
+            "description": "Target tab (defaults to the chat's current tab)."
+          }
         },
         "required": []
       }
     }
   ],
-  "prompt": "The margin plugin hosts answer cards on the page's right edge. Use page_reader(action:'enter') before long reading/analysis tasks so the page keeps only its main content; call 'exit' when done. Cards are created page-side by other plugins, not by tools."
+  "prompt": "The margin plugin hosts answer cards on the page's right edge. Use page_reader(action:'enter') before long reading/analysis tasks so the page keeps only its main content; call 'exit' when done. Cards are created page-side by other plugins, not by tools.",
+  "ui": {
+    "palette": {
+      "red": "#e27474",
+      "yellow": "#d9a514",
+      "blue": "#4a90d9",
+      "green": "#4cae5c",
+      "pink": "#e26a9e",
+      "purple": "#8f6fd8"
+    }
+  }
 }
