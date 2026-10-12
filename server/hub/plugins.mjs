@@ -60,6 +60,7 @@ function scanDir(dir, out, builtin) {
         prompt: String(m.prompt || ""),
         exposeTools: Array.isArray(m.exposeTools) ? m.exposeTools.map(String) : [],
         extraTools: Array.isArray(m.extraTools) ? m.extraTools : [],
+        ui: m.ui && typeof m.ui === "object" ? m.ui : {},
         enabled: m.enabled !== false, // manifest default: on
         builtin,
         dir: path.join(dir, e.name),
@@ -85,6 +86,23 @@ export function isEnabled(plugin, config) {
   return plugin.enabled;
 }
 
+// Plugin-owned UI config (v2.27): a plugin declares its own cosmetics in
+// manifest `ui` (e.g. `palette` name->color map for marks/highlights).
+// config.plugins.<id>.ui.<field> overrides per-field — for map fields like
+// palette the user's map merges per-key over the plugin's, so picking own
+// colors is an override, not a wholesale replacement.
+export function pluginUi(p, config) {
+  const over = (config && config.plugins && config.plugins[p.id] && config.plugins[p.id].ui) || {};
+  const out = { ...p.ui, ...over };
+  for (const k of Object.keys(out)) {
+    if (p.ui[k] && typeof p.ui[k] === "object" && !Array.isArray(p.ui[k])
+        && over[k] && typeof over[k] === "object" && !Array.isArray(over[k])) {
+      out[k] = { ...p.ui[k], ...over[k] };
+    }
+  }
+  return out;
+}
+
 // Public view for capabilities / admin surfaces.
 export function describePlugins(config) {
   return listPlugins().map((p) => ({
@@ -95,6 +113,7 @@ export function describePlugins(config) {
     enabled: isEnabled(p, config),
     builtin: p.builtin,
     tools: [...p.exposeTools, ...p.extraTools.map((t) => t && t.name).filter(Boolean)],
+    ui: pluginUi(p, config),
   }));
 }
 

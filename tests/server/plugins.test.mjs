@@ -13,6 +13,7 @@ import {
   hiddenToolNames,
   effectiveTools,
   toolVisible,
+  pluginUi,
 } from '../../server/hub/plugins.mjs';
 import { TOOLS } from '../../server/hub/tools.mjs';
 
@@ -154,6 +155,32 @@ test('malformed plugin.json is skipped, siblings still load', () => {
       const desc = describePlugins({});
       assert.ok(desc.some((p) => p.id === 'translate')); // builtin intact
       assert.equal(desc.some((p) => p.id === 'broken'), false);
+    });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('pluginUi: manifest palette ships on describePlugins; config merges per-key', () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'ab-plug-'));
+  try {
+    writePlugin(dir, 'marks', {
+      id: 'marks', name: 'Marks', enabled: true, prompt: '',
+      extraTools: [],
+      ui: { palette: { yellow: '#ff0', blue: '#00f' }, paletteNames: { yellow: 'Y' }, accent: 'green' },
+    });
+    withPluginDir(dir, () => {
+      const plain = describePlugins({}).find((p) => p.id === 'marks');
+      assert.equal(plain.ui.palette.yellow, '#ff0');
+      assert.equal(plain.ui.palette.blue, '#00f');
+      const cfg = { plugins: { marks: { ui: { palette: { yellow: '#ffe58f' }, accent: 'red' } } } };
+      const over = describePlugins(cfg).find((p) => p.id === 'marks');
+      // user's own color wins where set, plugin's survives elsewhere
+      assert.equal(over.ui.palette.yellow, '#ffe58f');
+      assert.equal(over.ui.palette.blue, '#00f');
+      assert.equal(over.ui.accent, 'red'); // scalar field replaces
+      assert.equal(over.ui.paletteNames.yellow, 'Y');
+      assert.deepEqual(pluginUi(listPlugins().find((p) => p.id === 'marks'), {}), plain.ui);
     });
   } finally {
     rmSync(dir, { recursive: true, force: true });

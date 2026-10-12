@@ -52,7 +52,7 @@
   // ---------------------------------------------------------------- styles
   var CSS = `
   .${HOST_CLASS}{display:block}
-  .ab-t-body{position:relative;font-size:.95em;color:#565c64;line-height:1.8;
+  .ab-t-body{position:relative;font-size:.95em;color:var(--ac-text-secondary);line-height:1.8;
     font-family:inherit}
   .ab-t-tag{display:none;position:absolute;font-size:10px;font-weight:600;
     letter-spacing:.6px;line-height:1;padding:3px 8px;border-radius:99px;
@@ -60,32 +60,32 @@
   .ab-t-mode-bilingual .ab-t-body{padding:1px 0 2px 14px}
   .ab-t-mode-bilingual .ab-t-body::before{content:"";position:absolute;left:0;
     top:5px;bottom:6px;width:2px;border-radius:2px;
-    background:linear-gradient(180deg,#8fa6ff 0%,#d7defa 100%)}
+    background:linear-gradient(180deg,var(--ac-accent-tint-strong) 0%,var(--ac-accent-tint) 100%)}
   .ab-t-mode-bilingual .${HOST_CLASS}{margin-top:.2em;margin-bottom:.4em}
-  .ab-t-mode-card .ab-t-body{background:#fff;border:1px solid #e5e8f2;
-    border-radius:12px;padding:14px 16px 13px;color:#3c4250;
+  .ab-t-mode-card .ab-t-body{background:var(--ac-bg-0);border:1px solid var(--ac-border);
+    border-radius:var(--ac-radius-card);padding:14px 16px 13px;color:var(--ac-text);
     box-shadow:0 2px 12px rgba(55,65,100,.07)}
   .ab-t-mode-card .ab-t-tag{display:inline-block;top:-7px;left:14px;
-    background:#4a6cf7;color:#fff;box-shadow:0 2px 6px rgba(74,108,247,.35)}
+    background:var(--ac-accent-pressed);color:var(--ac-on-accent);box-shadow:0 2px 6px var(--ac-accent-tint-strong)}
   .ab-t-mode-card .${HOST_CLASS}{margin-top:11px}
-  .ab-t-mode-dim.ab-src{color:#9aa0a6 !important}
+  .ab-t-mode-dim.ab-src{color:var(--ac-text-muted) !important}
   .ab-t-mode-replace.ab-src{display:none !important}
   .ab-t-loading{color:transparent !important;border:0 !important;padding:0 !important;
-    background:linear-gradient(90deg,#e8eaee 25%,#f4f5f8 50%,#e8eaee 75%) !important;
+    background:linear-gradient(90deg,var(--ac-bg-2) 25%,var(--ac-border-soft) 50%,var(--ac-bg-2) 75%) !important;
     background-size:200% 100% !important;animation:ab-shim 1.1s infinite;
     border-radius:6px;min-height:1.6em}
   @keyframes ab-shim{0%{background-position:200% 0}100%{background-position:-200% 0}}
   .ab-para-btn{position:absolute;z-index:2147483000;width:22px;height:22px;
-    border-radius:6px;border:1px solid #e4e6eb;background:#fff;color:#65676b;
+    border-radius:var(--ac-radius-control);border:1px solid var(--ac-border);background:var(--ac-bg-0);color:var(--ac-text-secondary);
     font-size:12px;line-height:20px;text-align:center;cursor:pointer;
     box-shadow:0 1px 4px rgba(0,0,0,.08);font-family:inherit;padding:0}
-  .ab-para-btn:hover{border-color:#4a6cf7;color:#4a6cf7}
-  .ab-para-btn.ab-on{border-color:#4a6cf7;color:#4a6cf7}
-  .ab-word-tip{position:fixed;z-index:2147483001;max-width:280px;background:#23262b;
-    color:#f2f3f5;border-radius:8px;padding:7px 11px;font-size:13px;
+  .ab-para-btn:hover{border-color:var(--ac-accent-pressed);color:var(--ac-accent-pressed)}
+  .ab-para-btn.ab-on{border-color:var(--ac-accent-pressed);color:var(--ac-accent-pressed)}
+  .ab-word-tip{position:fixed;z-index:2147483001;max-width:280px;background:var(--ac-text);
+    color:var(--ac-bg-0);border-radius:var(--ac-radius-control);padding:7px 11px;font-size:13px;
     line-height:1.5;box-shadow:0 6px 20px rgba(0,0,0,.22);pointer-events:none;
     font-family:inherit}
-  .ab-word-tip .w{font-weight:600;color:#8fa6ff;margin-right:6px}
+  .ab-word-tip .w{font-weight:600;color:var(--ac-accent-hover);margin-right:6px}
   span.abw{border-radius:3px}
   span.abw:hover{background:rgba(74,108,247,.16)}
   `;

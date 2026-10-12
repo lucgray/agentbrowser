@@ -173,3 +173,23 @@ anchors to the active card. `mount()` opts include `plugin`, `quote`,
 the card leftward). In-page asks ride the `pg-<tabId>-<n>` chat channel;
 replies stream onto the card, not the side panel, and a card's follow-up
 input continues the same pg- chat so the hub keeps thread context.
+
+## UI styling
+
+One design system for software and plugins alike: `extension/ui/ac-tokens.css`
+defines the `--ac-*` tokens (sage light neutrals, green accent, radius,
+type scale, shadow, motion). It is injected on the page `:root` by the
+manifest, so CSS custom properties inherit into every shadow DOM — plugin
+UIs consume `var(--ac-*)` directly (`--ac-text`, `--ac-border`,
+`--ac-accent`, `--ac-radius-card`, `--ac-shadow-card`, ...). Do not
+hardcode chrome colors; only user-chosen categorical palettes (mark /
+highlight colors) keep literals. The `ink` float theme is a deliberate
+dark variant and keeps its own palette.
+
+A palette is the plugin's own asset: declare it in `plugin.json` as
+`ui.palette` (`{name: "#hex"}`) and optional `ui.paletteNames`
+(`{name: "label"}`). `describePlugins` ships the merged `ui` on the
+`plugins` frame; `plugin_state` answers `{enabled, ui}` so page-side code
+applies it (see notes.js / margin.js). Users pick their own colors via
+`config.plugins.<id>.ui.palette` — it merges per-key over the manifest's,
+so setting only `{"yellow": "#ffe58f"}` changes just that swatch.

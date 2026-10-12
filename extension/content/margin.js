@@ -65,27 +65,28 @@
   const CSS = `
     :host {
       all: initial;
-      --ink: #1c1917; --mut: #78716c; --line: #e7e5e4;
-      --acc: #4f46e5; --acc-soft: #eef2ff;
+      /* aliases rebind to the shared --ac-* tokens (inherit through shadow DOM) */
+      --ink: var(--ac-text); --mut: var(--ac-text-muted); --line: var(--ac-border);
+      --acc: var(--ac-accent-pressed); --acc-soft: var(--ac-accent-tint);
     }
     .rail {
       position: fixed; top: 0; right: 0; z-index: 2147483645;
       width: ${RAIL_W}px; max-height: 100vh; overflow-y: auto;
-      border-left: 1px solid var(--line); background: #fbfaf9;
+      border-left: 1px solid var(--line); background: var(--ac-bg-2);
       padding: 16px 14px; box-sizing: border-box;
       font: 12.5px/1.55 ui-sans-serif, system-ui, sans-serif; color: var(--ink);
     }
-    .rail.expand { background: #fbfaf9f2; box-shadow: -8px 0 24px -12px rgba(28,25,23,.3); }
+    .rail.expand { background: color-mix(in srgb, var(--ac-bg-2) 96%, transparent); box-shadow: -8px 0 24px -12px rgba(16,26,21,.3); }
     .mhead { display: flex; align-items: center; gap: 7px; margin-bottom: 10px; }
     .mhead .t { font-weight: 700; font-size: 12px; letter-spacing: .06em; color: var(--mut); text-transform: uppercase; }
-    .mhead .pi { font-size: 10.5px; color: #a8a29e; border: 1px solid var(--line); border-radius: 99px; padding: 1px 8px; }
-    .mhead .mode { margin-left: auto; font-size: 10px; color: #a8a29e; cursor: pointer; border: 1px solid var(--line); border-radius: 99px; padding: 1px 8px; }
+    .mhead .pi { font-size: 10.5px; color: var(--ac-text-muted); border: 1px solid var(--line); border-radius: 99px; padding: 1px 8px; }
+    .mhead .mode { margin-left: auto; font-size: 10px; color: var(--ac-text-muted); cursor: pointer; border: 1px solid var(--line); border-radius: 99px; padding: 1px 8px; }
     .mhead .mode:hover { color: var(--ink); border-color: var(--mut); }
 
     .card {
-      background: #fff; border: 1px solid var(--line); border-radius: 12px;
+      background: var(--ac-bg-0); border: 1px solid var(--line); border-radius: var(--ac-radius-card);
       padding: 12px 13px; margin-bottom: 12px;
-      box-shadow: 0 1px 2px rgba(28,25,23,.05);
+      box-shadow: 0 1px 2px rgba(16,26,21,.05);
       animation: cardin .26s ease;
     }
     @keyframes cardin { from { opacity: 0; transform: translateY(9px); } }
@@ -93,23 +94,23 @@
     .card .chead { display: flex; align-items: center; gap: 6px; margin-bottom: 7px; }
     .card .chead .pi { font-size: 10.5px; font-weight: 600; color: var(--acc); background: var(--acc-soft); border-radius: 99px; padding: 1.5px 8px; }
     .card .chead .pc { font-size: 11px; color: var(--mut); }
-    .card .cx { margin-left: auto; color: #a8a29e; cursor: pointer; font-size: 13px; }
+    .card .cx { margin-left: auto; color: var(--ac-text-muted); cursor: pointer; font-size: 13px; }
     .card .cx:hover { color: var(--ink); }
     .card .qchip {
       display: block; border-left: 2px solid var(--mc, var(--acc));
-      padding: 1px 0 1px 9px; font-size: 12.5px; color: #44403c;
+      padding: 1px 0 1px 9px; font-size: 12.5px; color: var(--ac-text-secondary);
       margin: 4px 0 7px; max-height: 4.5em; overflow: hidden;
     }
     .card .cbody { font-size: 13px; white-space: pre-wrap; word-break: break-word; }
-    .card .cbody.typing { color: #8d8880; }
+    .card .cbody.typing { color: var(--ac-text-muted); }
     .card .cbody .sk {
       height: 9px; border-radius: 99px; margin: 7px 0;
-      background: linear-gradient(90deg, #f1efe9 25%, #e8e5e0 50%, #f1efe9 75%);
+      background: linear-gradient(90deg, var(--ac-bg-2) 25%, var(--ac-border-soft) 50%, var(--ac-bg-2) 75%);
       background-size: 200% 100%; animation: sk 1.1s infinite linear;
     }
     @keyframes sk { to { background-position: -200% 0; } }
     .card .cbody b, .card .cbody strong { background: rgba(250,164,164,.35); border-radius: 2px; padding: 0 1px; font-weight: 600; }
-    .card .err { color: #b91c1c; font-size: 12px; padding: 8px 0 0; }
+    .card .err { color: var(--ac-error); font-size: 12px; padding: 8px 0 0; }
     .card .ctx {
       display: inline-flex; align-items: center; gap: 5px; margin-top: 6px;
       background: var(--acc-soft); color: var(--acc);
@@ -123,16 +124,16 @@
       border: none; background: none; cursor: pointer;
       font-size: 12px; color: var(--mut); padding: 2px 5px; border-radius: 5px;
     }
-    .card .cfoot button:hover { background: #f5f4f2; }
+    .card .cfoot button:hover { background: var(--ac-bg-2); }
     .card .cfoot button.on { color: var(--acc); }
     .card .askin { display: flex; gap: 6px; margin-top: 8px; }
     .card .askin input {
-      flex: 1; border: 1px solid var(--line); border-radius: 8px;
+      flex: 1; border: 1px solid var(--line); border-radius: var(--ac-radius-control);
       padding: 6px 9px; font: 12.5px/1 ui-sans-serif, system-ui; outline: none;
     }
     .card .askin input:focus { border-color: var(--acc); }
     .card .askin button {
-      border: 1px solid var(--line); background: #fff; border-radius: 8px;
+      border: 1px solid var(--line); background: var(--ac-bg-0); border-radius: var(--ac-radius-control);
       cursor: pointer; color: var(--mut); padding: 0 9px; font-size: 12px;
     }
     .card .askin button:hover { color: var(--ink); border-color: var(--mut); }
@@ -142,7 +143,7 @@
     .card.mini .mini-t { font-size: 12px; font-weight: 600; }
     .card.mini .mini-t .pc { font-weight: 400; color: var(--mut); margin-left: 6px; font-size: 10.5px; }
     .card.mini .mini-x {
-      margin-top: 4px; font-size: 11.5px; color: #a8a29e;
+      margin-top: 4px; font-size: 11.5px; color: var(--ac-text-muted);
       display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
     }
 
@@ -150,10 +151,10 @@
       position: fixed; top: 20vh; right: 0; z-index: 2147483645;
       display: flex; flex-direction: column; gap: 3px;
       width: 12px; padding: 6px 0;
-      background: rgba(255,255,255,0.95);
+      background: color-mix(in srgb, var(--ac-bg-0) 95%, transparent);
       border: 1px solid var(--line); border-right: none;
-      border-radius: 6px 0 0 6px;
-      box-shadow: 0 4px 16px -4px rgba(28,25,23,.25);
+      border-radius: var(--ac-radius-control) 0 0 var(--ac-radius-control);
+      box-shadow: 0 4px 16px -4px rgba(16,26,21,.25);
     }
     .strip .mark {
       height: 26px; width: 6px; margin: 0 auto;
@@ -242,7 +243,7 @@
     for (const spec of c.anchors) {
       const p0 = anchorPoint(spec);
       if (!p0) continue;
-      const hue = c.markColor || "#bbb";
+      const hue = c.markColor || "#77867d"; // --ac-text-muted
       const p = document.createElementNS("http://www.w3.org/2000/svg", "path");
       p.setAttribute("d", `M ${p0.x} ${p0.y} C ${p0.x + 24} ${p0.y}, ${x4 - 30} ${y4}, ${x4} ${y4}`);
       p.setAttribute("stroke", hue);
@@ -283,7 +284,7 @@
     for (const el of anchorEls(c)) {
       if (on) {
         el._abMarginHover = el.style.outline;
-        el.style.outline = `2px solid ${c.markColor || "#bbb"}`;
+        el.style.outline = `2px solid ${c.markColor || "#77867d"}`;
       } else if (el._abMarginHover !== undefined) {
         el.style.outline = el._abMarginHover;
         delete el._abMarginHover;
@@ -610,7 +611,7 @@
     for (const [id, c] of cards) {
       const m = document.createElement("div");
       m.className = "mark" + (c.el.classList.contains("open") ? " sel" : "");
-      m.style.background = c.markColor || "#a8a29e";
+      m.style.background = c.markColor || "#77867d"; // --ac-text-muted
       m.title = miniTitle(c);
       m.addEventListener("click", () => focusCard(id));
       stripEl.appendChild(m);
@@ -827,6 +828,9 @@
         cmd: "plugin_state",
         id: "margin",
       });
+      if (r && r.ui && r.ui.palette) {
+        for (const k of Object.keys(r.ui.palette)) MARK_HUES[k] = String(r.ui.palette[k]);
+      }
       return !!(r && r.enabled);
     } catch (err) {
       logWarn("plugin_state check failed", err);

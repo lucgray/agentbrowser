@@ -799,9 +799,13 @@ const mediaDlTabs = new Map();
 // nothing is held open across the network hop.
 const noteOpTabs = new Map(); // reqId -> {tabId, timer}
 
-function pluginEnabled(id) {
+function pluginInfo(id) {
   const ps = (lastCapabilities && lastCapabilities.plugins) || [];
-  const p = ps.find((pl) => pl && pl.id === id);
+  return ps.find((pl) => pl && pl.id === id) || null;
+}
+
+function pluginEnabled(id) {
+  const p = pluginInfo(id);
   return !!(p && p.enabled);
 }
 
@@ -819,7 +823,8 @@ let pluginStateTimer = null;
 
 function pluginStateResponse(id, sendResponse) {
   if (lastCapabilities) {
-    sendResponse({ enabled: pluginEnabled(id) });
+    const p = pluginInfo(id) || {};
+    sendResponse({ enabled: pluginEnabled(id), ui: p.ui || {} });
     return;
   }
   // Queue even before hubConnected: a page loading while the SW sleeps
@@ -851,7 +856,10 @@ function handlePluginsList(payload) {
     pluginStateTimer = null;
   }
   const waits = pluginStateWaits.splice(0);
-  for (const w of waits) w.respond({ enabled: pluginEnabled(w.id) });
+  for (const w of waits) {
+    const p = pluginInfo(w.id) || {};
+    w.respond({ enabled: pluginEnabled(w.id), ui: p.ui || {} });
+  }
 }
 
 function handleNoteOpMessage(tabId, message) {

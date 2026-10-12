@@ -1,71 +1,11 @@
-/* AgentBrowser side panel. Every value here comes from agentchat/DESIGN.md; use a
-   token, not a literal. The exceptions are the per-component optical paddings
-   DESIGN.md section 4 licenses (5px 12px on a ghost button, 4px 10px in a table
-   cell) and the density-mandate values it fixes by name (10px 12px on pre). */
+/* AgentBrowser side panel. Every value here comes from the shared token file
+   extension/ui/ac-tokens.css (linked before this sheet) — use a token, not a
+   literal. The exceptions are the per-component optical paddings DESIGN.md
+   section 4 licenses (5px 12px on a ghost button, 4px 10px in a table cell)
+   and the density-mandate values it fixes by name (10px 12px on pre). */
 
 :root {
-  /* surface */
-  --ac-bg-0: #0b0f0d;
-  --ac-bg-1: #0f1512;
-  --ac-bg-2: #141c18;
-  --ac-border: #1f2b25;
-  --ac-border-soft: #17211c;
-
-  /* text */
-  --ac-text: #dbe5df;
-  --ac-text-secondary: #9aa8a0;
-  --ac-text-muted: #6f7d75;
-
-  /* accent */
-  --ac-accent: #22c55e;
-  --ac-accent-hover: #2ee06d;
-  --ac-accent-pressed: #16a34a;
-  --ac-accent-tint: rgba(34, 197, 94, 0.13);
-  --ac-accent-tint-strong: rgba(34, 197, 94, 0.22);
-  --ac-on-accent: #06210f;
-
-  /* state */
-  --ac-success: #22c55e;
-  --ac-error: #f87171;
-  --ac-error-bg: rgba(248, 113, 113, 0.12);
-  --ac-error-border: rgba(248, 113, 113, 0.4);
-  --ac-warn: #d9a441;
-  --ac-warn-bg: rgba(217, 164, 65, 0.12);
-  --ac-warn-border: rgba(217, 164, 65, 0.4);
-  --ac-focus-ring: #22c55e;
-
-  /* type */
-  --ac-font: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  --ac-font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
-  --ac-font-features: "cv05" 1, "ss01" 1;
-  --ac-type-title: 600 16.5px/1.35 var(--ac-font);
-  --ac-type-body: 400 15px/1.6 var(--ac-font);
-  --ac-type-secondary: 400 13px/1.5 var(--ac-font);
-  --ac-type-code: 400 13px/1.55 var(--ac-font-mono);
-  --ac-type-micro: 500 11.5px/1.4 var(--ac-font);
-
-  /* space */
-  --ac-space-4: 4px;
-  --ac-space-8: 8px;
-  --ac-space-10: 10px;
-  --ac-space-12: 12px;
-  --ac-space-14: 14px;
-  --ac-space-16: 16px;
-  --ac-space-20: 20px;
-  --ac-space-24: 24px;
-
-  /* shape */
-  --ac-radius-control: 6px;
-  --ac-radius-card: 10px;
-  --ac-radius-pill: 999px;
-  --ac-shadow-card: 0 8px 24px rgba(0, 0, 0, 0.55);
-
-  /* motion */
-  --ac-dur-fast: 120ms;
-  --ac-dur-base: 200ms;
-  --ac-dur-exit: 400ms;
-  --ac-ease: cubic-bezier(0.2, 0, 0.2, 1);
-  --ac-ease-loop: ease-in-out;
+  /* panel-only animation loop durations (not part of the shared tokens) */
   --ac-loop-mic: 1100ms;
   --ac-loop-status: 1600ms;
 }
@@ -95,27 +35,9 @@ body {
 
 /* No webfonts are available to an MV3 page, so the richer feel comes from the
    system faces themselves: the ui-* generics first, the stylistic sets the
-   modern system faces ship, and antialiased rendering. */
-/* The whole panel runs light: body re-declares the palette once and every
-   subtree, header included, inherits these lighter values. */
+   modern system faces ship, and antialiased rendering. The palette itself
+   comes from the shared ac-tokens.css — nothing is re-declared here. */
 body {
-  --ac-bg-0: #ffffff;
-  --ac-bg-1: #ffffff;
-  --ac-bg-2: #f4f7f5;
-  --ac-border: #dde5e0;
-  --ac-border-soft: #e7ede9;
-  --ac-text: #1c2420;
-  --ac-text-secondary: #4d5b53;
-  --ac-text-muted: #77867d;
-  --ac-error: #dc2626;
-  --ac-error-bg: rgba(220, 38, 38, 0.08);
-  --ac-error-border: rgba(220, 38, 38, 0.32);
-  --ac-warn: #b07817;
-  --ac-warn-bg: rgba(176, 120, 23, 0.1);
-  --ac-warn-border: rgba(176, 120, 23, 0.32);
-  --ac-on-accent: #ffffff;
-  --ac-shadow-card: 0 8px 24px rgba(16, 26, 21, 0.12);
-
   display: flex;
   flex-direction: column;
   min-width: 0;
@@ -170,7 +92,7 @@ img {
   min-width: 0;
   max-width: 200px;
   margin: 0 auto;
-  background: #ffffff;
+  background: var(--ac-bg-0);
   color: var(--ac-text);
   border: 1px solid var(--ac-border);
   border-radius: var(--ac-radius-pill);
@@ -1414,9 +1336,9 @@ button:disabled {
 
 /* Recording is not an agent state, so it must not read as accent green. */
 #mic.listening {
-  color: #fff;
-  background: #b91c1c;
-  border-color: #ef4444;
+  color: var(--ac-on-accent);
+  background: var(--ac-error);
+  border-color: var(--ac-error-border);
   animation: ac-mic-pulse var(--ac-loop-mic) var(--ac-ease-loop) infinite;
 }
 
