@@ -350,17 +350,18 @@
 
   // ---- selection actions -------------------------------------------------------
   // 🖌 高亮 = mark only; 📝 批注 = mark + open its annotation editor.
-  async function brushSelection(withNote) {
+  async function brushSelection(withNote, opts = {}) {
     const sel = getSelection();
-    if (!sel || sel.isCollapsed || !String(sel).trim()) return;
+    let range = opts.range || null;
+    if (!range && sel && !sel.isCollapsed && String(sel).trim()) range = sel.getRangeAt(0);
+    if (!range) return;
     if (!enabled) await checkEnabled();
     if (!enabled) return;
-    const range = sel.getRangeAt(0);
-    const text = String(sel).trim().slice(0, 4000);
+    const text = String(range).trim().slice(0, 4000);
     const anchor = anchorForRange(range);
     const meta = pageMeta();
     const r = await noteOp("mark_save", {
-      url: meta.url, text, anchor, color: curColor,
+      url: meta.url, text, anchor, color: COLORS[opts.color] ? opts.color : curColor,
     });
     if (r.__error || (r && r.error)) {
       toast("高亮失败: " + (r.__error || r.error));
@@ -368,7 +369,7 @@
     }
     const m = r.mark;
     marks.set(m.id, m);
-    sel.removeAllRanges();
+    if (sel && !opts.range) sel.removeAllRanges();
     try {
       paintMark(m);
     } catch (err) {
@@ -927,21 +928,61 @@
     if (area === "local" && chg[HANDLE_KEY]) syncHandle(!!chg[HANDLE_KEY].newValue);
   });
 
-  // Hooks selection.js ⋯menu calls (gated on plugin enabled):
-  //   🖌 brush (mark only) / 📝 annotate (mark + open its editor) / color picker
-  window.__abNoteBrush = () => brushSelection(false);
-  window.__abNoteAnnotate = () => brushSelection(true);
-  window.__abNoteSetColor = (c) => {
-    if (!COLORS[c]) return;
-    curColor = c;
-    localSet(COLOR_KEY, c);
-  };
-  window.__abNoteColor = () => curColor;
-  window.__abNoteColorNames = () => ({ ...COLORS });
-  window.__abNoteCollect = () => brushSelection(true); // legacy alias → annotate
+  // Plugin contract (v2.24): register toolbar slots on the shared bus and
+  // expose the marks engine as a service — AI annotation, 长难句 and other
+  // plugins reuse the same anchors/paints via __abPlugins.call('marks', ...).
+  function registerPlugin() {
+    const P = window.__abPlugins;
+    if (!P) return;
+    P.setToolbarActions("notes", [
+      { plugin: "notes", id: "hl", icon: "🖌", label: "高亮", run: () => brushSelection(false) },
+      { plugin: "notes", id: "annotate", icon: "📝", label: "批注", run: () => brushSelection(true) },
+      {
+        plugin: "notes", id: "color", kind: "palette", icon: "🎨", label: "高亮色 ",
+        colors: COLORS, get: () => curColor,
+        run: (c) => {
+          if (!COLORS[c]) return;
+          curColor = c;
+          localSet(COLOR_KEY, c);
+        },
+      },
+    ]);
+    P.provide("marks", {
+      // other plugins: paint the live selection or a range as a mark
+      paint: (range, opts = {}) =>
+        brushSelection(false, { color: opts.color, range }),
+      list: () => [...marks.values()],
+      get: (id) => marks.get(id) || null,
+      setNoted: (id) => {
+        const n = markNotes.get(id);
+        if (!n) markNotes.set(id, { id: null, markId: id, content: " " });
+        syncMarkDom(id);
+      },
+      remove: (id) => removeMarkById(id),
+      openAnnotation: (id) => {
+        showSidebar();
+        openEditor("mark", id);
+      },
+      colors: () => ({ ...COLORS }),
+    });
+  }
+
+  // removeMark is bound to the editor; this is the service-facing variant.
+  async function removeMarkById(mid) {
+    const r = await noteOp("mark_remove", { id: mid });
+    if (r.__error) return r;
+    unpaintMark(mid);
+    marks.delete(mid);
+    markNotes.delete(mid);
+    render();
+    return { deleted: mid };
+  }
 
   checkEnabled().then((on) => {
-    if (on) refreshMarks().catch((e) => logWarn("initial marks restore failed", e));
+    if (on) {
+      registerPlugin();
+      refreshMarks().catch((e) => logWarn("initial marks restore failed", e));
+    }
   });
 
   // ---- styles (kept inline so the sidebar survives sites that strip sheets) --

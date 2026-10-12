@@ -1609,3 +1609,14 @@ skill/SKILL.md to ~/.claude/skills and ~/.agents/skills (or --target dirs).
   noted mark gets a dashed outline + 📝 superscript and clicking it opens
   the annotation editor. Marks restore on load via `marks_for_url` —
   anchor-xpath first, then exact-text + prefix/suffix scan as a fallback.
+
+## protocol v2.24
+
+Plugin framework contract (content side):
+
+- `window.__abPlugins` (content/plugin-bus.js, injected before all other content scripts):
+  - `provide(ns, api)` / `has(ns)` / `call(ns, fn, ...args)` — cross-plugin service bus. `call` returns `null` on missing provider or throw (logged), never propagates.
+  - `registerToolbarAction({plugin,id,icon,label,run,kind})` / `setToolbarActions(plugin, list)` / `toolbarActions()` — selection-toolbar slots. `kind:"palette"` renders a color-dot row via selection.js's `menuPalette`.
+  - `toolbarEnabled("plugin:id")` — reads the `pluginToolbar` map in `chrome.storage.local`; default ON, explicit `false` hides the slot. Live via `storage.onChanged`.
+- Core bar/menu items are slots too: `core:ask`, `core:translate`, `core:copy`, `core:speak`, `core:dict`, `core:parse`. Context-menu submenu `划词条显示` (checkbox per slot, ids `pt-<plugin:id>`) writes the map — ASK itself is configurable, nothing on the floating bar is mandatory.
+- notes plugin registers `notes:hl` / `notes:annotate` / `notes:color`(palette) actions and provides the `marks` service: `paint(range,{color})`, `list()`, `get(id)`, `setNoted(id)`, `remove(id)`, `openAnnotation(id)`, `colors()` — other plugins (annotation, 长难句, AI ask) reuse the same anchors/paints instead of re-implementing highlights.
