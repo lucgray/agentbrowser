@@ -20,6 +20,7 @@ import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { WebSocket, WebSocketServer } from "ws";
 import { listPlugins } from "./hub/plugins.mjs";
+import { TOOLS } from "./hub/tools.mjs";
 
 const DEFAULT_REMOTE_PORT = 9011;
 const HELLO_TIMEOUT_MS = 10000;
@@ -68,16 +69,66 @@ export function remoteAllowedTools(config) {
   return allow;
 }
 
-// Rewrite a capabilities frame for the remote: tool schemas filtered to the
-// allowlist so an unshared tool is invisible, not just blocked.
+// Plugin ids a remote client may use — each contributes its extraTools.
+export function remoteAllowedPlugins(config) {
+  const r = (config && config.remote) || {};
+  return new Set(Array.isArray(r.allowPlugins) ? r.allowPlugins.map(String) : []);
+}
+
+// Schemas of everything the remote may call: allowed core tools plus the
+// extraTools of allowed plugins. Injected into capabilities as `tools` — the
+// frame never carries tool schemas, so this also gives remotes real
+// discovery instead of out-of-band name knowledge.
+export function remoteToolSchemas(config) {
+  const names = remoteAllowedTools(config);
+  const schemas = TOOLS.filter((t) => names.has(t.name));
+  const plugins = remoteAllowedPlugins(config);
+  for (const p of listPlugins()) {
+    if (!plugins.has(p.id)) continue;
+    for (const t of p.extraTools) {
+      if (t && typeof t === "object" && t.name) schemas.push(t);
+    }
+  }
+  return schemas;
+}
+
+// Plugin descriptors filtered for a remote: only shared plugins are listed,
+// and their `tools` is clipped to names the remote may actually call.
+function filterPluginList(list, allow) {
+  if (!Array.isArray(list)) return list;
+  return list
+    .filter((p) => p && allow.plugins.has(String(p.id)))
+    .map((p) => ({
+      ...p,
+      tools: (Array.isArray(p.tools) ? p.tools : []).filter((t) =>
+        allow.tools.has(String(t))
+      ),
+    }));
+}
+
+// Rewrite an upstream frame for the remote: unshared tools and plugins are
+// invisible, not just blocked. Handles `capabilities` (plugins list +
+// injected tools schemas) and `plugins` (plugins_list/plugin_set replies).
 export function filterCapabilities(msg, allow) {
   if (!msg || typeof msg !== "object") return msg;
-  const tools = Array.isArray(msg.tools) ? msg.tools : [];
+  if (msg.type === "plugins") {
+    return { ...msg, plugins: filterPluginList(msg.plugins, allow) };
+  }
+  if (msg.type !== "capabilities") return msg;
   return {
     ...msg,
-    tools: tools.filter(
-      (t) => t && typeof t === "object" && allow.has(String(t.name))
-    ),
+    tools: allow.schemas,
+    plugins: filterPluginList(msg.plugins, allow),
+  };
+}
+
+// The full allow spec for one remote connection (rebuilt per frame so admin
+// edits to config.remote apply live).
+function remoteAllow(config) {
+  return {
+    tools: remoteAllowedTools(config),
+    plugins: remoteAllowedPlugins(config),
+    schemas: remoteToolSchemas(config),
   };
 }
 
@@ -156,8 +207,8 @@ export function startRemote(config, { hubUrl, log = () => {} } = {}) {
       } catch {
         msg = null; // non-JSON upstream frame — pass through untouched
       }
-      if (msg && msg.type === "capabilities") {
-        const filtered = filterCapabilities(msg, remoteAllowedTools(config));
+      if (msg && (msg.type === "capabilities" || msg.type === "plugins")) {
+        const filtered = filterCapabilities(msg, remoteAllow(config));
         ws.send(JSON.stringify(filtered));
         return;
       }
