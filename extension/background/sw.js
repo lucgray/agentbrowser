@@ -390,6 +390,84 @@ async function cropShot(dataUrl, rect, viewport) {
   return { base64, size: out.size };
 }
 
+// --- content-script revive ---------------------------------------------------
+// Reloading the extension (unpacked reload or update) orphans the content
+// scripts already injected in open tabs: their chrome.* context dies, their
+// listeners self-remove on the next event, and the floating toolbar quietly
+// stops working until each page is refreshed. chrome.storage.session clears
+// on reload, so a missing flag marks this as the first wake of a fresh
+// load — ping every tab once and re-inject wherever no live script answers.
+
+const REVIVE_FLAG = 'contentScriptsRevived';
+const CONTENT_SCRIPTS = [
+  'content/plugin-bus.js',
+  'content/float-guard.js',
+  'content/selection.js',
+  'content/annotation.js',
+  'content/video-ask.js',
+  'content/notes.js',
+  'content/margin.js',
+];
+const CONTENT_STYLES = ['ui/ac-tokens.css', 'content/float-theme.css', 'content/annotation.css'];
+
+// The dead scripts' DOM mounts survive on the page — drop our fixed-id
+// floaters so the revived scripts mount one copy each. The annotation layer
+// is kept: annotation.js reuses it and its marks stay visible.
+async function reviveContentScripts() {
+  let tabs;
+  try {
+    tabs = await chrome.tabs.query({});
+  } catch (err) {
+    console.warn('[agentbrowser] revive: tab query failed', err);
+    return;
+  }
+  for (const tab of tabs) {
+    if (!tab.url || !/^https?:/.test(tab.url)) continue;
+    // A live listener resolves (value ignored); an orphaned or absent script
+    // rejects "Could not establish connection" — that is the probe result,
+    // not an error worth logging per tab.
+    const alive = await chrome.tabs
+      .sendMessage(tab.id, { type: 'agentbrowser_ping' })
+      .then(() => true)
+      .catch(() => false);
+    if (alive) continue;
+    try {
+      // Main frame only: a fresh navigation re-injects every frame through
+      // the manifest anyway, and per-frame failures make allFrames partial.
+      await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        func: () => {
+          for (const el of document.querySelectorAll("[id^='agentbrowser-']")) {
+            if (el.id === 'agentbrowser-ann-layer') continue;
+            el.remove();
+          }
+        },
+      });
+      await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        files: CONTENT_SCRIPTS,
+      });
+      await chrome.scripting.insertCSS({
+        target: { tabId: tab.id },
+        files: CONTENT_STYLES,
+      });
+    } catch (injectErr) {
+      console.warn('[agentbrowser] revive: injection failed for tab', tab.id, injectErr);
+    }
+  }
+}
+
+chrome.storage.session
+  .get({ [REVIVE_FLAG]: false })
+  .then((r) => {
+    if (r[REVIVE_FLAG]) return;
+    chrome.storage.session
+      .set({ [REVIVE_FLAG]: true })
+      .catch((err) => console.warn('[agentbrowser] revive flag write failed', err));
+    return reviveContentScripts();
+  })
+  .catch((err) => console.warn('[agentbrowser] revive flag read failed', err));
+
 // Writes only; opening the panel happens in the caller while the user gesture
 // is still live (sidePanel.open rejects outside a gesture).
 function deliverSelection(tabId, selection) {
