@@ -227,3 +227,11 @@ None for the stub-hub or shim paths. Real adapters need their provider keys/CLIs
 - Consent gate is **off unless `config.permissions`** is set — absent policy = remote writes execute instantly, no card. To verify the gate: add `permissions:{requireConsent:["click"]}` to config.json + hub restart; remote click then pends on the on-page "AGENT WANTS TO ACT" card.
 - The CLI's local schema table rejects plugin tool names — drive plugin `extraTools` (e.g. `page_reader`) with a **raw ws** `{type:'tool_call',tool:'page_reader'}` or `createHubClient.call()` directly, never the CLI binary.
 - This protocol's `capabilities` frame is `{adapters,commands,browsers,keys,panelConfig,plugins}` — **no `tools` array**. The v2.26 relay injects `tools` (allowed schemas) into its rewritten caps; pre-fix versions show `tools:[]` and leak unshared plugin tools via `plugins[]` — check both fields, not one.
+
+## Testing extension-reload / content-script revive paths
+
+- `--load-extension` Chrome with Developer Mode OFF: clicking reload on chrome://extensions DISABLES the extension entirely (SW + offscreen disappear from /json/list). Toggle "Developer mode" on first — the card regains a working reload arrow.
+- After a reload the service worker may self-wake instantly (offscreen reconnect/internal event) — don't assume a user gesture is required; poll /json/list for the `service_worker` target.
+- Inject state into a tab from an extension context via the SW target: attach CDP to `service_worker` and eval `chrome.tabs.sendMessage(tabId, {...})` — e.g. `{target:'annotation', cmd:'annotate', quote, style:'highlight'|'circle', author:'user'}` places real marks (circle creates `agentbrowser-ann-layer`; highlight only wraps `.ab-ann` spans).
+- Page-target CDP eval helper: pick `type:'page'` whose url startsWith http from /json/list; DOM asserts like `querySelectorAll("[id^=agentbrowser-]")` catch duplicate mounts.
+- `quote` for annotate must match page text exactly — grep the rendered text first or you get `{error:"quote not found"}`.
