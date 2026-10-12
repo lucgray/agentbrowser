@@ -19,6 +19,9 @@
 // 'margin' is enabled AND the first card mounts.
 
 (function () {
+  // Main frame only — page-ask events broadcast to every frame, and cards
+  // in ad iframes are useless weight + stray warnings anyway.
+  if (window.top !== window) return;
   const TAG = "[agentbrowser]";
   const HOST_ID = "agentbrowser-margin";
   const RAIL_W = 330;
@@ -254,9 +257,16 @@
     }
   }
 
-  window.addEventListener("scroll", redrawLinks, { passive: true, capture: true });
-  window.addEventListener("resize", redrawLinks);
-  setInterval(redrawLinks, 900); // streams shift layout — keep threads fresh
+  // Scroll/resize/heartbeat listeners install on first card mount — an
+  // enabled-but-unused plugin leaves no timers on the page.
+  let linksWatching = false;
+  function watchLinks() {
+    if (linksWatching) return;
+    linksWatching = true;
+    window.addEventListener("scroll", redrawLinks, { passive: true, capture: true });
+    window.addEventListener("resize", redrawLinks);
+    setInterval(redrawLinks, 900); // streams shift layout — keep threads fresh
+  }
 
   function anchorEls(c) {
     const els = [];
@@ -483,6 +493,7 @@
     box.appendChild(el);
     updateCount();
     renderStrip();
+    watchLinks();
     redrawLinks();
     return { id, el: body };
   }

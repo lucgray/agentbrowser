@@ -2372,7 +2372,7 @@ function emitChatEvent(chatId, event, browser) {
         cmd: 'event',
         chatId,
         event,
-      })
+      }, { frameId: 0 })
       .catch((err) => {
         console.warn('[agentbrowser] page-ask event delivery failed', err);
       });
