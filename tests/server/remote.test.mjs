@@ -8,10 +8,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 
-const require = createRequire(import.meta.url);
-const { WebSocket, WebSocketServer } = require(path.join(
-  os.homedir(), 'repos', 'agentbrowser', 'server', 'node_modules', 'ws'
-));
+// Resolve ws from this repo's server/node_modules — not from a hardcoded
+// absolute path, which only exists on the machine that wrote the test.
+const require = createRequire(new URL('../../server/package.json', import.meta.url));
+const { WebSocket, WebSocketServer } = require('ws');
 
 const {
   startRemote,
