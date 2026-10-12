@@ -137,3 +137,39 @@ page without touching code again.
 - `{type:"plugins_list"}` → `{type:"plugins", plugins:[{id,name,version,description,enabled,builtin,tools}]}`
 - The same array rides on `capabilities.plugins` for every panel.
 - `GET /admin/api/plugins` returns it over HTTP for non-extension clients.
+
+## Page-side tools (v2.25)
+
+An `extraTools` schema normally needs matching executor code in the
+extension. Page plugins skip that: the content module registers the
+function once —
+
+```js
+__abPlugins.registerPageTool('page_reader', (args) => ({ mode }));
+```
+
+and any `tool_call` the built-in table doesn't own is relayed to the tab's
+plugin bus (`{target:'plugins', cmd:'op'}`), where `callPageTool` answers
+with `{ok, result|error}`. No hub or service-worker changes per plugin;
+a disabled plugin's extraTools never reach the agent, so its handlers
+never run. Tools that don't need a live page (like the notes_* set) are
+still better answered on the hub — see `HUB_NOTES_TOOLS` for that pattern.
+
+## Margin card host
+
+`server/plugins/margin/` declares the opt-in `margin` plugin (default
+disabled). Its content module `extension/content/margin.js` provides the
+`margin` service — `mount()/type()/setText()/close()/focusCard()/
+hoverCard()/focusInput()/addCtx()/collapseAll()/ask()/setMode()` — a shared
+card surface other plugins stream answers into, styled after the demo's
+margin host: pill badge head + quote chip, skeleton→streamed body, foot
+actions (copy/retry/pin/delete), a per-card follow-up input, mini collapse
+rows (title + 2-line excerpt), and colored threads drawn from each card's
+anchors to the active card. `mount()` opts include `plugin`, `quote`,
+`anchor` (Element | Range | {x,y} | markId resolving `[data-mid]`), `para`,
+`src`, `markColor`. Display degrades by available space: `reader` (the
+`page_reader` tool hid non-main content), `compat` (fixed right-edge rail),
+`strip` (collapsed color markers on a thin right-edge strip, click expands
+the card leftward). In-page asks ride the `pg-<tabId>-<n>` chat channel;
+replies stream onto the card, not the side panel, and a card's follow-up
+input continues the same pg- chat so the hub keeps thread context.

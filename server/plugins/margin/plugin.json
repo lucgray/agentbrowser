@@ -1,0 +1,27 @@
+{
+  "id": "margin",
+  "name": "Margin card host",
+  "version": "1.0.0",
+  "description": "Shared card surface on the right edge of the page. Other plugins mount streaming answer cards via the 'margin' service; the page_reader tool lets an agent hide non-main content to enter a reading mode with a real margin. Disabled = zero DOM.",
+  "enabled": false,
+  "exposeTools": [],
+  "extraTools": [
+    {
+      "name": "page_reader",
+      "description": "Clean up the page for reading: hides everything outside the main content so the page gets a real right margin (enter), restores it (exit), or reports state (status). Answered on the page by the margin plugin.",
+      "args": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": ["enter", "exit", "status"],
+            "description": "enter = hide non-main content and dock cards in the freed margin; exit = restore the page; status = current mode/card count."
+          },
+          "tabId": { "type": "number", "description": "Target tab (defaults to the chat's current tab)." }
+        },
+        "required": []
+      }
+    }
+  ],
+  "prompt": "The margin plugin hosts answer cards on the page's right edge. Use page_reader(action:'enter') before long reading/analysis tasks so the page keeps only its main content; call 'exit' when done. Cards are created page-side by other plugins, not by tools."
+}

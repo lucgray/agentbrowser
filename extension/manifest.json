@@ -31,7 +31,8 @@
         "content/selection.js",
         "content/annotation.js",
         "content/video-ask.js",
-        "content/notes.js"
+        "content/notes.js",
+        "content/margin.js"
       ],
       "css": [
         "content/float-theme.css",

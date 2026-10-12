@@ -610,8 +610,36 @@ function populateMenu(m) {
   for (const a of P ? P.toolbarActions() : []) {
     const aid = a.plugin + ":" + a.id;
     if (!on(aid)) continue;
-    m.appendChild(a.kind === "palette" ? menuPalette(a) : menuAction(aid, a.icon, a.label, a.run));
+    m.appendChild(
+      a.kind === "palette" ? menuPalette(a)
+      : a.kind === "input" ? menuInput(a)
+      : menuAction(aid, a.icon, a.label, a.run)
+    );
   }
+}
+
+// 'input' slots (v2.25): a text field the plugin owns — Enter hands the text
+// plus the live selection context to run(text, ctx); Esc closes the menu.
+function menuInput(a) {
+  const row = document.createElement("div");
+  row.className = "ab-menu-item ab-menu-input";
+  row.appendChild(spEl("span", "ab-menu-ico", a.icon || "✎"));
+  const inp = document.createElement("input");
+  inp.type = "text";
+  inp.className = "ab-menu-inp";
+  inp.placeholder = a.label || "";
+  inp.addEventListener("mousedown", (e) => e.stopPropagation());
+  inp.addEventListener("keydown", (e) => {
+    e.stopPropagation();
+    if (e.key === "Enter" && inp.value.trim()) {
+      e.preventDefault();
+      const text = inp.value.trim();
+      hideMoreMenu();
+      a.run(text, { selection: currentSelectionContext });
+    }
+  });
+  row.appendChild(inp);
+  return row;
 }
 
 function createMoreMenu() {
@@ -1372,6 +1400,19 @@ async function handleAskClick(e) {
 
   if (!isContextValid() || !currentSelectionContext) return;
 
+  // Plugin override (v2.25): a provider of the 'ask' service owns the
+  // gesture — its run(ctx) returns anything but false to consume the click.
+  const P = window.__abPlugins;
+  if (P && P.has("ask")) {
+    const r = P.call("ask", "run", currentSelectionContext);
+    if (r !== false) {
+      suppressClearOnce = true;
+      window.getSelection().removeAllRanges();
+      hideButton();
+      return;
+    }
+  }
+
   try {
     const response = await chrome.runtime.sendMessage({
       target: "sw",
@@ -1533,8 +1574,35 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     ? currentSelectionContext
     : compileRangeContext(selection) || lastRightClickContext;
 
-  if (fresh) sendResponse({ success: true, selection: fresh });
-  else sendResponse({ success: false });
+  if (fresh) {
+    sendResponse({ success: true, selection: fresh });
+  } else {
+    // Nothing selected (v2.25): the default ask still gets a context — the
+    // whole tab's readable text, capped — so the Agent chat input opens
+    // with the page already attached.
+    const pageText = ((document.body && document.body.innerText) || "").trim().slice(0, 3000);
+    if (pageText) {
+      sendResponse({
+        success: true,
+        selection: {
+          text: pageText,
+          contentType: "text",
+          surroundingBefore: "",
+          surroundingAfter: "",
+          parentHeading: "",
+          semanticPath: "page",
+          codeBlock: null,
+          tableBlock: null,
+          pageUrl: window.location.href,
+          pageTitle: document.title,
+          isSelection: false,
+          pageContext: true,
+        },
+      });
+    } else {
+      sendResponse({ success: false });
+    }
+  }
   return true;
 });
 
