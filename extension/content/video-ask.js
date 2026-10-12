@@ -158,6 +158,9 @@ const BOOK_PATHS = [
 // Floating chip (fallback for players without a recognized control bar, and
 // for images). Clicking opens the menu rather than asking directly.
 function ensureButton() {
+  // Sites can sweep our node out of the DOM — re-mount instead of handing
+  // back a detached element the chip then silently dies on.
+  if (btn && btn.parentNode !== floatHost()) floatHost().appendChild(btn);
   if (btn) return btn;
   btn = document.createElement("div");
   btn.id = BTN_ID;
@@ -205,6 +208,18 @@ function hideButton() {
   lastPos = null;
 }
 
+// Hide the chip because its anchor is covered, but KEEP the hover state: the
+// scroll handler re-runs placeButton every relevant tick, so the chip
+// re-appears the moment the media uncovers without needing a fresh hover.
+function coverHide() {
+  clearHideTimer();
+  if (btn) {
+    btn.classList.remove("ab-show");
+    btn.style.display = "none";
+  }
+  lastPos = null;
+}
+
 function scheduleHide() {
   clearHideTimer();
   hideTimer = setTimeout(() => {
@@ -222,6 +237,37 @@ function pickMedia(target) {
     el = el.parentElement;
   }
   return null;
+}
+
+function ours(node) {
+  return !!(node && node.closest && node.closest("[id^='agentbrowser-']"));
+}
+
+// At this stack's point, is the media covered by foreign content? Pure
+// geometry, no per-site rules: the topmost non-AgentBrowser element is
+// harmless when it's the media itself, an ancestor, a descendant, or an
+// element lying entirely inside the media's rect (the player's own chrome —
+// captions, gradients, in-player controls). Anything extending outside the
+// rect — a sticky site header, an overlapping card — is a foreign cover.
+function mediaCovered(stack, el) {
+  let top = null;
+  for (const n of stack) {
+    if (!ours(n)) {
+      top = n;
+      break;
+    }
+  }
+  if (!top) return true;
+  if (top === el || top.contains(el) || el.contains(top)) return false;
+  const mr = el.getBoundingClientRect();
+  const tr = top.getBoundingClientRect();
+  const M = 4; // tolerance for borders / sub-pixel offsets
+  return (
+    tr.left < mr.left - M ||
+    tr.right > mr.right + M ||
+    tr.top < mr.top - M ||
+    tr.bottom > mr.bottom + M
+  );
 }
 
 // Ancestor-walk misses media covered by sibling overlays — YouTube parks an
@@ -253,7 +299,13 @@ function pickMediaAt(e) {
   // no chip; an uncovered img still hits via the ancestor walk above.
   for (const el of stack) {
     if (el.id && String(el.id).startsWith("agentbrowser-")) continue;
-    if (el.tagName === "VIDEO") return { el, kind: "video" };
+    // The stack can also contain a video hidden BENEATH foreign content —
+    // e.g. a player scrolled under x.com's sticky header. Anchoring there
+    // lands the chip on the header. Only videos whose point is actually
+    // visible (topmost is the video or its own chrome) qualify.
+    if (el.tagName === "VIDEO" && !mediaCovered(stack, el)) {
+      return { el, kind: "video" };
+    }
   }
   return null;
 }
@@ -418,6 +470,7 @@ function menuItem(iconPaths, text, onClick) {
 }
 
 function ensureMenu() {
+  if (menu && menu.parentNode !== floatHost()) floatHost().appendChild(menu);
   if (menu) return menu;
   menu = document.createElement("div");
   menu.id = MENU_ID;
@@ -556,7 +609,7 @@ document.addEventListener(
   (e) => {
     const hit = pickMediaAt(e);
     if (!hit) {
-      if (hoverEl && btn && btn.classList.contains("ab-show")) scheduleHide();
+      if (hoverEl) scheduleHide();
       return;
     }
     if (hit.kind === "video" && mountControlIcon(hit.el)) {
@@ -567,11 +620,18 @@ document.addEventListener(
       return;
     }
     clearHideTimer();
-    if (hit.el === hoverEl) return;
+    if (hit.el === hoverEl) {
+      // Cover-hidden chip: the media is hovered again — retry the anchor
+      // (its cover may have gone without any scroll event).
+      if (btn && !btn.classList.contains("ab-show") && !placeButton(hoverEl, hoverKind)) {
+        coverHide();
+      }
+      return;
+    }
     hoverEl = hit.el;
     hoverKind = hit.kind;
     hoverMode = "float";
-    if (!placeButton(hit.el, hit.kind)) hideButton();
+    if (!placeButton(hit.el, hit.kind)) coverHide();
   },
   true
 );
@@ -579,7 +639,7 @@ document.addEventListener(
 document.addEventListener(
   "mouseout",
   (e) => {
-    if (!pickMediaAt(e) && hoverEl && btn && btn.classList.contains("ab-show")) scheduleHide();
+    if (!pickMediaAt(e) && hoverEl) scheduleHide();
   },
   true
 );
@@ -598,7 +658,8 @@ addEventListener(
     const docScroll =
       t === document || t === document.documentElement || t === document.body;
     if (!docScroll && !(t && t.contains && t.contains(hoverEl))) return;
-    if (!hoverEl.isConnected || !placeButton(hoverEl, hoverKind)) hideButton();
+    if (!hoverEl.isConnected) hideButton();
+    else if (!placeButton(hoverEl, hoverKind)) coverHide();
   },
   true
 );
@@ -613,12 +674,31 @@ function placeButton(el, kind) {
   const minW = kind === "video" ? 120 : 80;
   const minH = 80;
   if (r.width < minW || r.height < minH) return false; // ignore thumbnails/icons
-  const b = ensureButton();
-  // Round to whole pixels: a streaming page can wobble the rect by a
-  // fraction of a pixel every scroll tick, and writing each wobble reads
-  // as the chip shaking.
+  // The ideal anchor can be covered while the media is still mostly visible —
+  // e.g. a video scrolled under x.com's sticky header pins the chip against
+  // the header, reading as a stray badge at the page corner. Anchor at the
+  // first point down the left edge the media actually owns; covered
+  // everywhere → hide.
   const left = Math.round(Math.max(4, r.left + 8));
-  const top = Math.round(Math.max(4, r.top + 8));
+  if (left > window.innerWidth - 28) return false;
+  let top = -1;
+  const hi = Math.min(r.bottom - 24, window.innerHeight - 28);
+  for (let y = Math.round(Math.max(4, r.top + 8)); y <= hi; y += 24) {
+    let stack;
+    try {
+      stack = document.elementsFromPoint(left + 10, y + 10);
+    } catch (err) {
+      logWarn("elementsFromPoint failed", err);
+      top = y;
+      break;
+    }
+    if (!mediaCovered(stack, el)) {
+      top = y;
+      break;
+    }
+  }
+  if (top < 0) return false;
+  const b = ensureButton();
   // Deadzone: identical/sub-pixel writes on every scroll event re-run layout
   // for nothing — and visible restarts of the pop-in transition read as
   // jitter at edges.
