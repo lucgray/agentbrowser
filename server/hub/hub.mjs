@@ -35,6 +35,8 @@ import {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.AGENTCHAT_PORT) || 9010;
+// Latest wire version — must match the last "## protocol vX.Y" in PROTOCOL.md.
+const PROTOCOL_VERSION = "2.27";
 const TOOL_TIMEOUT_MS = 60000;
 const SESSION_IDLE_MS = 30 * 60 * 1000;
 const SWEEP_INTERVAL_MS = 60 * 1000;
@@ -2376,6 +2378,7 @@ async function adminState() {
     remote: remoteStatus(),
     config,
     port: PORT,
+    version: PROTOCOL_VERSION,
   };
 }
 
