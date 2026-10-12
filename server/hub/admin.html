@@ -91,6 +91,32 @@ tr:last-child td{border-bottom:0}
 .adrow .l{color:var(--mut);flex:1}
 .adrow .st{font-size:11.5px;color:var(--mut)}
 
+/* notes */
+#ntags{display:flex;gap:6px;flex-wrap:wrap}
+.ntag{font-size:11.5px;padding:2px 10px;border:1px solid var(--line);border-radius:99px;color:var(--mut);cursor:pointer;background:#fff}
+.ntag.on{background:var(--acc-soft);border-color:var(--acc);color:var(--acc)}
+.ncard{display:inline-block;width:calc(33.3% - 8px);min-width:230px;vertical-align:top;margin:0 8px 10px 0;border:1px solid var(--line);border-radius:10px;padding:11px 12px;cursor:pointer;transition:border-color .15s}
+.ncard:hover{border-color:#c4c4cc}
+.ncard .nt{font-weight:600;font-size:13.5px;margin-bottom:3px}
+.ncard .ns{font-size:11.5px;color:var(--mut)}
+.ncard .nq2{margin-top:6px;font-size:12px;color:#555;border-left:3px solid #f0c869;padding-left:7px}
+@media(max-width:960px){.ncard{width:100%}}
+.nstat{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+.nsc{border:1px solid var(--line);border-radius:10px;padding:8px 14px;background:#fff;min-width:86px}
+.nsc b{display:block;font-size:17px}
+.nsc span{font-size:11px;color:var(--mut)}
+.nbars{display:flex;height:10px;border-radius:5px;overflow:hidden;margin:2px 0 10px;border:1px solid var(--line)}
+.nbars i{display:block;height:100%}
+.nmk{width:100%;border-collapse:collapse;font-size:12px;margin-bottom:12px}
+.nmk td,.nmk th{border-bottom:1px solid var(--line);padding:5px 7px;text-align:left;vertical-align:top}
+.nmk th{font-size:11px;color:var(--mut);font-weight:600}
+.nmk .dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:5px;vertical-align:middle}
+.nmk .mtxt{max-width:420px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.nmk .yes{color:#4f46e5;font-weight:600}
+.nmk .no{color:#aaa}
+#nview{margin-top:6px}
+#nview pre{max-height:320px}
+
 /* plugins */
 .plug{display:flex;justify-content:space-between;gap:16px;padding:14px 0;border-bottom:1px solid #f4f4f5}
 .plug:first-child{padding-top:2px}
@@ -200,6 +226,25 @@ pre{background:#fafafa;border:1px solid var(--line);border-radius:10px;padding:1
   </div>
 </div>
 
+<div class="card wide" id="notes">
+  <div class="chead">
+    <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h13a3 3 0 0 1 3 3v13H7a3 3 0 0 1-3-3z"/><path d="M4 4a3 3 0 0 1 3-3h13v13"/></svg></div>
+    <div class="t">Notes</div>
+    <div class="h" id="notes-stats"></div>
+  </div>
+  <div class="cdesc">page notes collected by the notes plugin — sidebar quotes, markdown bodies, tags</div>
+  <div class="cbody">
+    <div class="row" style="margin-bottom:10px">
+      <input type="text" id="nq" placeholder="search title / body / domain" style="width:220px">
+      <div id="ntags"></div>
+    </div>
+    <div id="nstat"></div>
+    <div id="nmarks"></div>
+    <div id="nlist"></div>
+    <div id="nview"></div>
+  </div>
+</div>
+
 <div class="card wide">
   <div class="chead">
     <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg></div>
@@ -235,7 +280,96 @@ async function refresh() {
   $('status').className = 'status' + (n ? ' on' : '');
   $('status-txt').textContent = n ? `${n} browser${n > 1 ? 's' : ''} connected` : 'hub online · no browsers';
   $('hero-line').textContent = `adapter ${state.config.adapter || '?'} · ${(state.plugins || []).filter(p => p.enabled).length}/${(state.plugins || []).length} plugins enabled`;
-  renderBrowsers(); renderBackend(); renderKeys(); renderPlugins(); renderTranslate(); renderRaw();
+  renderBrowsers(); renderBackend(); renderKeys(); renderPlugins(); renderTranslate(); renderRaw(); renderNotes();
+}
+
+// --- notes library -----------------------------------------------------------
+let nTagFilter = '';
+async function renderNotes() {
+  const r = await api('notes?marks=1' + (nTagFilter ? '&tag=' + encodeURIComponent(nTagFilter) : '') +
+    ($('nq').value ? '&q=' + encodeURIComponent($('nq').value) : ''));
+  if (r.error) { $('nlist').innerHTML = `<span class="sub">${esc(r.error)}</span>`; return; }
+  const s = r.stats || {};
+  $('notes-stats').textContent = `${s.notes || 0} notes · ${s.quotes || 0} quotes · ${s.tags || 0} tags · ${s.marks || 0} marks`;
+  renderNStats(s);
+  renderNMarks(r.marks || []);
+  const tagBox = $('ntags');
+  tagBox.innerHTML = '';
+  for (const t of r.tags || []) {
+    const c = document.createElement('span');
+    c.className = 'ntag' + (nTagFilter === t.tag ? ' on' : '');
+    c.textContent = `#${t.tag} ${t.count}`;
+    c.onclick = () => { nTagFilter = nTagFilter === t.tag ? '' : t.tag; renderNotes(); };
+    tagBox.appendChild(c);
+  }
+  const box = $('nlist'); box.innerHTML = '';
+  for (const n of r.notes || []) {
+    const card = document.createElement('div'); card.className = 'ncard';
+    card.innerHTML = `<div class="nt">${n.markId ? '📌 ' : ''}${esc(n.title || '(untitled)')}</div>
+      <div class="ns">${esc(n.domain || '')} · ${new Date(n.updated || n.created || 0).toLocaleDateString()} · ${n.quoteCount || 0} quotes${n.markId ? ' · 高亮批注' : ''}</div>
+      <div class="ns">${(n.tags || []).map(t => '#' + esc(t)).join(' ')}</div>`;
+    card.onclick = () => viewNote(n.id);
+    box.appendChild(card);
+  }
+  if (!(r.notes || []).length) box.innerHTML = '<span class="sub">No notes yet — select text on a page and use ⋯ → 🖌高亮 / 📝批注, or ask the agent to take a note.</span>';
+}
+let nViewId = null;
+async function viewNote(id) {
+  if (nViewId === id) { nViewId = null; $('nview').innerHTML = ''; return; }
+  nViewId = id;
+  const r = await api('notes?id=' + encodeURIComponent(id));
+  if (r.error) { toast(r.error); return; }
+  const n = r.note;
+  const v = $('nview'); v.innerHTML = '';
+  const bar = document.createElement('div'); bar.className = 'row'; bar.style.margin = '10px 0';
+  const ex = document.createElement('a'); ex.href = '/admin/api/notes/export?id=' + encodeURIComponent(id);
+  const exb = document.createElement('button'); exb.className = 'ghost'; exb.textContent = 'export .md'; ex.appendChild(exb);
+  const del = document.createElement('button'); del.className = 'ghost'; del.textContent = 'delete';
+  del.onclick = async () => { const d = await api('notes', { op: 'delete', id }); toast(d.error || 'deleted'); nViewId = null; v.innerHTML = ''; renderNotes(); };
+  bar.append(ex, del); v.appendChild(bar);
+  const pre = document.createElement('pre');
+  pre.textContent = `# ${n.title}\n${n.url}\ntags: ${(n.tags || []).join(', ')}\n\n${n.content || '(empty)'}` +
+    ((n.quotes || []).length ? `\n\n## quotes\n${n.quotes.map(q => `> ${q.text}`).join('\n')}` : '');
+  v.appendChild(pre);
+}
+$('nq').oninput = () => { clearTimeout($('nq')._t); $('nq')._t = setTimeout(renderNotes, 300); };
+
+const MARK_COLORS = { yellow: '#ffdb3c', green: '#8ce99a', blue: '#74c0fc', pink: '#faa2c1', purple: '#b197fc' };
+function renderNStats(s) {
+  const box = $('nstat'); box.innerHTML = '';
+  const cells = [
+    [s.notes || 0, 'notes'], [s.marks || 0, 'marks'], [s.marksNoted || 0, '批注'],
+    [s.quotes || 0, 'quotes'], [s.tags || 0, 'tags'], [s.assets || 0, 'assets'],
+  ];
+  for (const [v, k] of cells) {
+    const c = document.createElement('div'); c.className = 'nsc';
+    c.innerHTML = `<b>${v}</b><span>${k}</span>`; box.appendChild(c);
+  }
+  if (s.colorCounts && s.marks) {
+    const bars = document.createElement('div'); bars.className = 'nbars';
+    bars.style.width = '100%';
+    for (const [c, hex] of Object.entries(MARK_COLORS)) {
+      const w = (s.colorCounts[c] || 0) / s.marks * 100;
+      if (w > 0) { const i = document.createElement('i'); i.style.cssText = `width:${w}%;background:${hex}`; bars.appendChild(i); }
+    }
+    box.appendChild(bars);
+  }
+}
+function renderNMarks(marks) {
+  const box = $('nmarks'); box.innerHTML = '';
+  if (!marks.length) return;
+  const tb = document.createElement('table'); tb.className = 'nmk';
+  tb.innerHTML = '<tr><th>color</th><th>highlight</th><th>page</th><th>批注</th><th>time</th></tr>';
+  for (const m of marks.slice(0, 200)) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td><span class="dot" style="background:${MARK_COLORS[m.color] || '#ddd'}"></span>${esc(m.color)}</td>
+      <td><div class="mtxt">${esc(m.text)}</div></td>
+      <td>${esc(m.domain || '')}</td>
+      <td class="${m.noted ? 'yes' : 'no'}">${m.noted ? '📝 已批注' : '—'}</td>
+      <td>${new Date(m.ts).toLocaleDateString()}</td>`;
+    tb.appendChild(tr);
+  }
+  box.appendChild(tb);
 }
 
 function renderBrowsers() {

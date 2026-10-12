@@ -1,0 +1,93 @@
+{
+  "id": "notes",
+  "name": "Page notes (pipebox-style)",
+  "version": "1.0.0",
+  "description": "Local page-notes workspace: a markdown sidebar on any page, selection highlights collected as anchored quotes, a card+tag notes library on the admin page, and note_* tools agents can write to. Notes live in ~/.agentchat/notes/ — no cloud account.",
+  "enabled": true,
+  "exposeTools": [],
+  "extraTools": [
+    {
+      "name": "notes_list",
+      "description": "List saved notes (summaries, newest first). Filter by query (title/content/tag/url substring), tag, domain, or exact page url. Answered by the hub — no tab needed.",
+      "args": {
+        "type": "object",
+        "properties": {
+          "query": { "type": "string", "description": "Case-insensitive substring over title, content, tags, url." },
+          "tag": { "type": "string" },
+          "domain": { "type": "string" },
+          "url": { "type": "string" },
+          "limit": { "type": "number", "description": "Max results, 1-200, default 50." }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "note_get",
+      "description": "Read one note in full — markdown content, tags, and collected page quotes (each quote carries the anchor that re-highlights it on the page).",
+      "args": {
+        "type": "object",
+        "properties": { "id": { "type": "string" } },
+        "required": ["id"]
+      }
+    },
+    {
+      "name": "note_save",
+      "description": "Create a note or update fields of an existing one. Pass id to update (title/url/domain/tags/content — only provided fields change); omit id to create. Content is markdown; {id, title, url, tags, content} are stored and the full note is returned.",
+      "args": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "title": { "type": "string" },
+          "url": { "type": "string", "description": "Page the note belongs to — sets domain automatically." },
+          "domain": { "type": "string" },
+          "tags": { "type": "array", "items": { "type": "string" } },
+          "content": { "type": "string", "description": "Full markdown body (replaces existing)." }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "note_append",
+      "description": "Append a markdown chunk to an existing note (blank-line separated). Use for adding findings, exports, or summaries to a note without rewriting it.",
+      "args": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "text": { "type": "string" }
+        },
+        "required": ["id", "text"]
+      }
+    },
+    {
+      "name": "note_quote",
+      "description": "Attach a page quote to a note — the text plus optional source url and a serialized DOM anchor ({xpath,start,end}) so the page sidebar can re-highlight it. This is how 'collect this selection' records evidence.",
+      "args": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "text": { "type": "string" },
+          "url": { "type": "string" },
+          "prefix": { "type": "string" },
+          "suffix": { "type": "string" },
+          "anchor": { "type": "object" }
+        },
+        "required": ["id", "text"]
+      }
+    },
+    {
+      "name": "note_delete",
+      "description": "Delete a note by id. Its quotes and tags go with it; pasted-image assets stay under ~/.agentchat/notes/assets/.",
+      "args": {
+        "type": "object",
+        "properties": { "id": { "type": "string" } },
+        "required": ["id"]
+      }
+    },
+    {
+      "name": "notes_stats",
+      "description": "Notes store stats: {notes, quotes, tags, assets, bytes}. Answered by the hub — no tab needed.",
+      "args": { "type": "object", "properties": {}, "required": [] }
+    }
+  ],
+  "prompt": "You have a page-notes plugin (local markdown notes under ~/.agentchat/notes/). Use it when the user wants to remember, collect, or organize findings on the web — prefer these tools over writing files elsewhere.\n\n- notes_list / note_get find and read notes; note_save creates or updates one (pass url of the page it belongs to so domain/tagging work); note_append adds a chunk without rewriting; note_delete removes.\n- When the user asks to 'save this', '记下来', or collect evidence from a page: note_quote attaches the exact text + source url (and DOM anchor when the page provides one) to a note — then confirm where it was saved.\n- The user can also take notes themselves in the in-page sidebar (right-edge handle or context menu) — their highlights and quotes land in the same store, so a note they started is readable via note_get.\n- Notes library lives on the admin page (http://127.0.0.1:9010/admin) — point the user there to browse cards by tag."
+}

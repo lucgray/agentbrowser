@@ -187,6 +187,18 @@
 }
 #agentbrowser-sel-menu[data-abtheme="paper"] .ab-menu-item:hover { background: rgba(28, 25, 23, 0.06) !important; }
 
+/* Notes highlight color row: palette that selects without firing an action */
+#agentbrowser-sel-menu .ab-menu-colors { cursor: default; }
+#agentbrowser-sel-menu .ab-menu-colors:hover { background: transparent !important; }
+#agentbrowser-sel-menu .ab-swatch {
+  all: unset;
+  width: 14px; height: 14px; border-radius: 50%;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  cursor: pointer; flex: none; box-sizing: border-box;
+}
+#agentbrowser-sel-menu .ab-swatch.sel { outline: 2px solid #333; outline-offset: 1px; }
+#agentbrowser-sel-menu[data-abtheme="ink"] .ab-swatch.sel { outline-color: #e7e5e4; }
+
 #agentbrowser-sel-vocab-chip {
   all: initial;
   position: absolute;

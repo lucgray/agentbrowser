@@ -561,6 +561,14 @@ function createMoreMenu() {
     ["📖", "词典", () => openPopupWith("dict")],
     ["🧩", "长难句", () => openPopupWith("parse")],
   ];
+  // Notes plugin hooks: notes.js registers __abNoteBrush/__abNoteAnnotate; only
+  // show the items when the plugin resolved as enabled (disabled = dead buttons).
+  const notesOn =
+    typeof window.__abNoteBrush === "function" && window.__abNotesEnabled !== false;
+  if (notesOn) {
+    items.push(["🖌", "高亮", () => window.__abNoteBrush()]);
+    items.push(["📝", "批注", () => window.__abNoteAnnotate()]);
+  }
   for (const [ico, label, fn] of items) {
     const it = document.createElement("button");
     it.type = "button";
@@ -574,6 +582,30 @@ function createMoreMenu() {
       fn();
     });
     moreMenu.appendChild(it);
+  }
+  // Highlight color row: pick the brush color without triggering an action.
+  if (notesOn && typeof window.__abNoteColorNames === "function") {
+    const row = document.createElement("div");
+    row.className = "ab-menu-item ab-menu-colors";
+    row.appendChild(spEl("span", "ab-menu-ico", "🎨"));
+    row.appendChild(document.createTextNode("高亮色 "));
+    const cur = window.__abNoteColor ? window.__abNoteColor() : "yellow";
+    for (const [c, hex] of Object.entries(window.__abNoteColorNames())) {
+      const dot = document.createElement("button");
+      dot.type = "button";
+      dot.className = "ab-swatch" + (c === cur ? " sel" : "");
+      dot.style.background = hex;
+      dot.title = c;
+      dot.addEventListener("mousedown", (e) => e.preventDefault());
+      dot.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        window.__abNoteSetColor(c);
+        row.querySelectorAll(".ab-swatch").forEach((d) => d.classList.toggle("sel", d === dot));
+      });
+      row.appendChild(dot);
+    }
+    moreMenu.appendChild(row);
   }
   (document.body || document.documentElement).appendChild(moreMenu);
   return moreMenu;

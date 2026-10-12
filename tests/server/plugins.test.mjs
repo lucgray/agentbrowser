@@ -54,8 +54,9 @@ test('config.plugins overrides the manifest default both ways', () => {
 
 test('disabling the translate plugin hides all its tools from effectiveTools', () => {
   const on = effectiveTools({});
-  const off = effectiveTools({ plugins: { translate: { enabled: false } } });
-  assert.equal(on.length, CORE_COUNT);
+  const off = effectiveTools({ plugins: { translate: { enabled: false }, notes: { enabled: false } } });
+  // the notes plugin ships 7 extraTools and is enabled by default
+  assert.equal(on.length, CORE_COUNT + 7);
   const hidden = new Set([
     'page_translate', 'page_translate_stop', 'translate_para', 'translate_status',
     'translate_recent', 'translate_stats', 'translate_cache_clear',
@@ -73,7 +74,11 @@ test('disabling the translate plugin hides all its tools from effectiveTools', (
 test('pluginPrompt joins enabled fragments and skips disabled ones', () => {
   const p = pluginPrompt({});
   assert.ok(p.includes('## Plugin: Translation assistant'));
-  assert.equal(pluginPrompt({ plugins: { translate: { enabled: false } } }), '');
+  assert.ok(p.includes('## Plugin: Page notes (pipebox-style)'));
+  assert.equal(
+    pluginPrompt({ plugins: { translate: { enabled: false }, notes: { enabled: false } } }),
+    ''
+  );
 });
 
 test('user plugin adds prompt + extraTools', () => {
