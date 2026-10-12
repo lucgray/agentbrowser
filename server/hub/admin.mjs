@@ -141,6 +141,9 @@ export function createAdminHandler(ctx) {
       } else if (url.pathname === "/admin/api/plugin") {
         const r = ctx.setPlugin(String(body.id || ""), body.enabled === true);
         json(res, r.ok ? 200 : 400, r);
+      } else if (url.pathname === "/admin/api/plugin_ui") {
+        const r = ctx.setPluginUi(String(body.id || ""), body && typeof body === "object" ? body : {});
+        json(res, r.ok ? 200 : 400, r);
       } else if (url.pathname === "/admin/api/translate") {
         json(res, 200, await ctx.setTranslate(body && typeof body === "object" ? body : {}));
       } else if (url.pathname === "/admin/api/key") {

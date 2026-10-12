@@ -129,6 +129,14 @@ tr:last-child td{border-bottom:0}
 .plug .pdesc{font-size:12.5px;color:var(--mut);margin:4px 0 6px}
 .plug .ptools{font-size:11px;color:var(--mut);font-family:ui-monospace,Menlo,monospace}
 .plug .pview{margin-top:10px}
+.plug .ppal{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:8px}
+.plug .ppal .psw{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--mut);cursor:pointer}
+.plug .ppal input[type=color]{width:22px;height:22px;padding:0;border:1px solid var(--line);border-radius:var(--ac-radius-control);background:none;cursor:pointer}
+.plug .ppal input[type=color]::-webkit-color-swatch-wrapper{padding:1px}
+.plug .ppal input[type=color]::-webkit-color-swatch{border:none;border-radius:3px}
+.plug .ppal .pcustom{font-size:10.5px;color:var(--acc);border:1px solid var(--ac-accent-tint-strong);border-radius:999px;padding:0 7px;background:var(--acc-soft)}
+.plug .ppal .preset{font-size:11px;color:var(--mut);background:none;border:none;cursor:pointer;padding:0;text-decoration:underline;text-underline-offset:2px}
+.plug .ppal .preset:hover{color:var(--ink)}
 .plug .ctl{display:flex;align-items:center;gap:10px;flex:none}
 /* toggle */
 .sw{position:relative;width:40px;height:22px;flex:none;cursor:pointer}
@@ -461,6 +469,33 @@ function renderPlugins() {
     left.innerHTML = `<div class="pname">${esc(p.name)} <span class="pmeta">v${esc(p.version)}${p.builtin ? ' · built-in' : ''}</span></div>
       <div class="pdesc">${esc(p.description)}</div>
       <div class="ptools">${esc((p.tools || []).join(', ') || 'no tools')}</div>`;
+    const pal = p.ui && p.ui.palette;
+    if (pal && Object.keys(pal).length) {
+      const names = (p.ui && p.ui.paletteNames) || {};
+      const overridden = !!(((state.config || {}).plugins || {})[p.id] || {}).ui;
+      const row = document.createElement('div'); row.className = 'ppal';
+      for (const name of Object.keys(pal)) {
+        const wrap = document.createElement('label'); wrap.className = 'psw';
+        wrap.title = `${names[name] || name} · ${pal[name]}`;
+        const inp = document.createElement('input'); inp.type = 'color';
+        if (/^#[0-9a-f]{6}$/i.test(pal[name])) inp.value = pal[name];
+        inp.onchange = async () => {
+          const r = await api('plugin_ui', { id: p.id, ui: { palette: { [name]: inp.value } } });
+          toast(r.error || 'saved'); refresh();
+        };
+        wrap.append(inp, document.createTextNode(names[name] || name)); row.appendChild(wrap);
+      }
+      if (overridden) {
+        const tag = document.createElement('span'); tag.className = 'pcustom'; tag.textContent = 'custom';
+        const rs = document.createElement('button'); rs.className = 'preset'; rs.textContent = 'reset';
+        rs.onclick = async () => {
+          const r = await api('plugin_ui', { id: p.id, uiReset: true });
+          toast(r.error || 'reset to plugin defaults'); refresh();
+        };
+        row.append(tag, rs);
+      }
+      left.appendChild(row);
+    }
     const ctl = document.createElement('div'); ctl.className = 'ctl';
     const pv = document.createElement('button'); pv.textContent = 'prompt'; pv.className = 'link';
     pv.onclick = () => { const d = left.querySelector('.pview'); if (d) { d.remove(); return; }

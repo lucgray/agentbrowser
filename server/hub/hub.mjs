@@ -2131,6 +2131,40 @@ function handlePluginSet(ws, msg) {
   broadcastCapabilities();
 }
 
+// Plugin ui overrides (v2.27): config.plugins.<id>.ui merges over the
+// manifest's ui. {ui:{field:value}} merges field-by-field (map fields like
+// palette merge per-key, null deletes one key, null field deletes it);
+// {uiReset:true} drops the whole override back to plugin defaults.
+function setPluginUi(id, body) {
+  const found = describePlugins(config).some((p) => p.id === id);
+  if (!found) return { ok: false, error: `unknown plugin: ${id}` };
+  const entry = { ...((config.plugins || {})[id] || {}) };
+  if (body.uiReset === true) {
+    delete entry.ui;
+  } else if (body.ui && typeof body.ui === "object") {
+    const cur = { ...(entry.ui || {}) };
+    for (const [k, v] of Object.entries(body.ui)) {
+      if (v === null) {
+        delete cur[k];
+      } else if (v && typeof v === "object" && !Array.isArray(v)
+                 && cur[k] && typeof cur[k] === "object" && !Array.isArray(cur[k])) {
+        const sub = { ...cur[k] };
+        for (const [sk, sv] of Object.entries(v)) {
+          if (sv === null) delete sub[sk];
+          else sub[sk] = sv;
+        }
+        cur[k] = sub;
+      } else {
+        cur[k] = v;
+      }
+    }
+    entry.ui = cur;
+  }
+  config.plugins = { ...(config.plugins || {}), [id]: entry };
+  persistConfig();
+  return { ok: true };
+}
+
 // Shared by plugin_set (wire) and the admin HTTP API (v2.17).
 function setPluginEnabled(id, enabled) {
   const found = describePlugins(config).some((p) => p.id === id);
@@ -2458,6 +2492,11 @@ const adminHandler = createAdminHandler({
   setRemote: (body) => setRemoteConfig(body || {}),
   setPlugin: (id, enabled) => {
     const r = setPluginEnabled(id, enabled);
+    if (r.ok) broadcastCapabilities();
+    return r;
+  },
+  setPluginUi: (id, body) => {
+    const r = setPluginUi(id, body || {});
     if (r.ok) broadcastCapabilities();
     return r;
   },
