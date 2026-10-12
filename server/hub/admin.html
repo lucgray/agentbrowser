@@ -22,30 +22,63 @@
 *::-webkit-scrollbar-thumb:hover{background:var(--ac-text-muted)}
 body{margin:0;font:14px/1.55 "Inter",-apple-system,"Segoe UI",system-ui,sans-serif;color:var(--ink);background:var(--bg);-webkit-font-smoothing:antialiased}
 
-/* ——— top bar ——— */
-.topbar{position:sticky;top:0;z-index:10;display:flex;align-items:center;gap:12px;height:56px;padding:0 24px;background:rgba(255,255,255,.85);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
-.mark{width:28px;height:28px}
-.wordmark{font-weight:600;font-size:15px;letter-spacing:-.01em}
-.wordmark span{color:var(--mut);font-weight:400}
-.topbar .sp{flex:1}
-.hostchip{font-family:ui-monospace,"SF Mono",Menlo,monospace;font-size:12px;color:var(--mut);background:var(--ac-bg-2);border:1px solid var(--line);border-radius:var(--ac-radius-pill);padding:4px 12px}
-.status{display:inline-flex;align-items:center;gap:7px;font-size:12.5px;font-weight:500;padding:5px 13px;border-radius:var(--ac-radius-pill);border:1px solid var(--line);background:var(--ac-bg-0);color:var(--mut)}
-.status.on{background:var(--on-soft);border-color:var(--on-line);color:var(--on)}
-.status .d{width:7px;height:7px;border-radius:50%;background:currentColor}
-.status.on .d{animation:pulse 2s infinite}
+/* ——— shell: rail + sidebar + main ——— */
+.shell{display:flex;min-height:100vh}
+.rail{width:52px;flex:none;display:flex;flex-direction:column;align-items:center;padding:14px 0;gap:6px;background:var(--card);border-right:1px solid var(--line);position:sticky;top:0;height:100vh}
+.rail .mark{width:26px;height:26px;margin-bottom:14px}
+.rbtn{width:36px;height:36px;border-radius:var(--ac-radius-card);border:0;background:transparent;color:var(--mut);display:flex;align-items:center;justify-content:center;cursor:pointer;transition:background .15s,color .15s}
+.rbtn:hover{background:var(--ac-hover);color:var(--ink)}
+.rbtn.on{background:var(--acc-soft);color:var(--acc)}
+.rbtn svg{width:18px;height:18px}
+.rbtn.view-only{display:none}
+.side{width:208px;flex:none;display:flex;flex-direction:column;background:var(--card);border-right:1px solid var(--line);position:sticky;top:0;height:100vh}
+.brand{padding:17px 18px 10px;font-weight:650;font-size:14px;letter-spacing:-.01em;line-height:1.3}
+.brand span{display:block;font-size:11.5px;color:var(--mut);font-weight:400}
+.nav{flex:1;overflow-y:auto;padding:4px 10px 10px}
+.ng{margin-top:16px}
+.ng:first-child{margin-top:4px}
+.ng .gh{font-size:10.5px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--mut);padding:0 8px 5px}
+.ni{display:flex;align-items:center;gap:9px;padding:6px 8px;border-radius:var(--ac-radius-control);font-size:13px;color:var(--ac-text-secondary);cursor:pointer;text-decoration:none;transition:background .12s,color .12s}
+.ni:hover{background:var(--ac-hover);color:var(--ink)}
+.ni.on{background:var(--acc-soft);color:var(--acc);font-weight:550}
+.ni svg{width:14px;height:14px;opacity:.7;flex:none}
+.sidemid{padding:2px 10px 12px;display:flex;flex-direction:column;gap:14px}
+.sm-sec .gh{font-size:10.5px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--mut);padding:0 8px 5px}
+.sm-item{display:flex;align-items:center;gap:7px;padding:4px 8px;border-radius:var(--ac-radius-control);font-size:12px;color:var(--ac-text-secondary);cursor:pointer;text-decoration:none;overflow:hidden}
+.sm-item:hover{background:var(--ac-hover);color:var(--ink)}
+.sm-item .lbl{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sm-item .d{width:6px;height:6px;border-radius:50%;background:var(--on);flex:none}
+.sm-item .d.off{background:var(--mut)}
+.sm-empty{font-size:11.5px;color:var(--mut);padding:2px 8px}
+.sidefoot{border-top:1px solid var(--line);padding:13px 16px 15px;display:flex;flex-direction:column;gap:7px}
+.sf-status{display:inline-flex;align-items:center;gap:8px;font-size:12.5px;font-weight:500;color:var(--mut)}
+.sf-status.on{color:var(--on)}
+.sf-status .d{width:8px;height:8px;border-radius:50%;background:currentColor;flex:none}
+.sf-status.on .d{animation:pulse 2s infinite}
+.sf-meta{font-family:ui-monospace,"SF Mono",Menlo,monospace;font-size:11.5px;color:var(--mut);word-break:break-all}
 @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(22,163,74,.4)}70%{box-shadow:0 0 0 6px rgba(22,163,74,0)}100%{box-shadow:0 0 0 0 rgba(22,163,74,0)}}
 
-/* ——— layout ——— */
-.wrap{max-width:1480px;margin:0 auto;padding:28px 24px 60px}
-.pagehead{display:flex;align-items:baseline;gap:14px;margin-bottom:22px}
+.main{flex:1;min-width:0}
+.mwrap{max-width:1480px;margin:0 auto;padding:26px 28px 60px}
+.pagehead{display:flex;align-items:baseline;gap:14px;margin-bottom:20px}
 .pagehead h1{font-size:22px;font-weight:650;letter-spacing:-.02em;margin:0}
 .pagehead .sub{color:var(--mut);font-size:13px}
-.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(420px,1fr));gap:18px}
-@media(max-width:960px){.grid{grid-template-columns:1fr}}
-.wide{grid-column:1/-1}
+.view{display:none}
+.view.on{display:block}
+
+/* overview */
+.tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;margin-bottom:18px}
+.tile{background:var(--card);border:1px solid var(--line);border-radius:var(--ac-radius-card);padding:13px 16px;box-shadow:0 1px 2px rgba(0,0,0,.03)}
+.tile b{display:block;font-size:20px;font-weight:650;letter-spacing:-.02em}
+.tile b.long{font-size:14px;padding-top:4px}
+.tile span{font-size:11.5px;color:var(--mut)}
+.krow{display:flex;align-items:baseline;justify-content:space-between;gap:16px;padding:9px 0;border-bottom:1px solid var(--ac-border-soft);font-size:13px}
+.krow:last-child{border-bottom:0}
+.krow .k{color:var(--mut)}
+.krow .v{font-family:ui-monospace,Menlo,monospace;font-size:12px;text-align:right;word-break:break-all}
 
 /* ——— cards ——— */
-.card{background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:0 1px 2px rgba(0,0,0,.03)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:0 1px 2px rgba(0,0,0,.03);margin-bottom:18px}
 .chead{display:flex;align-items:center;gap:10px;padding:15px 18px 0}
 .chead .ic{width:28px;height:28px;border-radius:var(--ac-radius-control);background:var(--acc-soft);color:var(--acc);display:flex;align-items:center;justify-content:center;flex:none}
 .chead .ic svg{width:15px;height:15px}
@@ -150,25 +183,92 @@ pre{background:var(--ac-bg-2);border:1px solid var(--line);border-radius:var(--a
 #raw-config{width:100%;height:220px;font-family:ui-monospace,"SF Mono",Menlo,monospace;font-size:12.5px;background:var(--ac-bg-2);border-radius:var(--ac-radius-card);padding:14px;border-color:var(--line)}
 .toast{position:fixed;bottom:22px;left:50%;transform:translate(-50%,16px);background:var(--ink);color:var(--ac-on-accent);padding:9px 18px;border-radius:var(--ac-radius-control);font-size:13px;opacity:0;transition:all .22s;pointer-events:none;box-shadow:0 4px 16px rgba(0,0,0,.18)}
 .toast.show{opacity:.97;transform:translate(-50%,0)}
+
+/* narrow: sidebar drops out, every view gets a rail icon */
+@media(max-width:860px){
+  .side{display:none}
+  .rbtn.view-only{display:flex}
+  .rbtn.group-only{display:none}
+  .mwrap{padding:20px 16px 48px}
+}
 </style>
 </head>
 <body>
-<div class="topbar">
-  <img class="mark" src="/admin/logo.png" alt="AgentBrowser">
-  <div class="wordmark">AgentBrowser <span>Console</span></div>
-  <div class="sp"></div>
-  <span class="hostchip" id="hub-port"></span>
-  <span class="status" id="status"><span class="d"></span><span id="status-txt">connecting</span></span>
-</div>
+<div class="shell">
 
-<div class="wrap">
+<nav class="rail">
+  <img class="mark" src="/admin/logo.png" alt="">
+  <button class="rbtn group-only" data-group="monitor" title="Monitor"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></button>
+  <button class="rbtn group-only" data-group="configure" title="Configure"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg></button>
+  <button class="rbtn group-only" data-group="data" title="Data"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg></button>
+  <button class="rbtn view-only" data-view="overview" title="Overview"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg></button>
+  <button class="rbtn view-only" data-view="browsers" title="Browsers"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="14" rx="2"/><path d="M8 21h8M12 18v3"/></svg></button>
+  <button class="rbtn view-only" data-view="backend" title="Backend"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M9 9h6v6H9zM4 10h-2M4 14h-2M22 10h-2M22 14h-2M10 4V2M14 4V2M10 22v-2M14 22v-2"/></svg></button>
+  <button class="rbtn view-only" data-view="keys" title="API keys"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2l-2 2m-7.6 7.6a5.5 5.5 0 1 1-7.8 7.8 5.5 5.5 0 0 1 7.8-7.8zm0 0L19 3m-4 4 3 3"/></svg></button>
+  <button class="rbtn view-only" data-view="plugins" title="Plugins"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 7V4a2 2 0 0 0-4 0v3M10 7h4l2 3v9a2 2 0 0 1-2 2h-4a2 2 0 0 1-2-2v-9z"/><path d="M4 10h4M16 10h4" transform="translate(0,-3)"/></svg></button>
+  <button class="rbtn view-only" data-view="translation" title="Translation"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 8h9m0 0-3-3m3 3-3 3M19 16h-9m0 0 3-3m-3 3 3 3"/><path d="M12 21v-2M12 5V3"/></svg></button>
+  <button class="rbtn view-only" data-view="remote" title="Remote access"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.5 3 14.5 0 18M12 3c-3 3.5-3 14.5 0 18"/></svg></button>
+  <button class="rbtn view-only" data-view="notes" title="Notes"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h13a3 3 0 0 1 3 3v13H7a3 3 0 0 1-3-3z"/><path d="M4 4a3 3 0 0 1 3-3h13v13"/></svg></button>
+  <button class="rbtn view-only" data-view="config" title="Raw config"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg></button>
+</nav>
+
+<aside class="side">
+  <div class="brand">AgentBrowser <span>Console</span></div>
+  <nav class="nav">
+    <div class="ng" data-ng="monitor">
+      <div class="gh">Monitor</div>
+      <a class="ni" data-view="overview" href="#overview"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg>Overview</a>
+      <a class="ni" data-view="browsers" href="#browsers"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="14" rx="2"/><path d="M8 21h8M12 18v3"/></svg>Browsers</a>
+    </div>
+    <div class="ng" data-ng="configure">
+      <div class="gh">Configure</div>
+      <a class="ni" data-view="backend" href="#backend"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M9 9h6v6H9zM4 10h-2M4 14h-2M22 10h-2M22 14h-2M10 4V2M14 4V2M10 22v-2M14 22v-2"/></svg>Backend</a>
+      <a class="ni" data-view="keys" href="#keys"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2l-2 2m-7.6 7.6a5.5 5.5 0 1 1-7.8 7.8 5.5 5.5 0 0 1 7.8-7.8zm0 0L19 3m-4 4 3 3"/></svg>API keys</a>
+      <a class="ni" data-view="plugins" href="#plugins"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 7V4a2 2 0 0 0-4 0v3M10 7h4l2 3v9a2 2 0 0 1-2 2h-4a2 2 0 0 1-2-2v-9z"/><path d="M4 10h4M16 10h4" transform="translate(0,-3)"/></svg>Plugins</a>
+      <a class="ni" data-view="translation" href="#translation"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 8h9m0 0-3-3m3 3-3 3M19 16h-9m0 0 3-3m-3 3 3 3"/><path d="M12 21v-2M12 5V3"/></svg>Translation</a>
+      <a class="ni" data-view="remote" href="#remote"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.5 3 14.5 0 18M12 3c-3 3.5-3 14.5 0 18"/></svg>Remote access</a>
+    </div>
+    <div class="ng" data-ng="data">
+      <div class="gh">Data</div>
+      <a class="ni" data-view="notes" href="#notes"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h13a3 3 0 0 1 3 3v13H7a3 3 0 0 1-3-3z"/><path d="M4 4a3 3 0 0 1 3-3h13v13"/></svg>Notes</a>
+      <a class="ni" data-view="config" href="#config"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>Raw config</a>
+    </div>
+  </nav>
+  <div class="sidemid">
+    <div class="sm-sec">
+      <div class="gh">Now</div>
+      <div id="sm-now"><div class="sm-empty">…</div></div>
+    </div>
+    <div class="sm-sec">
+      <div class="gh">Recent notes</div>
+      <div id="sm-notes"><div class="sm-empty">…</div></div>
+    </div>
+  </div>
+  <div class="sidefoot">
+    <span class="sf-status" id="status"><span class="d"></span><span id="status-txt">connecting</span></span>
+    <span class="sf-meta" id="hub-port"></span>
+    <span class="sf-meta" id="hub-ver"></span>
+  </div>
+</aside>
+
+<main class="main"><div class="mwrap">
 <header class="pagehead">
-  <h1>Overview</h1>
-  <div class="sub" id="hero-line">connecting to hub…</div>
+  <h1 id="view-title">Overview</h1>
+  <div class="sub" id="view-sub">connecting to hub…</div>
 </header>
 
-<div class="grid">
+<section class="view" data-view="overview">
+<div class="tiles" id="ov-tiles"></div>
+<div class="card">
+  <div class="chead">
+    <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg></div>
+    <div class="t">Runtime</div>
+  </div>
+  <div class="cbody" id="ov-runtime"></div>
+</div>
+</section>
 
+<section class="view" data-view="browsers">
 <div class="card">
   <div class="chead">
     <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="14" rx="2"/><path d="M8 21h8M12 18v3"/></svg></div>
@@ -177,7 +277,9 @@ pre{background:var(--ac-bg-2);border:1px solid var(--line);border-radius:var(--a
   </div>
   <div class="cbody"><div id="browsers"></div></div>
 </div>
+</section>
 
+<section class="view" data-view="backend">
 <div class="card">
   <div class="chead">
     <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M9 9h6v6H9zM4 10h-2M4 14h-2M22 10h-2M22 14h-2M10 4V2M14 4V2M10 22v-2M14 22v-2"/></svg></div>
@@ -193,7 +295,9 @@ pre{background:var(--ac-bg-2);border:1px solid var(--line);border-radius:var(--a
     <div id="adapter-list" style="margin-top:12px"></div>
   </div>
 </div>
+</section>
 
+<section class="view" data-view="keys">
 <div class="card">
   <div class="chead">
     <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2l-2 2m-7.6 7.6a5.5 5.5 0 1 1-7.8 7.8 5.5 5.5 0 0 1 7.8-7.8zm0 0L19 3m-4 4 3 3"/></svg></div>
@@ -202,7 +306,9 @@ pre{background:var(--ac-bg-2);border:1px solid var(--line);border-radius:var(--a
   </div>
   <div class="cbody"><table id="keys"><tr><th>provider</th><th>status</th><th style="width:1%"></th></tr></table></div>
 </div>
+</section>
 
+<section class="view" data-view="plugins">
 <div class="card">
   <div class="chead">
     <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 7V4a2 2 0 0 0-4 0v3M10 7h4l2 3v9a2 2 0 0 1-2 2h-4a2 2 0 0 1-2-2v-9z"/><path d="M4 10h4M16 10h4" transform="translate(0,-3)"/></svg></div>
@@ -212,7 +318,9 @@ pre{background:var(--ac-bg-2);border:1px solid var(--line);border-radius:var(--a
   <div class="cdesc">enabled plugins inject prompts and gate tools per session</div>
   <div class="cbody"><div id="plugins"></div></div>
 </div>
+</section>
 
+<section class="view" data-view="translation">
 <div class="card">
   <div class="chead">
     <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 8h9m0 0-3-3m3 3-3 3M19 16h-9m0 0 3-3m-3 3 3 3"/><path d="M12 21v-2M12 5V3"/></svg></div>
@@ -236,27 +344,10 @@ pre{background:var(--ac-bg-2);border:1px solid var(--line);border-radius:var(--a
     </div>
   </div>
 </div>
+</section>
 
-<div class="card wide" id="notes">
-  <div class="chead">
-    <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h13a3 3 0 0 1 3 3v13H7a3 3 0 0 1-3-3z"/><path d="M4 4a3 3 0 0 1 3-3h13v13"/></svg></div>
-    <div class="t">Notes</div>
-    <div class="h" id="notes-stats"></div>
-  </div>
-  <div class="cdesc">page notes collected by the notes plugin — sidebar quotes, markdown bodies, tags</div>
-  <div class="cbody">
-    <div class="row" style="margin-bottom:10px">
-      <input type="text" id="nq" placeholder="search title / body / domain" style="width:220px">
-      <div id="ntags"></div>
-    </div>
-    <div id="nstat"></div>
-    <div id="nmarks"></div>
-    <div id="nlist"></div>
-    <div id="nview"></div>
-  </div>
-</div>
-
-<div class="card wide" id="remote">
+<section class="view" data-view="remote">
+<div class="card" id="remote">
   <div class="chead">
     <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.5 3 14.5 0 18M12 3c-3 3.5-3 14.5 0 18"/></svg></div>
     <div class="t">Remote access</div>
@@ -280,8 +371,31 @@ pre{background:var(--ac-bg-2);border:1px solid var(--line);border-radius:var(--a
     <div id="remote-url" style="margin-top:10px;font-family:monospace;font-size:11.5px;word-break:break-all"></div>
   </div>
 </div>
+</section>
 
-<div class="card wide">
+<section class="view" data-view="notes">
+<div class="card" id="notes">
+  <div class="chead">
+    <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h13a3 3 0 0 1 3 3v13H7a3 3 0 0 1-3-3z"/><path d="M4 4a3 3 0 0 1 3-3h13v13"/></svg></div>
+    <div class="t">Notes</div>
+    <div class="h" id="notes-stats"></div>
+  </div>
+  <div class="cdesc">page notes collected by the notes plugin — sidebar quotes, markdown bodies, tags</div>
+  <div class="cbody">
+    <div class="row" style="margin-bottom:10px">
+      <input type="text" id="nq" placeholder="search title / body / domain" style="width:220px">
+      <div id="ntags"></div>
+    </div>
+    <div id="nstat" class="nstat"></div>
+    <div id="nmarks"></div>
+    <div id="nlist"></div>
+    <div id="nview"></div>
+  </div>
+</div>
+</section>
+
+<section class="view" data-view="config">
+<div class="card">
   <div class="chead">
     <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg></div>
     <div class="t">config.json</div>
@@ -292,8 +406,9 @@ pre{background:var(--ac-bg-2);border:1px solid var(--line);border-radius:var(--a
     <div class="row" style="margin-top:10px"><button id="save-config">Save config</button></div>
   </div>
 </div>
+</section>
 
-</div>
+</div></main>
 </div>
 
 <div class="toast" id="toast"></div>
@@ -309,14 +424,78 @@ async function api(path, body) {
 let state = null;
 const esc = (s) => String(s ?? '').replace(/[&<>]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
 
+// --- view routing ------------------------------------------------------------
+const VIEWS = {
+  overview:    { g: 'monitor',   t: 'Overview' },
+  browsers:    { g: 'monitor',   t: 'Browsers',      s: 'connected extension instances' },
+  backend:     { g: 'configure', t: 'Backend',       s: 'adapter and model for the next session' },
+  keys:        { g: 'configure', t: 'API keys',      s: 'stored in the local keystore — write-only' },
+  plugins:     { g: 'configure', t: 'Plugins',       s: 'enabled plugins inject prompts and gate tools per session' },
+  translation: { g: 'configure', t: 'Translation',   s: 'page translation pipeline' },
+  remote:      { g: 'configure', t: 'Remote access', s: 'tailnet relay for off-machine clients' },
+  notes:       { g: 'data',      t: 'Notes',         s: 'sidebar quotes, markdown bodies, tags' },
+  config:      { g: 'data',      t: 'Raw config',    s: 'config.json — invalid JSON is rejected' },
+};
+const GROUP_FIRST = { monitor: 'overview', configure: 'backend', data: 'notes' };
+let curView = 'overview';
+let heroText = 'connecting to hub…';
+function showView(id, push) {
+  if (!VIEWS[id]) id = 'overview';
+  curView = id;
+  for (const v of document.querySelectorAll('.view')) v.classList.toggle('on', v.dataset.view === id);
+  for (const n of document.querySelectorAll('.ni')) n.classList.toggle('on', n.dataset.view === id);
+  for (const r of document.querySelectorAll('.rbtn'))
+    r.classList.toggle('on', r.dataset.view === id || r.dataset.group === VIEWS[id].g);
+  $('view-title').textContent = VIEWS[id].t;
+  $('view-sub').textContent = id === 'overview' ? heroText : VIEWS[id].s;
+  if (push !== false && location.hash !== '#' + id) history.replaceState(null, '', '#' + id);
+}
+for (const r of document.querySelectorAll('.rbtn[data-group]'))
+  r.onclick = () => showView(GROUP_FIRST[r.dataset.group]);
+for (const r of document.querySelectorAll('.rbtn[data-view]'))
+  r.onclick = () => showView(r.dataset.view);
+window.addEventListener('hashchange', () => showView(location.hash.slice(1), false));
+
 async function refresh() {
   state = await api('state');
   $('hub-port').textContent = location.host;
   const n = (state.browsers || []).length;
-  $('status').className = 'status' + (n ? ' on' : '');
+  $('status').className = 'sf-status' + (n ? ' on' : '');
   $('status-txt').textContent = n ? `${n} browser${n > 1 ? 's' : ''} connected` : 'hub online · no browsers';
-  $('hero-line').textContent = `adapter ${state.config.adapter || '?'} · ${(state.plugins || []).filter(p => p.enabled).length}/${(state.plugins || []).length} plugins enabled`;
-  renderBrowsers(); renderBackend(); renderKeys(); renderPlugins(); renderTranslate(); renderRaw(); renderNotes(); renderRemote();
+  const extV = (state.browsers || []).map(b => b.version).find(Boolean);
+  $('hub-ver').textContent = `protocol v${state.version || '?'}${extV ? ' · ext v' + extV : ''}`;
+  heroText = `adapter ${state.config.adapter || '?'} · ${(state.plugins || []).filter(p => p.enabled).length}/${(state.plugins || []).length} plugins enabled`;
+  if (curView === 'overview') $('view-sub').textContent = heroText;
+  renderBrowsers(); renderBackend(); renderKeys(); renderPlugins(); renderTranslate(); renderRaw(); renderNotes(); renderRemote(); renderOverview(); renderSideNow();
+}
+
+function renderOverview() {
+  const tiles = [
+    [(state.browsers || []).length, 'browsers connected'],
+    [state.config.adapter || '—', 'adapter', true],
+    [state.config.model || 'default', 'model', true],
+    [`${(state.plugins || []).filter(p => p.enabled).length}/${(state.plugins || []).length}`, 'plugins enabled'],
+    [state.translateProvider || '—', 'translation provider', true],
+    [state.remote && state.remote.running ? 'running' : 'off', 'remote relay', true],
+  ];
+  $('ov-tiles').innerHTML = tiles.map(([v, l, long]) =>
+    `<div class="tile"><b class="${long ? 'long' : ''}">${esc(v)}</b><span>${esc(l)}</span></div>`).join('');
+  const r = state.remote || {};
+  const rows = [
+    ['hub endpoint', 'ws://' + location.host],
+    ['protocol', 'v' + (state.version || '?')],
+    ['default adapter', (state.config.adapter || '?') + ' · ' + (state.config.model || 'default')],
+    ['remote relay', r.running ? `ws://${r.host}:${r.port}` : (r.enabled ? 'enabled (not running)' : 'off')],
+  ];
+  $('ov-runtime').innerHTML = rows.map(([k, v]) =>
+    `<div class="krow"><span class="k">${esc(k)}</span><span class="v">${esc(v)}</span></div>`).join('');
+}
+
+function renderSideNow() {
+  const bl = state.browsers || [];
+  $('sm-now').innerHTML = bl.length
+    ? bl.map(b => `<a class="sm-item" href="#browsers" title="${esc(b.name)}"><span class="d"></span><span class="lbl">${esc(b.name)}</span></a>`).join('')
+    : '<div class="sm-empty">no browsers connected</div>';
 }
 
 // --- notes library -----------------------------------------------------------
@@ -348,6 +527,9 @@ async function renderNotes() {
     box.appendChild(card);
   }
   if (!(r.notes || []).length) box.innerHTML = '<span class="sub">No notes yet — select text on a page and use ⋯ → 🖌高亮 / 📝批注, or ask the agent to take a note.</span>';
+  $('sm-notes').innerHTML = (r.notes || []).length
+    ? r.notes.slice(0, 4).map(n => `<a class="sm-item" href="#notes" title="${esc(n.title || '')}"><span class="lbl">${esc(n.title || '(untitled)')}</span></a>`).join('')
+    : '<div class="sm-empty">no notes yet</div>';
 }
 let nViewId = null;
 async function viewNote(id) {
@@ -575,6 +757,7 @@ $('save-config').onclick = async () => {
   toast(r.error || 'saved'); refresh();
 };
 
+showView(location.hash.slice(1) || 'overview', false);
 refresh();
 setInterval(refresh, 15000);
 </script>
