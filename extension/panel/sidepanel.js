@@ -911,7 +911,7 @@ async function init() {
     toggleYieldForeign.checked = stored.abYieldForeign !== false;
     setFloatTheme.value = ["frost", "ink", "paper"].includes(stored.floatTheme)
       ? stored.floatTheme
-      : "frost";
+      : "ink";
     trSpace.checked = stored.abSpaceTranslate === true;
   }).catch(() => applyI18n());
 
