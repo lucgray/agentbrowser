@@ -5,6 +5,8 @@
 // Elements whose text is never a translation unit. Covers code surfaces,
 // interactive widgets, and embedded media; `rb/rt` stay so ruby annotations
 // translate with their host paragraph.
+export const UI_ATTR = 'data-ab-ui'; // marks our own injected nodes
+
 export const SKIP_TAGS = new Set([
   'SCRIPT', 'STYLE', 'NOSCRIPT', 'TEMPLATE', 'SVG', 'MATH',
   'CODE', 'PRE', 'KBD', 'SAMP', 'VAR', 'TEXTAREA',
@@ -22,6 +24,42 @@ export const BLOCK_TAGS = new Set([
   'BLOCKQUOTE', 'FIGURE', 'FIGCAPTION', 'TABLE', 'THEAD', 'TBODY', 'TFOOT',
   'TR', 'TD', 'TH', 'DL', 'DT', 'DD', 'FORM', 'FIELDSET', 'HR',
 ]);
+
+// Stray text runs inside a mixed container (direct prose next to block
+// children) get wrapped in <ab-wrap> so they translate as their own inline
+// unit instead of flattening the whole subtree into one blob (v2.30).
+export const WRAP_TAG = 'AB-WRAP';
+
+// Inline-level elements — never split into a following block: their
+// translation is appended inside the element itself ("Home 首页" instead of
+// a line break). AB-WRAP is our own stray-text wrapper (v2.30) — an inline
+// unit by construction.
+export const INLINE_TAGS = new Set([
+  'A', 'SPAN', 'EM', 'STRONG', 'B', 'I', 'U', 'S', 'SMALL', 'ABBR', 'CITE',
+  'Q', 'MARK', 'TIME', 'DATA', 'DFN', 'BDI', 'BDO', 'SUB', 'SUP', 'FONT',
+  'WBR', 'RUBY', 'RB', 'RT', 'RP', 'INS', 'DEL', WRAP_TAG,
+]);
+
+// True when a node renders at block level — drives both "is this a mixed
+// container" (hasBlockChild) and "which child runs are stray text"
+// (wrapStrayRuns). Unknown/custom tags count as block-ish (conservative:
+// they get descended and classified on their own pass).
+export function isBlockEl(n) {
+  if (!n || n.nodeType !== 1) return false;
+  const tag = n.tagName || '';
+  if (SKIP_TAGS.has(tag) || INLINE_TAGS.has(tag)) return false;
+  if (n.hasAttribute && n.hasAttribute(UI_ATTR)) return false;
+  return true;
+}
+
+// True when the element has at least one child that renders at block level —
+// the signal that a prose-bearing element is a container, not a paragraph.
+export function hasBlockChild(el) {
+  for (const c of el.children || []) {
+    if (isBlockEl(c)) return true;
+  }
+  return false;
+}
 
 const LETTER_RE = /\p{L}/u;
 const CJK_RE = /[぀-ヿ㐀-䶿一-鿿豈-﫿가-힯]/;
@@ -108,8 +146,8 @@ const DEFAULTS = {
   minChars: 2,
   maxItemsPerBatch: 4,
   maxCharsPerBatch: 1200,
-  batchFlushMs: 250,
-  viewportMargin: '600px',
+  batchFlushMs: 100,
+  viewportMargin: '1200px',
 };
 
 // Merge user config over defaults with validation — every entry point (agent

@@ -52,7 +52,8 @@ export const TOOLS = [
       properties: {
         url: { type: "string", description: "URL to navigate to" },
         tabId: { type: "number", description: "Target tab id; omit for the active tab" },
-        settleMs: { type: "number", description: "Post-load settle wait: ms of network silence (plus document complete) before returning; use ~1500-3000 for SPAs. Omit for the old load-event-only behavior." }
+        settleMs: { type: "number", description: "Post-load settle wait: ms of network silence (plus document complete) before returning; use ~1500-3000 for SPAs. Omit for the old load-event-only behavior." },
+        humanize: { type: "boolean", description: "false skips the post-load humanized pause for this call (v2.28; on by default, chrome.storage.local.humanize=false disables globally)" }
       },
       required: ["url"]
     }
@@ -85,7 +86,7 @@ export const TOOLS = [
   },
   {
     name: "click",
-    description: "Click at viewport coordinates using trusted CDP input. button picks left (default), right (context menu), or middle; clickCount 2/3 gives double/triple click. Returns {clicked:true, button, clickCount}.",
+    description: "Click at viewport coordinates using trusted CDP input. Humanized by default (v2.28): the pointer approaches on a curved path, then holds briefly before release. button picks left (default), right (context menu), or middle; clickCount 2/3 gives double/triple click. Returns {clicked:true, button, clickCount}.",
     args: {
       type: "object",
       properties: {
@@ -93,6 +94,7 @@ export const TOOLS = [
         y: { type: "number", description: "Viewport y coordinate" },
         button: { type: "string", description: "left | right | middle (default left)" },
         clickCount: { type: "number", description: "1 single, 2 double, 3 triple (default 1)" },
+        humanize: { type: "boolean", description: "false skips humanized pacing for this call (v2.28)" },
         tabId: { type: "number", description: "Target tab id; omit for the active tab" }
       },
       required: ["x", "y"]
@@ -100,12 +102,12 @@ export const TOOLS = [
   },
   {
     name: "click_element",
-    description: "Click an element matching a CSS selector (or a nodeId stamped by page_snapshot): scrolls it into view, resolves its center, then performs a trusted CDP mouse click. Guards against wrong targets (v2.10): a multi-match selector errors until `index` picks one, an invisible or covered element errors until `force:true` — run element_check first when unsure. timeoutMs waits for the element to appear. Optional dx/dy offset the point; button/clickCount work like click. frame scopes into a cross-origin iframe. Returns {clicked:true, selector, tag, path}.",
+    description: "Click an element matching a CSS selector (or a nodeId from page_snapshot): scrolls it into view, resolves its center, then performs a trusted CDP mouse click. Humanized by default (v2.28): aim point jitters inside the element, the pointer approaches on a curved path, settles, re-verifies the target, then holds before release — errors with 'element moved' if it shifts mid-approach (retry). Guards against wrong targets (v2.10): a multi-match selector errors until `index` picks one, an invisible or covered element errors until `force:true` — run element_check first when unsure. timeoutMs waits for the element to appear. Optional dx/dy offset the point; button/clickCount work like click. frame scopes into a cross-origin iframe. Returns {clicked:true, selector, tag, path}.",
     args: {
       type: "object",
       properties: {
         selector: { type: "string", description: "CSS selector of the element to click (or pass nodeId)" },
-        nodeId: { type: "string", description: "data-ab-node id from page_snapshot — clicks that element (v2.7)" },
+        nodeId: { type: "string", description: "Element id from page_snapshot — resolves to the snapshotted element's CSS path in-session (v2.29: no DOM stamp, so the page never sees it). Stale after navigation or a re-render — re-snapshot if it errors." },
         index: { type: "number", description: "Which match to click when the selector matches several (v2.10)" },
         force: { type: "boolean", description: "Click despite invisible/occluded (v2.10)" },
         timeoutMs: { type: "number", description: "Wait up to this long for the element to appear (v2.10)" },
@@ -114,6 +116,7 @@ export const TOOLS = [
         dy: { type: "number", description: "Y offset from the element center (default 0)" },
         button: { type: "string", description: "left | right | middle (default left)" },
         clickCount: { type: "number", description: "1 single, 2 double, 3 triple (default 1)" },
+        humanize: { type: "boolean", description: "false skips humanized pacing for this call (v2.28)" },
         tabId: { type: "number", description: "Target tab id; omit for the active tab" }
       },
       required: []
@@ -144,7 +147,8 @@ export const TOOLS = [
       properties: {
         x: { type: "number", description: "Viewport x coordinate" },
         y: { type: "number", description: "Viewport y coordinate" },
-        selector: { type: "string", description: "CSS selector — hovers the element center instead of x/y" },
+        selector: { type: "string", description: "CSS selector — hovers a jittered point inside the element instead of x/y" },
+        humanize: { type: "boolean", description: "false skips the curved pointer approach for this call (v2.28)" },
         tabId: { type: "number", description: "Target tab id; omit for the active tab" }
       },
       required: []
@@ -160,9 +164,10 @@ export const TOOLS = [
         y: { type: "number", description: "Gesture anchor y (default viewport center)" },
         xDistance: { type: "number", description: "Horizontal gesture distance in px" },
         yDistance: { type: "number", description: "Vertical gesture distance in px; negative = scroll down, positive = scroll up" },
-        speed: { type: "number", description: "Gesture speed px/s (default 800)" },
+        speed: { type: "number", description: "Gesture speed px/s (default 800; ±20% jitter when humanized)" },
         repeatCount: { type: "number", description: "Repeat the gesture N times (default 0 = once)" },
         repeatDelayMs: { type: "number", description: "Delay between repeats in ms" },
+        humanize: { type: "boolean", description: "false skips humanized pacing for this call (v2.28): pointer walks to the anchor first, speed jitter, post-scroll pause" },
         tabId: { type: "number", description: "Target tab id; omit for the active tab" }
       },
       required: []
@@ -178,6 +183,7 @@ export const TOOLS = [
         to: { type: "object", description: "{x,y} drag end" },
         mode: { type: "string", description: "mouse | html5 (default mouse)" },
         steps: { type: "number", description: "Intermediate moves in mouse mode (default 10)" },
+        humanize: { type: "boolean", description: "false skips humanized pacing for this call (v2.28): pointer walks to the start, holds the grip, pulls along a curved path" },
         tabId: { type: "number", description: "Target tab id; omit for the active tab" }
       },
       required: ["from", "to"]
@@ -192,6 +198,7 @@ export const TOOLS = [
         selector: { type: "string", description: "CSS selector — select this element's text" },
         from: { type: "object", description: "{x,y} selection start (coordinate mode)" },
         to: { type: "object", description: "{x,y} selection end (coordinate mode)" },
+        humanize: { type: "boolean", description: "false skips the curved drag path in coordinate mode (v2.28)" },
         tabId: { type: "number", description: "Target tab id; omit for the active tab" }
       },
       required: []
@@ -199,7 +206,7 @@ export const TOOLS = [
   },
   {
     name: "type_text",
-    description: "Type text into the focused element via CDP Input.insertText (trusted input, works in rich editors). Pass selector to click-focus that element first — it runs the same match/visibility/occlusion gates as click_element (v2.10: index picks a match, force overrides, timeoutMs waits). Without a selector the result reports the focused element as {focus:{tag,name,type}}. Returns {typed:<charcount>}.",
+    description: "Type text into the focused element via CDP Input.insertText (trusted input, works in rich editors). Humanized by default (v2.28): short text goes per code point with log-normal keystroke intervals; longer text emits in random bursts. Pass selector to click-focus that element first — it runs the same match/visibility/occlusion gates as click_element (v2.10: index picks a match, force overrides, timeoutMs waits). Without a selector the result reports the focused element as {focus:{tag,name,type}}. Returns {typed:<charcount>}.",
     args: {
       type: "object",
       properties: {
@@ -209,6 +216,7 @@ export const TOOLS = [
         force: { type: "boolean", description: "Focus despite invisible/occluded (v2.10)" },
         timeoutMs: { type: "number", description: "Wait up to this long for the selector to appear (v2.10)" },
         frame: { type: "string", description: "Cross-origin iframe: sessionId or url substring from frames_list; focuses via a frame-aware click, then types (selector required, v2.7)" },
+        humanize: { type: "boolean", description: "false = one-shot insertText with no keystroke pacing (v2.28)" },
         tabId: { type: "number", description: "Target tab id; omit for the active tab" }
       },
       required: ["text"]
@@ -221,6 +229,7 @@ export const TOOLS = [
       type: "object",
       properties: {
         key: { type: "string", description: "Key name, optionally with modifiers joined by +" },
+        humanize: { type: "boolean", description: "false skips the key-hold delay for this call (v2.28)" },
         tabId: { type: "number", description: "Target tab id; omit for the active tab" }
       },
       required: ["key"]
@@ -744,6 +753,7 @@ export const TOOLS = [
         dy: { type: "number" },
         button: { type: "string", description: "left | right | middle (default left)" },
         clickCount: { type: "number", description: "1 single, 2 double, 3 triple" },
+        humanize: { type: "boolean", description: "false skips humanized pacing for this call (v2.28)" },
         tabId: { type: "number", description: "Target tab id; omit for the active tab" }
       },
       required: ["frame", "selector"]
@@ -770,10 +780,11 @@ export const TOOLS = [
   {
     // page_snapshot (v2.7): one evaluate maps the visible interactive layer —
     // {node, tag, role, name, text, x, y, w, h}[] — the "clickable map" an
-    // agent needs without probing dom_inspect. Each element is stamped
-    // data-ab-node, so click_element {nodeId} addresses it directly.
+    // agent needs without probing dom_inspect. node ids resolve through an
+    // in-session map, so click_element {nodeId} addresses elements with no
+    // DOM stamps at all (v2.29).
     name: "page_snapshot",
-    description: "Snapshot the page's visible interactive elements (links, buttons, inputs, [role], [onclick], [tabindex]): returns {url, count, nodes:[{node, tag, role, name, text, path, href, value, x, y, w, h}]}. node is a data-ab-node stamp on the element — pass it as click_element's nodeId to click without a selector; path is a stable CSS selector that survives navigation. full:true scans the whole document, not just the viewport (v2.10). frame scopes into a cross-origin iframe.",
+    description: "Snapshot the page's visible interactive elements (links, buttons, inputs, [role], [onclick], [tabindex]): returns {url, count, nodes:[{node, tag, role, name, text, path, href, value, x, y, w, h}]}. Pass node as click_element's nodeId to click without a selector — ids resolve in-session via a stored path map (v2.29: no DOM stamps) and go stale on navigation or re-render, so re-snapshot if one errors; path is a stable CSS selector that survives navigation. full:true scans the whole document, not just the viewport (v2.10). frame scopes into a cross-origin iframe.",
     args: {
       type: "object",
       properties: {
@@ -799,6 +810,7 @@ export const TOOLS = [
         selector: { type: "string", description: "CSS selector of the field to fill" },
         text: { type: "string", description: "Text to type into the field" },
         submit: { type: "boolean", description: "Press Enter after typing (default false)" },
+        humanize: { type: "boolean", description: "false skips humanized pacing for this call (v2.28)" },
         tabId: { type: "number", description: "Target tab id; omit for the active tab" }
       },
       required: ["selector", "text"]

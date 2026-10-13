@@ -19,7 +19,6 @@
 
   var TID_ATTR = 'data-ab-tid';
   var HOST_CLASS = 'ab-trans-host';
-  var UI_ATTR = 'data-ab-ui';
   var nextTid = 1;
   var nextReq = 1;
 
@@ -54,6 +53,7 @@
   .${HOST_CLASS}{display:block}
   .ab-t-body{position:relative;font-size:.95em;color:var(--ac-text-secondary);line-height:1.8;
     font-family:inherit}
+  span.ab-t-inline{opacity:.78;font:inherit}
   .ab-t-tag{display:none;position:absolute;font-size:10px;font-weight:600;
     letter-spacing:.6px;line-height:1;padding:3px 8px;border-radius:99px;
     user-select:none}
@@ -138,20 +138,63 @@
   }
 
   // ---------------------------------------------------------------- walker
+  // Inline-level classification: tag table first; the getComputedStyle probe
+  // runs only for unknown/custom elements that carry some text — everything
+  // else classifies without touching layout.
+  function isInlineEl(el, directProse) {
+    if (INLINE_TAGS.has(el.tagName)) return true;
+    if (BLOCK_TAGS.has(el.tagName)) return false;
+    if (!(directProse || LETTER_RE.test(el.textContent || ''))) return false;
+    try { return /^inline/.test(getComputedStyle(el).display); }
+    catch (e) { return false; }
+  }
+
+  // Mixed containers (direct prose next to block children): wrap each
+  // consecutive run of text/inline nodes that contains prose into an
+  // <ab-wrap>, so the run labels as its own inline unit and the block
+  // children stay standalone paragraphs — instead of the whole subtree
+  // flattening into one giant translation blob (v2.30).
+  function wrapStrayRuns(el) {
+    var node = el.firstChild;
+    while (node) {
+      var run = [];
+      var prose = false;
+      while (node && !isBlockEl(node)) {
+        if (node.nodeType === 3 && LETTER_RE.test(node.nodeValue || '')) prose = true;
+        run.push(node);
+        node = node.nextSibling;
+      }
+      if (run.length && prose) {
+        var w = document.createElement(WRAP_TAG);
+        el.insertBefore(w, node);
+        for (var i = 0; i < run.length; i++) w.appendChild(run[i]);
+      }
+      if (node) node = node.nextSibling;
+    }
+  }
+
   // Returns true when the element was labeled — a labeled paragraph owns its
   // whole subtree (its textContent is the unit), so the walk does not descend.
+  // v2.30: inline elements (a/span/em/…) label as *inline* units — their
+  // translation renders inside them, never as a block that splits the line.
   function label(el) {
     if (!(el instanceof Element)) return false;
     if (el.hasAttribute(TID_ATTR)) return true;
     if (el.closest('[' + UI_ATTR + ']') || el.closest('.' + HOST_CLASS)) return true;
     if (SKIP_TAGS.has(el.tagName) || el.isContentEditable) return true;
-    if (!hasProseChild(el.childNodes)) return false;
+    var directProse = hasProseChild(el.childNodes);
+    var inline = isInlineEl(el, directProse);
+    if (!inline && directProse && hasBlockChild(el)) {
+      wrapStrayRuns(el);
+      return false;
+    }
+    if (!(directProse || (inline && LETTER_RE.test(el.textContent || '')))) return false;
     var ex = extractMasked(el);
     var text = normalizeText(ex.text);
     if (text.length < cfg.minChars) return false;
     var tid = nextTid++;
     el.setAttribute(TID_ATTR, String(tid));
-    paragraphs.set(tid, { el: el, text: text, protect: ex.protect, state: 'pending' });
+    paragraphs.set(tid, { el: el, text: text, protect: ex.protect, state: 'pending', inline: inline });
     stats.total++;
     if (cfg.mode !== 'ondemand' && io) io.observe(el);
     return true;
@@ -200,7 +243,7 @@
         for (var j = 0; j < m.addedNodes.length; j++) {
           var n = m.addedNodes[j];
           if (n instanceof Element && !n.closest('[' + UI_ATTR + ']') &&
-              !n.closest('.' + HOST_CLASS)) { any = true; }
+              !n.closest('.' + HOST_CLASS) && n.tagName !== WRAP_TAG) { any = true; }
         }
       }
       if (!any) return;
@@ -231,25 +274,31 @@
   function flush() {
     flushTimer = null;
     if (!pending.size) return;
-    // Split into provider-sized batches here so one bus call carries at most
-    // one provider request's worth of work.
-    var items = [];
-    var chars = 0;
-    for (var tid of pending.keys()) {
-      var rec = paragraphs.get(tid);
-      if (!rec || rec.state !== 'queued') { pending.delete(tid); continue; }
-      if (items.length >= cfg.maxItemsPerBatch || chars + rec.text.length > cfg.maxCharsPerBatch) break;
-      items.push({ tid: tid, text: rec.text });
-      chars += rec.text.length;
-      pending.delete(tid);
-      rec.state = 'sent';
-      stats.translating++;
+    // Drain the whole queue into provider-sized batches — one bus call per
+    // batch, no extra tick between them (v2.30: the old one-batch-per-tick
+    // cadence serialized a viewport's worth of paragraphs into a slow drip).
+    // The hub re-groups and runs them concurrently; results land per batch,
+    // so small batches still render progressively.
+    while (pending.size) {
+      var items = [];
+      var chars = 0;
+      for (var tid of pending.keys()) {
+        var rec = paragraphs.get(tid);
+        if (!rec || rec.state !== 'queued') { pending.delete(tid); continue; }
+        // A lone oversized paragraph ships solo rather than wedging the queue.
+        if (items.length && (items.length >= cfg.maxItemsPerBatch ||
+            chars + rec.text.length > cfg.maxCharsPerBatch)) break;
+        items.push({ tid: tid, text: rec.text });
+        chars += rec.text.length;
+        pending.delete(tid);
+        rec.state = 'sent';
+        stats.translating++;
+      }
+      if (!items.length) break;
+      var req = nextReq++;
+      inflight.set(req, { tids: items.map(function (i) { return i.tid; }) });
+      bus({ kind: 'batch', req: req, items: items });
     }
-    if (!items.length) return;
-    var req = nextReq++;
-    inflight.set(req, { tids: items.map(function (i) { return i.tid; }) });
-    bus({ kind: 'batch', req: req, items: items });
-    if (pending.size && !flushTimer) flushTimer = setTimeout(flush, cfg.batchFlushMs);
   }
 
   function reportProgress() {
@@ -274,20 +323,41 @@
     if (!rec || rec.state === 'done') return;
     var el = rec.el;
     if (!el.isConnected) { rec.state = 'pending'; return; }
-    var host = hostFor(el);
-    var body = host.querySelector('.ab-t-body');
-    if (!body) {
-      body = document.createElement('div');
-      body.className = 'ab-t-body';
-      body.innerHTML = '<span class="ab-t-tag">译</span><span class="ab-t-text"></span>';
-      host.appendChild(body);
+    if (rec.inline) {
+      // Inline unit (a link, a span): the translation rides inside the
+      // element — "Home 首页" — so nothing in the line breaks (v2.30).
+      var span = document.createElement('span');
+      span.className = 'ab-t-inline';
+      span.setAttribute(UI_ATTR, '');
+      span.appendChild(document.createTextNode(' '));
+      renderTranslated(span, text, rec.protect);
+      el.appendChild(span);
+      rec.hostEl = span;
+    } else {
+      var host = hostFor(el);
+      var body = host.querySelector('.ab-t-body');
+      if (!body) {
+        body = document.createElement('div');
+        body.className = 'ab-t-body';
+        body.innerHTML = '<span class="ab-t-tag">译</span><span class="ab-t-text"></span>';
+        host.appendChild(body);
+      }
+      var t = body.querySelector('.ab-t-text');
+      body.classList.remove('ab-t-loading');
+      t.textContent = '';
+      // Inherit the source paragraph's typography — same size/weight/line
+      // height — so the block reads as part of the page, not a foreign inset.
+      var cs = getComputedStyle(el);
+      body.style.fontFamily = cs.fontFamily;
+      body.style.fontSize = cs.fontSize;
+      body.style.fontWeight = cs.fontWeight;
+      body.style.lineHeight = cs.lineHeight;
+      body.style.letterSpacing = cs.letterSpacing;
+      renderTranslated(t, text, rec.protect);
+      if (cfg.mode === 'dim') el.classList.add('ab-t-mode-dim', 'ab-src');
+      if (cfg.mode === 'replace') el.classList.add('ab-t-mode-replace', 'ab-src');
+      rec.hostEl = host;
     }
-    var t = body.querySelector('.ab-t-text');
-    body.classList.remove('ab-t-loading');
-    t.textContent = '';
-    renderTranslated(t, text, rec.protect);
-    if (cfg.mode === 'dim') el.classList.add('ab-t-mode-dim', 'ab-src');
-    if (cfg.mode === 'replace') el.classList.add('ab-t-mode-replace', 'ab-src');
     rec.state = 'done';
     rec.rendered = text;
     stats.done++;
@@ -296,13 +366,15 @@
   }
 
   // Re-render every done paragraph after a mode change — the structure stays,
-  // only host class/source visibility move.
+  // only host class/source visibility move. Inline units are unaffected:
+  // they render inside the element and have no mode styling to swap.
   function restyleAll() {
     for (var pair of paragraphs) {
       var rec = pair[1];
       var el = rec.el;
       el.classList.remove('ab-t-mode-dim', 'ab-t-mode-replace', 'ab-src');
-      var host = el.nextElementSibling;
+      if (rec.inline) continue;
+      var host = rec.hostEl;
       if (host && host.classList && host.classList.contains(HOST_CLASS)) {
         host.className = HOST_CLASS + ' ab-t-mode-' + cfg.mode;
       }
@@ -362,9 +434,8 @@
     if (!rec) return;
     var btn = floatBtn;
     if (rec.state === 'done') {
-      // 原 -> restore the source, drop the rendered block.
-      var host = rec.el.nextElementSibling;
-      if (host && host.classList && host.classList.contains(HOST_CLASS)) host.remove();
+      // 原 -> restore the source, drop the rendered block/inline span.
+      if (rec.hostEl) { rec.hostEl.remove(); rec.hostEl = null; }
       rec.el.classList.remove('ab-t-mode-dim', 'ab-t-mode-replace', 'ab-src');
       rec.state = 'pending';
       stats.done--;
@@ -404,6 +475,7 @@
         else {
           var s = document.createElement('span');
           s.className = 'abw';
+          s.setAttribute(UI_ATTR, '');
           s.textContent = part;
           frag.appendChild(s);
         }
@@ -487,9 +559,19 @@
         var rec = pair[1];
         rec.el.removeAttribute(TID_ATTR);
         rec.el.classList.remove('ab-t-mode-dim', 'ab-t-mode-replace', 'ab-src');
-        var host = rec.el.nextElementSibling;
-        if (host && host.classList && host.classList.contains(HOST_CLASS)) host.remove();
+        if (rec.hostEl) rec.hostEl.remove();
       }
+      // Unwrap our stray-run wrappers so the DOM returns to the page's own.
+      Array.prototype.forEach.call(
+        document.querySelectorAll(WRAP_TAG.toLowerCase()),
+        function (w) {
+          var p = w.parentNode;
+          if (!p) return;
+          while (w.firstChild) p.insertBefore(w.firstChild, w);
+          p.removeChild(w);
+          if (p.normalize) p.normalize();
+        }
+      );
       paragraphs.clear();
       pending.clear();
       inflight.clear();

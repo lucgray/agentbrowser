@@ -121,7 +121,7 @@ export function summarizeCallFrames(callFrames, scripts) {
 // Used to relocate elements for patch_revert after the DOM may have shifted,
 // and as the `path` field on element_check / dom_inspect / page_snapshot /
 // read_elements so a match stays addressable after navigation (unlike the
-// per-snapshot data-ab-node stamp).
+// per-snapshot nodeId map, which dies with the document).
 export const CSS_PATH_FN = `
 function abCssPath(el) {
   var path = [];
@@ -357,11 +357,12 @@ ${CSS_PATH_FN}
 }
 
 // page_snapshot: one evaluate maps the page's interactive layer — visible
-// controls that an agent can act on. Each is stamped with `data-ab-node`
-// (reused if already stamped) so a later `click_element {nodeId}` can hit it
-// without a CSS selector; `path` is the stable CSS equivalent for across
-// navigations. Text is truncated; the viewport check keeps off-screen
-// elements out unless `full` asks for the whole document.
+// controls that an agent can act on. node ids are minted SW-side by
+// inspect.pageSnapshot and resolve through its in-memory map (v2.29) — no
+// data-ab-node stamps, so the page's DOM is never touched. `path` is the
+// stable CSS equivalent for across navigations. Text is truncated; the
+// viewport check keeps off-screen elements out unless `full` asks for the
+// whole document.
 export function pageSnapshotExpression({ max = 300, maxChars = 80, full = false } = {}) {
   const cap = Math.max(1, Math.min(Number(max) || 300, 1000));
   const tcap = Math.max(1, Math.min(Number(maxChars) || 80, 500));
@@ -371,10 +372,6 @@ ${CSS_PATH_FN}
   var SEL = 'a,button,input,select,textarea,summary,label,[role],[onclick],[contenteditable="true"],[tabindex]';
   var vw = window.innerWidth, vh = window.innerHeight;
   var out = [];
-  // Persist the stamp counter on <html>: a second snapshot keeps minting fresh
-  // node ids instead of re-issuing n1... for different elements (nodeId clicks
-  // would then match two elements at once).
-  var seq = Number(document.documentElement.getAttribute('data-ab-seq') || 0);
   var els = document.querySelectorAll(SEL);
   for (var i = 0; i < els.length; i++) {
     if (out.length >= ${cap}) break;
@@ -385,13 +382,10 @@ ${CSS_PATH_FN}
     var r = el.getBoundingClientRect();
     if (!r.width || !r.height) continue;
     if (!${everywhere} && (r.bottom < 0 || r.right < 0 || r.top > vh || r.left > vw)) continue;
-    var node = el.getAttribute('data-ab-node');
-    if (!node) { node = 'n' + (++seq); el.setAttribute('data-ab-node', node); }
     var text = String(el.innerText || el.textContent || el.getAttribute('aria-label') ||
       el.getAttribute('placeholder') || el.getAttribute('title') ||
       (el.tagName === 'INPUT' ? el.value : '') || '').replace(/\\s+/g, ' ').trim().slice(0, ${tcap});
     out.push({
-      node: node,
       tag: el.tagName.toLowerCase(),
       role: el.getAttribute('role') || '',
       name: el.getAttribute('name') || el.id || '',
@@ -403,7 +397,6 @@ ${CSS_PATH_FN}
       w: Math.round(r.width), h: Math.round(r.height)
     });
   }
-  if (seq) document.documentElement.setAttribute('data-ab-seq', seq);
   return { url: location.href, count: out.length, nodes: out };
 })()`;
 }

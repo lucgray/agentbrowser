@@ -110,6 +110,9 @@ test('page_snapshot carries path/href/value and honors full', () => {
   assert.ok(viewport.includes('href:'));
   assert.ok(viewport.includes('value:'));
   assert.ok(viewport.includes('r.bottom < 0'));
+  // v2.29: node ids are minted SW-side — the expression must never write to
+  // the page's DOM (a MutationObserver can see setAttribute).
+  assert.doesNotMatch(viewport, /setAttribute|removeAttribute|data-ab-/);
   const full = pageSnapshotExpression({ full: true });
   assert.ok(full.includes('!true &&')); // viewport filter disabled
 });
