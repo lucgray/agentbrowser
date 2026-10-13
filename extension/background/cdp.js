@@ -6,6 +6,7 @@
 
 import { buildOverlayScript } from '../page/overlay.js';
 import { elementCheckExpression, elementPointExpression } from './inspect-core.js';
+import * as humanize from './humanize.js';
 
 const PROTOCOL_VERSION = '1.3';
 
@@ -16,6 +17,7 @@ const queues = new Map(); // tabId -> tail promise of the per-tab command chain
 function forget(tabId) {
   attached.delete(tabId);
   queues.delete(tabId);
+  humanize.forgetPointer(tabId);
 }
 
 chrome.debugger.onDetach.addListener((source) => {
@@ -138,7 +140,10 @@ chrome.debugger.onEvent.addListener((source, method, params) => {
   }
 });
 
-chrome.tabs.onRemoved.addListener((tabId) => frameSessions.delete(tabId));
+chrome.tabs.onRemoved.addListener((tabId) => {
+  frameSessions.delete(tabId);
+  overlayMuted.delete(tabId);
+});
 
 export function frameTargets(tabId) {
   const m = frameSessions.get(tabId);
@@ -195,8 +200,10 @@ const OVERLAY_TIMEOUT_MS = 250;
 const OVERLAY_BLOCKED_URL = /^(chrome|chrome-extension|chrome-untrusted|devtools|view-source|about|edge|brave|opera|vivaldi):/i;
 const OVERLAY_BLOCKED_HOST = /^https?:\/\/(chromewebstore\.google\.com|chrome\.google\.com\/webstore)/i;
 
-// chrome.storage.local.overlayEnabled, default true. Only an explicit false
-// disables the overlay, so an unset key behaves as on.
+// chrome.storage.local.overlayEnabled, default false (v2.29). The pill is
+// page-visible DOM (#agentchat-overlay-root plus window.__agentchatOverlay*)
+// — any MutationObserver on the page can see it — so it ships opt-in now:
+// only an explicit true enables it.
 let overlayEnabled = null;
 let overlayPref = null;
 
@@ -209,21 +216,34 @@ function overlayAllowed() {
         // An onChanged that landed while this read was in flight wins: it is
         // newer than what we just read.
         if (overlayEnabled === null) {
-          overlayEnabled = !(stored && stored.overlayEnabled === false);
+          overlayEnabled = !!(stored && stored.overlayEnabled === true);
         }
         return overlayEnabled;
       })
       .catch((err) => {
         console.warn('[agentbrowser] overlay preference read failed', err);
-        return true;
+        return false;
       });
   }
   return overlayPref;
 }
 
+// Exported for sw.js's record_start — pointless when the overlay would
+// never inject anyway.
+export function overlayOn() {
+  return overlayAllowed();
+}
+
+// Recording mutes the overlay SW-side: injectOverlay skips muted tabs, so
+// record_start never has to leave a page-visible window global behind
+// (v2.29 — the old __agentchatRecQuiet flag was itself a tell).
+const overlayMuted = new Set(); // tabId
+export function muteOverlay(tabId) { overlayMuted.add(tabId); }
+export function unmuteOverlay(tabId) { overlayMuted.delete(tabId); }
+
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== 'local' || !changes.overlayEnabled) return;
-  overlayEnabled = changes.overlayEnabled.newValue !== false;
+  overlayEnabled = changes.overlayEnabled.newValue === true;
 });
 
 async function sendUnqueued(tabId, method, params) {
@@ -232,6 +252,7 @@ async function sendUnqueued(tabId, method, params) {
 }
 
 async function injectOverlay(tabId, action, detail) {
+  if (overlayMuted.has(tabId)) return false;
   if (!(await overlayAllowed())) return false;
   let url = '';
   try {
@@ -290,6 +311,65 @@ function describeException(details) {
   return details.text || 'evaluation failed';
 }
 
+// --- input humanization ---------------------------------------------------
+// Ported from xiaohongshu-mcp's humanize/: a click is now aim (curved
+// move) → settle → hold-release; an element click adds point jitter and a
+// re-verified target. args.humanize === false bypasses per call.
+
+function humFlag(opts) {
+  return opts && opts.humanize === false ? Promise.resolve(false) : humanize.enabled();
+}
+
+// The pointer trail only knows where WE last put it — the user's own moves
+// don't reach the SW. First move in a session starts at viewport center.
+async function pointerStart(tabId) {
+  const last = humanize.lastPointer(tabId);
+  if (last) return last;
+  try {
+    const res = await sendCommand(tabId, 'Runtime.evaluate', {
+      expression: 'JSON.stringify({x: innerWidth/2, y: innerHeight/2})',
+      returnByValue: true,
+    });
+    const c = res.result && res.result.value ? JSON.parse(res.result.value) : null;
+    if (c && Number.isFinite(c.x)) return c;
+  } catch (err) {
+    console.warn('[agentbrowser] pointer start probe failed', err);
+  }
+  return null;
+}
+
+async function dispatchMove(tabId, p, pressed) {
+  await sendCommand(tabId, 'Input.dispatchMouseEvent', {
+    type: 'mouseMoved',
+    x: p.x,
+    y: p.y,
+    button: pressed ? 'left' : 'none',
+    buttons: pressed ? 1 : 0,
+  });
+  humanize.notePointer(tabId, p.x, p.y);
+}
+
+// Walk the pointer to `target` on a curved path, 5-9ms per step. opts.bounds
+// clamps the path into a rect; opts.steps overrides the step count.
+export async function movePointerTo(tabId, target, opts = {}) {
+  const start = await pointerStart(tabId);
+  const path = humanize.curvePath(start || target, target, opts);
+  const stepMs = humanize.stepDelayMs();
+  for (const p of path) {
+    await new Promise((r) => setTimeout(r, stepMs));
+    await dispatchMove(tabId, p, opts.pressed);
+  }
+}
+
+// down → hold (clickHold sample) → up. base carries x/y/button/clickCount/
+// buttons. Exported for inspect.js's frame clicks.
+export async function pressRelease(tabId, base) {
+  await sendCommand(tabId, 'Input.dispatchMouseEvent', { type: 'mousePressed', ...base });
+  humanize.notePointer(tabId, base.x, base.y);
+  await humanize.pause('clickHold');
+  await sendCommand(tabId, 'Input.dispatchMouseEvent', { type: 'mouseReleased', ...base });
+}
+
 export async function readPage(tabId, maxChars = 60000) {
   // The overlay lives on <html>, not <body>, so it never lands in this text.
   flashOverlay(tabId, 'read_page');
@@ -336,8 +416,16 @@ export async function click(tabId, x, y, opts = {}) {
   const clickCount = Math.max(1, Math.min(Math.trunc(Number(opts.clickCount) || 1), 3));
   flashOverlay(tabId, 'click', { x, y });
   const base = { x, y, button, clickCount, buttons: button === 'none' ? 0 : 1 << ['left', 'right', 'middle'].indexOf(button) };
-  await sendCommand(tabId, 'Input.dispatchMouseEvent', { type: 'mousePressed', ...base });
-  await sendCommand(tabId, 'Input.dispatchMouseEvent', { type: 'mouseReleased', ...base });
+  if (await humFlag(opts)) {
+    await humanize.pause('beforeClick');
+    await movePointerTo(tabId, { x, y });
+    await pressRelease(tabId, base);
+    await humanize.pause('afterClick');
+  } else {
+    await sendCommand(tabId, 'Input.dispatchMouseEvent', { type: 'mousePressed', ...base });
+    humanize.notePointer(tabId, x, y);
+    await sendCommand(tabId, 'Input.dispatchMouseEvent', { type: 'mouseReleased', ...base });
+  }
   return { clicked: true, button, clickCount };
 }
 
@@ -394,33 +482,59 @@ async function elementPoint(tabId, selector, opts = {}) {
 
 export async function clickElement(tabId, selector, dx = 0, dy = 0, opts = {}) {
   const center = await elementPoint(tabId, selector, { ...opts, dx, dy });
-  flashOverlay(tabId, 'click', { x: Math.round(center.x), y: Math.round(center.y) });
   const button = MOUSE_BUTTONS.has(opts.button) ? opts.button : 'left';
   const clickCount = Math.max(1, Math.min(Math.trunc(Number(opts.clickCount) || 1), 3));
-  const base = { x: center.x, y: center.y, button, clickCount, buttons: button === 'none' ? 0 : 1 << ['left', 'right', 'middle'].indexOf(button) };
+  const mkBase = (pt) => ({ x: pt.x, y: pt.y, button, clickCount, buttons: button === 'none' ? 0 : 1 << ['left', 'right', 'middle'].indexOf(button) });
+  if (await humFlag(opts)) {
+    // Aim point jitters inside the element — ±15% of its size, capped at
+    // 8px — instead of the dead-center hit every time.
+    const pt = humanize.jitterPoint({ x: center.x, y: center.y }, center.w, center.h);
+    flashOverlay(tabId, 'click', { x: Math.round(pt.x), y: Math.round(pt.y) });
+    await humanize.pause('beforeClick');
+    await movePointerTo(tabId, pt);
+    // Aim-and-settle pause, then re-probe: the page may have shifted under
+    // the approach — the stillOn gate from the Go original, same idea.
+    await humanize.pause('pointerSettle');
+    // fresh carries the same dx/dy, so |pt - fresh| is just the jitter plus
+    // whatever the element itself moved by — inside-rect±1px = still on.
+    // Visibility/occlusion re-gate happens inside elementPoint itself.
+    const fresh = await elementPoint(tabId, selector, { ...opts, dx, dy });
+    if (Math.abs(pt.x - fresh.x) > fresh.w / 2 + 1 ||
+        Math.abs(pt.y - fresh.y) > fresh.h / 2 + 1) {
+      throw new Error('element moved between aim and press — retry click_element');
+    }
+    await pressRelease(tabId, mkBase(pt));
+    await humanize.pause('afterClick');
+    return { clicked: true, selector, tag: fresh.tag, path: fresh.path, button, clickCount,
+             x: pt.x, y: pt.y, w: fresh.w, h: fresh.h };
+  }
+  flashOverlay(tabId, 'click', { x: Math.round(center.x), y: Math.round(center.y) });
+  const base = mkBase(center);
   await sendCommand(tabId, 'Input.dispatchMouseEvent', { type: 'mousePressed', ...base });
+  humanize.notePointer(tabId, base.x, base.y);
   await sendCommand(tabId, 'Input.dispatchMouseEvent', { type: 'mouseReleased', ...base });
   return { clicked: true, selector, tag: center.tag, path: center.path, button, clickCount,
            x: center.x, y: center.y, w: center.w, h: center.h };
 }
 
-// hover: a bare mouseMoved. Pointer-over states (menus, tooltips, hover
+// hover: moves without pressing — a curved approach when humanized, a bare
+// mouseMoved otherwise. Pointer-over states (menus, tooltips, hover
 // previews) open on it; nothing is pressed.
-export async function hover(tabId, x, y) {
+export async function hover(tabId, x, y, opts = {}) {
   flashOverlay(tabId, 'hover', { x, y });
-  await sendCommand(tabId, 'Input.dispatchMouseEvent', {
-    type: 'mouseMoved',
-    x,
-    y,
-    button: 'none',
-    buttons: 0,
-  });
+  if (await humFlag(opts)) {
+    await movePointerTo(tabId, { x, y });
+  } else {
+    await dispatchMove(tabId, { x, y });
+  }
   return { hovered: true, x, y };
 }
 
 export async function hoverElement(tabId, selector, opts = {}) {
   const center = await elementPoint(tabId, selector, opts);
-  const r = await hover(tabId, Math.round(center.x), Math.round(center.y));
+  let pt = { x: Math.round(center.x), y: Math.round(center.y) };
+  if (await humFlag(opts)) pt = humanize.jitterPoint({ x: center.x, y: center.y }, center.w, center.h);
+  const r = await hover(tabId, pt.x, pt.y, opts);
   return { ...r, selector, tag: center.tag, w: center.w, h: center.h };
 }
 
@@ -441,6 +555,7 @@ export async function scroll(tabId, args) {
     if (y == null) y = c.y;
   }
   flashOverlay(tabId, 'scroll', { x: Math.round(x), y: Math.round(y) });
+  const hum = await humFlag(args);
   const params = {
     x,
     y,
@@ -450,13 +565,21 @@ export async function scroll(tabId, args) {
   };
   if (args.repeatDelayMs != null) params.repeatDelayMs = Math.max(0, Number(args.repeatDelayMs));
   if (args.repeatCount != null) params.repeatCount = Math.max(0, Math.trunc(Number(args.repeatCount)));
+  if (hum) {
+    // The wheel gesture lands where the pointer is — walk it to the anchor
+    // first so move listeners see a coherent trail, and vary the speed.
+    await movePointerTo(tabId, { x, y });
+    params.speed = Math.max(1, Math.round(params.speed * (0.8 + Math.random() * 0.4)));
+  }
   await sendCommand(tabId, 'Input.synthesizeScrollGesture', params);
+  if (hum) await humanize.pause('betweenScroll');
   return { scrolled: true, x, y, xDistance: params.xDistance, yDistance: params.yDistance };
 }
 
 // drag: two modes.
-//  'mouse' (default): press + a staircase of moves + release — drives
-//     sliders, mouse-event sortables, canvas strokes.
+//  'mouse' (default): press + moves + release — a curved path when
+//     humanized, a staircase otherwise. Drives sliders, mouse-event
+//     sortables, canvas strokes.
 //  'html5': Input.dispatchDragEvent — fires the HTML5 drag&drop event
 //     family (dragstart/dragenter/dragover/drop) for draggable lists and
 //     drop targets.
@@ -481,17 +604,36 @@ export async function drag(tabId, args) {
     return { dragged: true, mode, from: { x: x1, y: y1 }, to: { x: x2, y: y2 } };
   }
 
+  const hum = await humFlag(args);
+  if (hum) {
+    // Move to the grip point, press, hold, then pull along a curved path —
+    // a straight staircase is the easiest drag signature to spot.
+    await movePointerTo(tabId, { x: x1, y: y1 });
+    await sendCommand(tabId, 'Input.dispatchMouseEvent', {
+      type: 'mousePressed', x: x1, y: y1, button: 'left', buttons: 1, clickCount: 1,
+    });
+    humanize.notePointer(tabId, x1, y1);
+    await humanize.pause('clickHold');
+    const path = humanize.curvePath({ x: x1, y: y1 }, { x: x2, y: y2 }, { steps });
+    const stepMs = humanize.stepDelayMs();
+    for (const p of path) {
+      await new Promise((r) => setTimeout(r, stepMs));
+      await dispatchMove(tabId, p, true);
+    }
+    await sendCommand(tabId, 'Input.dispatchMouseEvent', {
+      type: 'mouseReleased', x: x2, y: y2, button: 'left', buttons: 0, clickCount: 1,
+    });
+    return { dragged: true, mode, steps: path.length, from: { x: x1, y: y1 }, to: { x: x2, y: y2 } };
+  }
   await sendCommand(tabId, 'Input.dispatchMouseEvent', {
     type: 'mousePressed', x: x1, y: y1, button: 'left', buttons: 1, clickCount: 1,
   });
+  humanize.notePointer(tabId, x1, y1);
   for (let i = 1; i <= steps; i++) {
-    await sendCommand(tabId, 'Input.dispatchMouseEvent', {
-      type: 'mouseMoved',
+    await dispatchMove(tabId, {
       x: x1 + ((x2 - x1) * i) / steps,
       y: y1 + ((y2 - y1) * i) / steps,
-      button: 'left',
-      buttons: 1,
-    });
+    }, true);
   }
   await sendCommand(tabId, 'Input.dispatchMouseEvent', {
     type: 'mouseReleased', x: x2, y: y2, button: 'left', buttons: 0, clickCount: 1,
@@ -534,18 +676,30 @@ export async function selectText(tabId, args) {
   if (![x1, y1, x2, y2].every(Number.isFinite)) {
     throw new Error('select_text needs selector or from:{x,y}+to:{x,y}');
   }
+  const hum = await humFlag(args);
+  if (hum) {
+    await movePointerTo(tabId, { x: x1, y: y1 });
+  }
   await sendCommand(tabId, 'Input.dispatchMouseEvent', {
     type: 'mousePressed', x: x1, y: y1, button: 'left', buttons: 1, clickCount: 1,
   });
-  const steps = 10;
-  for (let i = 1; i <= steps; i++) {
-    await sendCommand(tabId, 'Input.dispatchMouseEvent', {
-      type: 'mouseMoved',
-      x: x1 + ((x2 - x1) * i) / steps,
-      y: y1 + ((y2 - y1) * i) / steps,
-      button: 'left',
-      buttons: 1,
-    });
+  humanize.notePointer(tabId, x1, y1);
+  if (hum) await humanize.pause('clickHold');
+  if (hum) {
+    const path = humanize.curvePath({ x: x1, y: y1 }, { x: x2, y: y2 }, { steps: 10 });
+    const stepMs = humanize.stepDelayMs();
+    for (const p of path) {
+      await new Promise((r) => setTimeout(r, stepMs));
+      await dispatchMove(tabId, p, true);
+    }
+  } else {
+    const steps = 10;
+    for (let i = 1; i <= steps; i++) {
+      await dispatchMove(tabId, {
+        x: x1 + ((x2 - x1) * i) / steps,
+        y: y1 + ((y2 - y1) * i) / steps,
+      }, true);
+    }
   }
   await sendCommand(tabId, 'Input.dispatchMouseEvent', {
     type: 'mouseReleased', x: x2, y: y2, button: 'left', buttons: 0, clickCount: 1,
@@ -560,13 +714,24 @@ export async function selectText(tabId, args) {
 export async function typeText(tabId, text, selector, opts = {}) {
   const value = String(text ?? '');
   flashOverlay(tabId, 'type_text');
+  const hum = await humFlag(opts);
   let focus = null;
   if (selector) {
     // Focus the target first — a real click, so page click handlers see it.
     focus = await clickElement(tabId, selector, 0, 0, opts);
     flashOverlay(tabId, 'type_text');
   }
-  await sendCommand(tabId, 'Input.insertText', { text: value });
+  if (hum) {
+    // Per code point for short text; random 20-60 char bursts for longer —
+    // the keystroke-interval signature a one-shot insertText never produces.
+    for (const chunk of humanize.typeChunks(value)) {
+      await sendCommand(tabId, 'Input.insertText', { text: chunk });
+      await humanize.pause('keystroke');
+    }
+    await humanize.pause('afterType');
+  } else {
+    await sendCommand(tabId, 'Input.insertText', { text: value });
+  }
   if (focus) {
     return { typed: value.length, x: focus.x, y: focus.y, w: focus.w, h: focus.h };
   }
@@ -654,7 +819,7 @@ function keyDef(token, modifiers) {
   throw new Error(`unsupported key: ${token}`);
 }
 
-export async function pressKey(tabId, spec) {
+export async function pressKey(tabId, spec, opts = {}) {
   const parts = String(spec).split('+');
   const keyToken = parts.pop();
   if (!keyToken) throw new Error(`unsupported key: ${spec}`);
@@ -679,6 +844,8 @@ export async function pressKey(tabId, spec) {
     if (command) down.commands = [command];
   }
   await sendCommand(tabId, 'Input.dispatchKeyEvent', down);
+  // Same hold-time distribution as a mouse press — a key tap is not a 0ms event.
+  if (await humFlag(opts)) await humanize.pause('clickHold');
   await sendCommand(tabId, 'Input.dispatchKeyEvent', {
     type: 'keyUp',
     key: def.key,

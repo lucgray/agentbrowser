@@ -5,6 +5,10 @@ import assert from 'node:assert/strict';
 import {
   SKIP_TAGS,
   BLOCK_TAGS,
+  INLINE_TAGS,
+  WRAP_TAG,
+  isBlockEl,
+  hasBlockChild,
   hasProseChild,
   looksLikeTargetLang,
   normalizeText,
@@ -17,7 +21,7 @@ import {
 } from '../../extension/page/translate-core.js';
 
 const text = (v) => ({ nodeType: 3, nodeValue: v });
-const elem = () => ({ nodeType: 1, nodeValue: null });
+const elem = (tag = 'SPAN') => ({ nodeType: 1, nodeValue: null, tagName: tag });
 
 test('hasProseChild: a direct text child with a letter qualifies', () => {
   assert.equal(hasProseChild([text('hello world')]), true);
@@ -82,6 +86,25 @@ test('tag sets cover the expected exclusions and modes list is complete', () => 
     assert.ok(BLOCK_TAGS.has(tag), tag);
   }
   assert.deepEqual(TRANSLATE_MODES, ['bilingual', 'card', 'dim', 'replace', 'ondemand']);
+});
+
+test('INLINE_TAGS covers inline elements; isBlockEl/hasBlockChild classify children', () => {
+  for (const tag of ['A', 'SPAN', 'EM', 'STRONG', 'TIME', WRAP_TAG]) {
+    assert.ok(INLINE_TAGS.has(tag), tag);
+    assert.equal(isBlockEl(elem(tag)), false, `${tag} must not read as block`);
+  }
+  for (const tag of ['P', 'DIV', 'UL', 'X-CUSTOM']) {
+    assert.equal(isBlockEl(elem(tag)), true, tag);
+  }
+  // Non-element nodes and SKIP_TAGS children never count as block.
+  assert.equal(isBlockEl(text('x')), false);
+  assert.equal(isBlockEl(elem('IMG')), false);
+  assert.equal(isBlockEl(elem('CODE')), false);
+  // children may be an element array (test double) — no children → no block.
+  assert.equal(hasBlockChild({ children: [elem('SPAN'), elem('A')] }), false);
+  assert.equal(hasBlockChild({ children: [elem('SPAN'), elem('UL')] }), true);
+  assert.equal(hasBlockChild({ children: [] }), false);
+  assert.equal(hasBlockChild({}), false);
 });
 
 test('splitProtected: text runs and placeholder indexes in order (v2.15)', () => {

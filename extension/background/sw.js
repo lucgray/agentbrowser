@@ -4,6 +4,7 @@
 // survive via the offscreen document, which owns the WebSocket.
 
 import * as cdp from './cdp.js';
+import * as humanize from './humanize.js';
 import * as inspect from './inspect.js';
 import { CSS_PATH_FN } from './inspect-core.js';
 import * as consent from './consent.js';
@@ -1751,6 +1752,8 @@ const TOOLS = {
     // overlay has to be fired by hand. showOverlay never rejects and is bounded
     // at 250ms, so it is safe to leave unawaited here.
     cdp.showOverlay(tabId, 'navigate');
+    // A person landing on a page looks before acting — log-normal wait.
+    if (args.humanize !== false) await humanize.pause('afterNavigate');
     const tab = await chrome.tabs.get(tabId);
     const out = { url: tab.url, title: tab.title };
     if (settle) out.settled = settle.settled;
@@ -1775,13 +1778,16 @@ const TOOLS = {
 
   async click_element(args) {
     const tabId = await resolveTabId(args.tabId);
-    // nodeId comes from page_snapshot's data-ab-node stamp; keep it to a safe
-    // charset since it lands inside a selector.
+    // nodeId resolves through the snapshot map minted by inspect.pageSnapshot
+    // (v2.29 — in-memory, no DOM stamps).
     let selector = args.selector;
     if (args.nodeId != null) {
-      const n = String(args.nodeId);
-      if (!/^[0-9A-Za-z_-]+$/.test(n)) throw new Error('invalid nodeId');
-      selector = `[data-ab-node="${n}"]`;
+      const entry = inspect.nodePath(tabId, args.nodeId);
+      if (!entry) {
+        throw new Error(`unknown nodeId "${args.nodeId}" — re-run page_snapshot to refresh the element map`);
+      }
+      selector = entry.path;
+      if (entry.frame && !args.frame) args = { ...args, frame: entry.frame };
     }
     if (args.frame) {
       return inspect.frameClickElement(tabId, { ...args, selector });
@@ -1811,7 +1817,7 @@ const TOOLS = {
       return res;
     }
     mark(tabId, Number(args.x), Number(args.y), 'hover', args.label);
-    return cdp.hover(tabId, Number(args.x), Number(args.y));
+    return cdp.hover(tabId, Number(args.x), Number(args.y), args);
   },
 
   async scroll(args) {
@@ -1854,9 +1860,7 @@ const TOOLS = {
       // Focus via a frame-aware click first (selector required), then the
       // root session's insertText lands in whichever frame holds focus.
       await inspect.frameClickElement(tabId, args);
-      const text = String(args.text ?? '');
-      await cdp.sendCommand(tabId, 'Input.insertText', { text });
-      return { typed: text.length };
+      return cdp.typeText(tabId, String(args.text ?? ''), undefined, args);
     }
     const res = await cdp.typeText(tabId, args.text, args.selector, args);
     // kind 'type': a selector focus is a real click AND drives the key HUD.
@@ -1874,7 +1878,7 @@ const TOOLS = {
   async press_key(args) {
     const tabId = await resolveTabId(args.tabId);
     markCenter(tabId, 'key', args.label, { key: args.key });
-    return cdp.pressKey(tabId, args.key);
+    return cdp.pressKey(tabId, args.key, args);
   },
 
   async eval_js(args) {
@@ -2114,15 +2118,21 @@ const TOOLS = {
         console.warn('[agentbrowser] record_start metrics fallback failed', err);
       }
     }
-    recordings.set(tabId, { startedAt: 0, markers: [], viewport, pausedAt: 0, pauses: [] });
+    recordings.set(tabId, { startedAt: 0, markers: [], viewport, pausedAt: 0, pauses: [], mutedOverlay: false });
     // Hide the overlay chrome (border/pill/ripples) for the capture — it is
     // page content and would otherwise be recorded. The rec cursor stays.
-    cdp.sendCommand(tabId, 'Runtime.evaluate', {
-      expression: 'window.__agentchatRecQuiet = true; var n = document.getElementById("agentchat-overlay-root"); if (n && n.parentNode) n.parentNode.removeChild(n); true;',
-      returnByValue: true,
-      awaitPromise: false,
-      userGesture: false,
-    }).catch((err) => console.warn('[agentbrowser] record overlay-mute failed', err));
+    // New flashes are muted SW-side so no page-visible global is needed; the
+    // eval only removes an already-injected node and leaves nothing behind.
+    if (await cdp.overlayOn()) {
+      recordings.get(tabId).mutedOverlay = true;
+      cdp.muteOverlay(tabId);
+      cdp.sendCommand(tabId, 'Runtime.evaluate', {
+        expression: 'var n = document.getElementById("agentchat-overlay-root"); if (n && n.parentNode) n.parentNode.removeChild(n); true;',
+        returnByValue: true,
+        awaitPromise: false,
+        userGesture: false,
+      }).catch((err) => console.warn('[agentbrowser] record overlay-mute failed', err));
+    }
     const ack = awaitRecorderAck('started');
     await sendToOffscreen({ target: 'offscreen', cmd: 'record_start', streamId, audio, bitrate });
     let res;
@@ -2161,12 +2171,7 @@ const TOOLS = {
       conflictAction: 'uniquify',
     });
     recordings.delete(tabId);
-    cdp.sendCommand(tabId, 'Runtime.evaluate', {
-      expression: 'window.__agentchatRecQuiet = false; true;',
-      returnByValue: true,
-      awaitPromise: false,
-      userGesture: false,
-    }).catch((err) => console.warn('[agentbrowser] record overlay-unmute failed', err));
+    if (rec.mutedOverlay) cdp.unmuteOverlay(tabId);
     return { file: filename, bytes: res.bytes, durationMs: res.durationMs, markers: rec.markers.length };
   },
 
@@ -2251,11 +2256,11 @@ const TOOLS = {
 
   async fill(args) {
     const tabId = await resolveTabId(args.tabId);
-    await cdp.clickElement(tabId, String(args.selector || ''));
-    const res = await cdp.typeText(tabId, String(args.text || ''));
+    await cdp.clickElement(tabId, String(args.selector || ''), 0, 0, args);
+    const res = await cdp.typeText(tabId, String(args.text || ''), undefined, args);
     let submitted = false;
     if (args.submit) {
-      await cdp.pressKey(tabId, 'Enter');
+      await cdp.pressKey(tabId, 'Enter', args);
       submitted = true;
     }
     return { filled: true, typed: res && res.typed, submitted };
