@@ -13,6 +13,7 @@ import { PRELOAD_PRESETS } from './stealth.js';
 import * as translate from './translate.js';
 import * as subtitle from './subtitle.js';
 import * as direct from './direct.js';
+import * as tabops from './tabops.js';
 
 const DEFAULT_HUB_URL = 'ws://127.0.0.1:9010';
 // HTTP origin of the same hub server — media files finished by yt-dlp are
@@ -602,6 +603,8 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
 
 chrome.tabs.onRemoved.addListener((tabId) => {
   rightClickContexts.delete(tabId);
+  tabops.dropTab(tabId);
+  badgedTabs.delete(tabId);
 });
 
 // --- annotations -------------------------------------------------------------
@@ -1549,11 +1552,82 @@ async function gateToolCall(tool, args, permissions) {
   await consent.authorize(tool, args, tabId, gateUrl, permissions);
 }
 
-async function handleToolCall({ id, tool, args, permissions }) {
+// Tools that never touch a specific tab — skipped by the ops ledger so a
+// listing call doesn't mark whatever tab happens to be active.
+const NON_TAB_TOOLS = new Set(['tabs_list', 'tab_new', 'tab_close', 'browsers_list']);
+
+// Toolbar badge while an agent has work in flight on a tab. Browser chrome,
+// not page DOM — sites can't observe it.
+const badgedTabs = new Set();
+function updateTabBadge(tabId) {
+  const agents = tabops.agentsOn(tabId);
+  if (agents.length) {
+    if (!badgedTabs.has(tabId)) {
+      badgedTabs.add(tabId);
+      chrome.action.setBadgeBackgroundColor({ tabId, color: '#b45309' })
+        .catch((err) => console.warn('[agentbrowser] badge color failed', err));
+      chrome.action.setBadgeText({ tabId, text: 'AI' })
+        .catch((err) => console.warn('[agentbrowser] badge set failed', err));
+    }
+    chrome.action
+      .setTitle({ tabId, title: `AgentBrowser: ${agents.join(', ')} operating` })
+      .catch((err) => console.warn('[agentbrowser] badge title failed', err));
+    return;
+  }
+  if (!badgedTabs.delete(tabId)) return;
+  chrome.action.setBadgeText({ tabId, text: '' })
+    .catch((err) => console.warn('[agentbrowser] badge clear failed', err));
+  chrome.action.setTitle({ tabId, title: '' })
+    .catch((err) => console.warn('[agentbrowser] badge title clear failed', err));
+}
+
+// A worker restart loses the ledger while badges live in browser chrome —
+// sweep anything a killed worker left on still-open tabs.
+chrome.tabs.query({}).then((tabs) => {
+  for (const t of tabs) {
+    chrome.action.setBadgeText({ tabId: t.id, text: '' })
+      .catch((err) => console.warn('[agentbrowser] stale badge sweep failed', err));
+  }
+});
+
+function withNote(result, note) {
+  if (result && typeof result === 'object' && !Array.isArray(result)) {
+    return { ...result, note };
+  }
+  return { result, note };
+}
+
+// Run one tool call under the ops ledger: registers {agent,tool} on the
+// resolved tab for the call's duration, returns the overlap advisory (if
+// any) folded into the result so the caller sees who else is driving.
+async function trackOp(tool, args, agent, callId, fn) {
+  let opTab = null;
+  let note = null;
+  if (!NON_TAB_TOOLS.has(tool)) {
+    opTab = await resolveTabId(args && args.tabId).catch(() => null);
+    if (opTab != null) {
+      note = tabops.begin(opTab, callId, agent, tool);
+      updateTabBadge(opTab);
+    }
+  }
+  try {
+    const result = await fn();
+    return note ? withNote(result, note) : result;
+  } finally {
+    if (opTab != null) {
+      tabops.end(opTab, callId);
+      updateTabBadge(opTab);
+    }
+  }
+}
+
+async function handleToolCall({ id, tool, args, permissions, agent }) {
   let reply;
   try {
     await gateToolCall(tool, args, permissions);
-    const result = await executeTool(tool, args || {}, permissions);
+    const result = await trackOp(tool, args || {}, agent, id, () =>
+      executeTool(tool, args || {}, permissions)
+    );
     reply = { type: 'tool_result', id, ok: true, result };
   } catch (err) {
     console.warn('[agentbrowser] tool call failed:', tool, err);
@@ -1711,12 +1785,16 @@ function waitForLoad(tabId, timeoutMs) {
 const TOOLS = {
   async tabs_list() {
     const tabs = await chrome.tabs.query({});
+    const busy = tabops.snapshot();
     return {
       tabs: tabs.map((t) => ({
         tabId: t.id,
         url: t.url,
         title: t.title,
         active: t.active,
+        // ops: [{agent, tool, since}] — which agents have calls in flight on
+        // this tab, so a caller can steer clear of an occupied one.
+        ...(busy[t.id] ? { ops: busy[t.id] } : {}),
       })),
     };
   },
@@ -2495,10 +2573,17 @@ function dispatchChat(payload) {
         sendToOffscreen({ target: 'offscreen', cmd: 'send', payload });
         return;
       }
+      let directSeq = 0;
       direct
         .sendChat(payload, {
           emit: (event) => emitChatEvent(payload.chatId, event),
-          execTool: (name, args) => executeTool(name, args, null),
+          execTool: (name, args) =>
+            trackOp(
+              name, args,
+              `direct#${String(payload.chatId).slice(0, 8)}`,
+              `d-${++directSeq}`,
+              () => executeTool(name, args, null)
+            ),
           gate: (name, args) => gateToolCall(name, args, null),
         })
         .catch((err) => {

@@ -722,7 +722,10 @@ function callBrowserTool(tool, args = {}, opts = {}) {
     }, TOOL_TIMEOUT_MS);
     pending.set(id, { kind: "hub", resolve, reject, timer, extId: target.entry.id });
     log("tool_call", tool, "->", target.entry.name);
-    safeSend(target.entry.ws, { type: "tool_call", id, tool, args: rest, permissions: consentPolicy() });
+    safeSend(target.entry.ws, {
+      type: "tool_call", id, tool, args: rest, permissions: consentPolicy(),
+      agent: opts.agent || "hub",
+    });
   });
 }
 
@@ -734,14 +737,19 @@ function chatScopedBrowserTool(chatId) {
   return (tool, args = {}) => {
     const bound = chatTabs.get(chatId);
     const browserId = chatBrowsers.get(chatId);
+    // Operator identity for the extension's per-tab ops ledger: adapter name
+    // + chat prefix distinguishes two chats sharing one backend.
+    const adapter = sessions.get(chatId)?.adapterName || "chat";
+    const agent = `${adapter}#${String(chatId).slice(0, 8)}`;
+    const opts = { browserId, agent };
     if (tool === "video_download" && args && args.url == null) {
       const u = chatTabUrls.get(chatId);
-      if (u) return callBrowserTool(tool, { ...args, url: u }, { browserId });
+      if (u) return callBrowserTool(tool, { ...args, url: u }, opts);
     }
     if (bound != null && args && args.tabId == null) {
-      return callBrowserTool(tool, { ...args, tabId: bound }, { browserId });
+      return callBrowserTool(tool, { ...args, tabId: bound }, opts);
     }
-    return callBrowserTool(tool, args, { browserId });
+    return callBrowserTool(tool, args, opts);
   };
 }
 
@@ -1967,6 +1975,9 @@ function handleHello(ws, msg) {
   } else if (msg.role === "harness") {
     ws.agentchatRole = "harness";
     ws.agentchatName = typeof msg.name === "string" ? msg.name : "harness";
+    // Unique per connection: two CLI processes sharing a name must still
+    // read as distinct operators in the extension's per-tab ops ledger.
+    ws.agentchatTag = ws.agentchatName + "#" + randomUUID().slice(0, 6);
     log("harness connected:", ws.agentchatName);
   } else {
     log("hello with unknown role, ignoring:", msg.role);
@@ -2032,6 +2043,7 @@ function handleHarnessToolCall(ws, msg) {
   pending.set(id, { kind: "harness", ws, timer, extId: target.entry.id });
   safeSend(target.entry.ws, {
     type: "tool_call", id, tool, args: rest, permissions: consentPolicy(),
+    agent: ws.agentchatTag || ws.agentchatName,
   });
 }
 

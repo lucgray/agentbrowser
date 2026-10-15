@@ -15,7 +15,7 @@ export const TOOLS = [
   },
   {
     name: "tabs_list",
-    description: "List open browser tabs. Returns {tabs:[{tabId,url,title,active}]}.",
+    description: "List open browser tabs. Returns {tabs:[{tabId,url,title,active,ops?}]} — ops lists the agents with tool calls in flight on that tab ({agent,tool,since}); check it before driving a tab another agent is using.",
     args: {
       type: "object",
       properties: {},

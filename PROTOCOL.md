@@ -1,4 +1,4 @@
-# AgentBrowser protocol v2.30
+# AgentBrowser protocol v2.31
 
 AgentBrowser is a Chrome MV3 extension with a side-panel chat UI, plus a local hub
 server. The chat is backed by a pluggable "harness" (Claude Agent SDK, Claude
@@ -1740,3 +1740,27 @@ rendering that respects the page's own layout.
 - **Typography inherits.** The translated block copies the source element's
   computed fontSize/fontWeight/fontFamily/lineHeight/letterSpacing so a
   heading's translation still looks like a heading.
+
+## protocol v2.31
+
+Concurrent agents can see who is operating a tab — advisory marking, no
+locking; the caller decides whether to proceed.
+
+- **`tool_call.agent`** (hub → extension, optional). Names the operator:
+  chat-scoped calls send `"<adapter>#<chatId8>"` (e.g. `claude#9f3a2c1d`),
+  harness calls send `"<name>#<connId6>"` (unique per connection so two
+  CLI processes sharing a name stay distinct), internal hub calls send
+  `"hub"`. Unknown/absent means `agent` in the ledger.
+- **Ops ledger.** The worker keeps `tabId -> [{agent, tool, since}]` for the
+  duration of each call (cleared in `finally`, dropped on tab close).
+  `tabs_list` rows gain `ops` when non-empty so an agent can check a tab's
+  occupancy before driving it. `tabs_list`/`tab_new`/`tab_close`/
+  `browsers_list` are not themselves tab-scoped and never mark.
+- **Overlap advisory.** When a call lands on a tab with another agent's op
+  in flight, the tool still runs; its result gains `note` — e.g.
+  `"tab 42 is also being operated by codex#… (click, 3s ago) — concurrent
+  agents on one tab interleave input and page state; coordinate or pick
+  another tab"`. Same-agent overlap is silent.
+- **Badge.** While a tab has ops the toolbar action shows an `AI` badge on
+  that tab (title lists the agents). Browser chrome only — no page DOM, no
+  `window` globals, invisible to site JS.
