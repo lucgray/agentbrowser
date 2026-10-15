@@ -78,6 +78,26 @@ agentbrowser navigate '{"url":"https://example.com","browser":"Edge","label":"�
 tabIds only mean something inside their own browser — when you combine
 `browser` + `tabId`, the tabId must belong to that browser.
 
+## Which tabs you may drive
+
+Drive only the tab the user pointed you at — the one they @-mentioned or
+attached into the conversation, the active tab they asked you to
+operate, or one they named explicitly. Anything else is read-only unless
+the user says otherwise.
+
+Before mutating a tab you weren't pointed at, check `tabs_list`:
+
+- `windowType` — `'popup'` marks installed web apps (PWAs) and site
+  popup windows: user-managed surfaces. Never navigate, restructure,
+  fill, or close one without the user explicitly asking for that app.
+- `ops` — agents with calls in flight on that tab. Don't drive a tab
+  another agent is using; pick a free one or coordinate via the user.
+- `note` — a `note` field in any tool result is the live version of the
+  same warning; treat it as stop-and-reconsider, not noise.
+
+Need a scratch tab for side work? `tab_new` — never borrow a popup or a
+busy tab.
+
 ## Translating a page (`page_translate`)
 
 `page_translate` starts a background translation pipeline — you do NOT

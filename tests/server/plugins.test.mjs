@@ -77,7 +77,7 @@ test('pluginPrompt joins enabled fragments and skips disabled ones', () => {
   assert.ok(p.includes('## Plugin: Translation assistant'));
   assert.ok(p.includes('## Plugin: Page notes (pipebox-style)'));
   assert.equal(
-    pluginPrompt({ plugins: { translate: { enabled: false }, notes: { enabled: false } } }),
+    pluginPrompt({ plugins: { translate: { enabled: false }, notes: { enabled: false }, 'tab-safety': { enabled: false } } }),
     ''
   );
 });
