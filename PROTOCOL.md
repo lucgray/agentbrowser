@@ -1,4 +1,4 @@
-# AgentBrowser protocol v2.31
+# AgentBrowser protocol v2.32
 
 AgentBrowser is a Chrome MV3 extension with a side-panel chat UI, plus a local hub
 server. The chat is backed by a pluggable "harness" (Claude Agent SDK, Claude
@@ -1764,3 +1764,19 @@ locking; the caller decides whether to proceed.
 - **Badge.** While a tab has ops the toolbar action shows an `AI` badge on
   that tab (title lists the agents). Browser chrome only — no page DOM, no
   `window` globals, invisible to site JS.
+
+## protocol v2.32
+
+Installed web apps and popups are marked so agents don't clobber
+user-managed surfaces.
+
+- **`tabs_list` rows gain `windowType`** (`normal`/`popup`/`app`/`devtools`/
+  `panel`). Installed PWAs and `window.open` popups both report `popup` —
+  anything non-normal is a user-managed surface.
+- **`page_snapshot` results gain `windowType`** for the same reason — the
+  first look at a tab carries the signal.
+- **App-window advisory.** The first *mutating* call an agent makes on a
+  non-`normal` window appends a one-time `note` (same `note` field as the
+  v2.31 overlap advisory): `"tab N lives in a \"popup\" window … — a
+  user-managed surface; confirm before navigating or restructuring it"`.
+  Read-only tools never trigger it; it fires once per agent+tab.

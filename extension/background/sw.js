@@ -605,6 +605,8 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   rightClickContexts.delete(tabId);
   tabops.dropTab(tabId);
   badgedTabs.delete(tabId);
+  tabWinType.delete(tabId);
+  for (const k of appWarned) if (k.endsWith(`|${tabId}`)) appWarned.delete(k);
 });
 
 // --- annotations -------------------------------------------------------------
@@ -1556,6 +1558,36 @@ async function gateToolCall(tool, args, permissions) {
 // listing call doesn't mark whatever tab happens to be active.
 const NON_TAB_TOOLS = new Set(['tabs_list', 'tab_new', 'tab_close', 'browsers_list']);
 
+// Observational tools — reading an app window is harmless; the app-window
+// advisory only fires on calls that can change one.
+const READ_ONLY_TOOLS = new Set([
+  'read_page', 'page_snapshot', 'read_elements', 'element_check', 'screenshot',
+  'console_log', 'network_log', 'dialog_list', 'frames_list', 'downloads_list',
+  'annotations_list', 'preloads_list', 'breakpoint_list', 'debug_wait',
+  'translate_status', 'translate_recent', 'translate_stats', 'transcript_get',
+  'subtitle_status', 'wait_for', 'dom_inspect', 'frame_dom_inspect',
+]);
+
+// tabId -> window.type. Installed web apps (PWAs) and window.open popups both
+// report 'popup' — anything but 'normal' is a user-managed surface the agent
+// should confirm before navigating or restructuring.
+const tabWinType = new Map();
+const appWarned = new Set(); // `${agent}|${tabId}` already advised once
+async function windowTypeFor(tabId) {
+  const hit = tabWinType.get(tabId);
+  if (hit) return hit;
+  try {
+    const w = await chrome.windows.get((await chrome.tabs.get(tabId)).windowId);
+    const type = w.type || 'normal';
+    tabWinType.set(tabId, type);
+    return type;
+  } catch (err) {
+    console.warn('[agentbrowser] window type probe failed', err);
+    return 'normal';
+  }
+}
+chrome.tabs.onAttached.addListener((tabId) => tabWinType.delete(tabId));
+
 // Toolbar badge while an agent has work in flight on a tab. Browser chrome,
 // not page DOM — sites can't observe it.
 const badgedTabs = new Set();
@@ -1608,6 +1640,20 @@ async function trackOp(tool, args, agent, callId, fn) {
     if (opTab != null) {
       note = tabops.begin(opTab, callId, agent, tool);
       updateTabBadge(opTab);
+      // One heads-up per agent+tab: mutating an installed-app / popup window.
+      if (
+        !READ_ONLY_TOOLS.has(tool) &&
+        !appWarned.has(`${agent}|${opTab}`) &&
+        (await windowTypeFor(opTab)) !== 'normal'
+      ) {
+        appWarned.add(`${agent}|${opTab}`);
+        const wt = tabWinType.get(opTab);
+        const appNote =
+          `tab ${opTab} lives in a "${wt}" window (installed web app or site ` +
+          `popup) — a user-managed surface; confirm before navigating or ` +
+          `restructuring it`;
+        note = note ? `${note} Also: ${appNote}` : appNote;
+      }
     }
   }
   try {
@@ -1786,12 +1832,16 @@ const TOOLS = {
   async tabs_list() {
     const tabs = await chrome.tabs.query({});
     const busy = tabops.snapshot();
+    const winTypes = new Map();
+    for (const w of await chrome.windows.getAll()) winTypes.set(w.id, w.type || 'normal');
     return {
       tabs: tabs.map((t) => ({
         tabId: t.id,
         url: t.url,
         title: t.title,
         active: t.active,
+        // 'popup' = installed web app or site popup — a user-managed surface.
+        windowType: winTypes.get(t.windowId) || 'normal',
         // ops: [{agent, tool, since}] — which agents have calls in flight on
         // this tab, so a caller can steer clear of an occupied one.
         ...(busy[t.id] ? { ops: busy[t.id] } : {}),
@@ -1883,7 +1933,9 @@ const TOOLS = {
 
   async page_snapshot(args) {
     const tabId = await resolveTabId(args.tabId);
-    return inspect.pageSnapshot(tabId, args);
+    const snap = await inspect.pageSnapshot(tabId, args);
+    if (snap && typeof snap === 'object') snap.windowType = await windowTypeFor(tabId);
+    return snap;
   },
 
 

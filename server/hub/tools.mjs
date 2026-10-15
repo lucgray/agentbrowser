@@ -15,7 +15,7 @@ export const TOOLS = [
   },
   {
     name: "tabs_list",
-    description: "List open browser tabs. Returns {tabs:[{tabId,url,title,active,ops?}]} — ops lists the agents with tool calls in flight on that tab ({agent,tool,since}); check it before driving a tab another agent is using.",
+    description: "List open browser tabs. Returns {tabs:[{tabId,url,title,active,windowType,ops?}]} — windowType 'popup' marks installed web apps / site popups (user-managed surfaces, don't navigate casually); ops lists agents with calls in flight on that tab ({agent,tool,since}). Check both before driving a tab.",
     args: {
       type: "object",
       properties: {},
