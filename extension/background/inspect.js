@@ -5,6 +5,7 @@
 // navigation and are dropped when the tab closes.
 
 import * as cdp from './cdp.js';
+import * as humanize from './humanize.js';
 import {
   CONSOLE_CAP,
   NETWORK_CAP,
@@ -37,6 +38,8 @@ function state(tabId) {
       paused: null,        // {reason,hitBreakpoints,ts,frames,rawFrames}
       waiters: [],         // debug_wait pending {resolve,timer}
       lastNetAt: 0,      // ts of the last Network.requestWillBeSent
+      nodes: new Map(),    // page_snapshot nodeId -> {path, frame} — v2.29, no DOM stamps
+      nodeSeq: 0,
       url: '',
     };
     tabs.set(tabId, s);
@@ -82,6 +85,8 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   s.dialogs = [];
   s.scripts.clear();
   s.paused = null;
+  s.nodes.clear(); // snapshot node ids die with the document
+  s.nodeSeq = 0;
   s.url = changeInfo.url;
 });
 
@@ -695,7 +700,7 @@ export async function frameClickElement(tabId, args) {
       el.scrollIntoView({ block: 'center', inline: 'center' });
       const r = el.getBoundingClientRect();
       return { found: true, x: r.left + r.width / 2, y: r.top + r.height / 2,
-               tag: el.tagName.toLowerCase() };
+               w: r.width, h: r.height, tag: el.tagName.toLowerCase() };
     })()`
   );
   if (!local || !local.found) {
@@ -719,10 +724,22 @@ export async function frameClickElement(tabId, args) {
   const button = ['right', 'middle', 'none'].includes(args.button) ? args.button : 'left';
   const clickCount = Math.max(1, Math.min(Math.trunc(Number(args.clickCount) || 1), 3));
   const buttons = button === 'none' ? 0 : 1 << ['left', 'right', 'middle'].indexOf(button);
-  const base = { x, y, button, clickCount, buttons };
-  await cdp.sendCommand(tabId, 'Input.dispatchMouseEvent', { type: 'mousePressed', ...base });
-  await cdp.sendCommand(tabId, 'Input.dispatchMouseEvent', { type: 'mouseReleased', ...base });
-  return { clicked: true, selector: args.selector, tag: local.tag, x, y };
+  const hum = args.humanize === false ? false : await humanize.enabled();
+  let pt = { x, y };
+  if (hum) {
+    pt = humanize.jitterPoint(pt, local.w || 0, local.h || 0);
+    await humanize.pause('beforeClick');
+    await cdp.movePointerTo(tabId, pt);
+    await humanize.pause('pointerSettle');
+    await cdp.pressRelease(tabId, { ...pt, button, clickCount, buttons });
+    await humanize.pause('afterClick');
+  } else {
+    const base = { ...pt, button, clickCount, buttons };
+    await cdp.sendCommand(tabId, 'Input.dispatchMouseEvent', { type: 'mousePressed', ...base });
+    humanize.notePointer(tabId, pt.x, pt.y);
+    await cdp.sendCommand(tabId, 'Input.dispatchMouseEvent', { type: 'mouseReleased', ...base });
+  }
+  return { clicked: true, selector: args.selector, tag: local.tag, x: pt.x, y: pt.y };
 }
 
 // Settle wait for navigate: document.readyState === 'complete' AND no new
@@ -754,15 +771,34 @@ export async function waitForSettle(tabId, settleMs, capMs = 15000) {
 
 // page_snapshot: a compact map of the page's visible interactive layer —
 // {node, tag, role, name, text, x, y, w, h}[] — so an agent gets the whole
-// "clickable map" in one call instead of probing with dom_inspect. Elements
-// are stamped `data-ab-node` so click_element {nodeId} can address them.
+// "clickable map" in one call instead of probing with dom_inspect. node ids
+// are minted SW-side per call so click_element {nodeId} can address an
+// element without a CSS selector. v2.29: ids resolve through this in-memory
+// map — no data-ab-node stamps, so the page's DOM is never touched. The map
+// dies with the document (tabs.onUpdated) and on SW restart — a stale id
+// errors and the agent re-snapshots.
 export async function pageSnapshot(tabId, args) {
   const expr = pageSnapshotExpression({ max: args.max, maxChars: args.maxChars, full: !!args.full });
-  if (args.frame) {
-    const sessionId = cdp.findFrameSession(tabId, args.frame);
-    return evalInFrame(tabId, sessionId, expr);
+  const sessionId = args.frame ? cdp.findFrameSession(tabId, args.frame) : null;
+  const res = sessionId ? await evalInFrame(tabId, sessionId, expr) : await evaluate(tabId, expr);
+  const s = state(tabId);
+  // Re-snapshotting a scope retires that scope's old ids (the layout they
+  // pointed into may be gone); other frames' ids stay valid.
+  for (const [id, e] of s.nodes) {
+    if (e.frame === sessionId) s.nodes.delete(id);
   }
-  return evaluate(tabId, expr);
+  for (const n of (res && res.nodes) || []) {
+    const id = `n${++s.nodeSeq}`;
+    n.node = id;
+    s.nodes.set(id, { path: n.path, frame: sessionId });
+  }
+  return res;
+}
+
+// click_element's nodeId lookup — {path, frame} or null when unknown.
+export function nodePath(tabId, nodeId) {
+  const s = tabs.get(tabId);
+  return (s && s.nodes.get(String(nodeId))) || null;
 }
 
 // element_check: report a selector's matches — count, visibility, occlusion

@@ -1,0 +1,10 @@
+{
+  "id": "tab-safety",
+  "name": "Tab surface safety",
+  "version": "1.0.0",
+  "description": "Tells agents which tabs they may drive: user-managed surfaces (installed web apps, site popups) and tabs another agent occupies stay hands-off unless the user explicitly put that tab in context.",
+  "enabled": true,
+  "exposeTools": [],
+  "extraTools": [],
+  "prompt": "Tab surface safety: the browser tells you which tabs are user-managed or occupied — respect it.\n\nDrive freely only the tab this chat is bound to (context.currentTab) and any tab the user @-mentioned into context (context.tabs). For ANY other tab, read but do not mutate unless the user explicitly asks:\n\n- tabs_list first: `windowType` — 'popup' marks an installed web app (PWA) or a site popup window: a user-managed surface. `ops` — agents with calls in flight on that tab ({agent,tool,since}). Never navigate, restructure, fill, or close a popup-window tab or an occupied tab unless the user explicitly asked for that app/tab.\n- A `note` field in a tool result is the live version of the same warning ('also being operated by …', 'lives in a popup window') — stop and reconsider, don't push through.\n- page_snapshot also carries `windowType`, so an early look already tells you.\n- Need a scratch tab for side work? tab_new — never borrow an app window or a busy tab."
+}

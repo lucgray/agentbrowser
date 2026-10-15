@@ -4,6 +4,7 @@
 // survive via the offscreen document, which owns the WebSocket.
 
 import * as cdp from './cdp.js';
+import * as humanize from './humanize.js';
 import * as inspect from './inspect.js';
 import { CSS_PATH_FN } from './inspect-core.js';
 import * as consent from './consent.js';
@@ -12,6 +13,7 @@ import { PRELOAD_PRESETS } from './stealth.js';
 import * as translate from './translate.js';
 import * as subtitle from './subtitle.js';
 import * as direct from './direct.js';
+import * as tabops from './tabops.js';
 
 const DEFAULT_HUB_URL = 'ws://127.0.0.1:9010';
 // HTTP origin of the same hub server — media files finished by yt-dlp are
@@ -601,6 +603,10 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
 
 chrome.tabs.onRemoved.addListener((tabId) => {
   rightClickContexts.delete(tabId);
+  tabops.dropTab(tabId);
+  badgedTabs.delete(tabId);
+  tabWinType.delete(tabId);
+  for (const k of appWarned) if (k.endsWith(`|${tabId}`)) appWarned.delete(k);
 });
 
 // --- annotations -------------------------------------------------------------
@@ -1548,11 +1554,126 @@ async function gateToolCall(tool, args, permissions) {
   await consent.authorize(tool, args, tabId, gateUrl, permissions);
 }
 
-async function handleToolCall({ id, tool, args, permissions }) {
+// Tools that never touch a specific tab — skipped by the ops ledger so a
+// listing call doesn't mark whatever tab happens to be active.
+const NON_TAB_TOOLS = new Set(['tabs_list', 'tab_new', 'tab_close', 'browsers_list']);
+
+// Observational tools — reading an app window is harmless; the app-window
+// advisory only fires on calls that can change one.
+const READ_ONLY_TOOLS = new Set([
+  'read_page', 'page_snapshot', 'read_elements', 'element_check', 'screenshot',
+  'console_log', 'network_log', 'dialog_list', 'frames_list', 'downloads_list',
+  'annotations_list', 'preloads_list', 'breakpoint_list', 'debug_wait',
+  'translate_status', 'translate_recent', 'translate_stats', 'transcript_get',
+  'subtitle_status', 'wait_for', 'dom_inspect', 'frame_dom_inspect',
+]);
+
+// tabId -> window.type. Installed web apps (PWAs) and window.open popups both
+// report 'popup' — anything but 'normal' is a user-managed surface the agent
+// should confirm before navigating or restructuring.
+const tabWinType = new Map();
+const appWarned = new Set(); // `${agent}|${tabId}` already advised once
+async function windowTypeFor(tabId) {
+  const hit = tabWinType.get(tabId);
+  if (hit) return hit;
+  try {
+    const w = await chrome.windows.get((await chrome.tabs.get(tabId)).windowId);
+    const type = w.type || 'normal';
+    tabWinType.set(tabId, type);
+    return type;
+  } catch (err) {
+    console.warn('[agentbrowser] window type probe failed', err);
+    return 'normal';
+  }
+}
+chrome.tabs.onAttached.addListener((tabId) => tabWinType.delete(tabId));
+
+// Toolbar badge while an agent has work in flight on a tab. Browser chrome,
+// not page DOM — sites can't observe it.
+const badgedTabs = new Set();
+function updateTabBadge(tabId) {
+  const agents = tabops.agentsOn(tabId);
+  if (agents.length) {
+    if (!badgedTabs.has(tabId)) {
+      badgedTabs.add(tabId);
+      chrome.action.setBadgeBackgroundColor({ tabId, color: '#b45309' })
+        .catch((err) => console.warn('[agentbrowser] badge color failed', err));
+      chrome.action.setBadgeText({ tabId, text: 'AI' })
+        .catch((err) => console.warn('[agentbrowser] badge set failed', err));
+    }
+    chrome.action
+      .setTitle({ tabId, title: `AgentBrowser: ${agents.join(', ')} operating` })
+      .catch((err) => console.warn('[agentbrowser] badge title failed', err));
+    return;
+  }
+  if (!badgedTabs.delete(tabId)) return;
+  chrome.action.setBadgeText({ tabId, text: '' })
+    .catch((err) => console.warn('[agentbrowser] badge clear failed', err));
+  chrome.action.setTitle({ tabId, title: '' })
+    .catch((err) => console.warn('[agentbrowser] badge title clear failed', err));
+}
+
+// A worker restart loses the ledger while badges live in browser chrome —
+// sweep anything a killed worker left on still-open tabs.
+chrome.tabs.query({}).then((tabs) => {
+  for (const t of tabs) {
+    chrome.action.setBadgeText({ tabId: t.id, text: '' })
+      .catch((err) => console.warn('[agentbrowser] stale badge sweep failed', err));
+  }
+});
+
+function withNote(result, note) {
+  if (result && typeof result === 'object' && !Array.isArray(result)) {
+    return { ...result, note };
+  }
+  return { result, note };
+}
+
+// Run one tool call under the ops ledger: registers {agent,tool} on the
+// resolved tab for the call's duration, returns the overlap advisory (if
+// any) folded into the result so the caller sees who else is driving.
+async function trackOp(tool, args, agent, callId, fn) {
+  let opTab = null;
+  let note = null;
+  if (!NON_TAB_TOOLS.has(tool)) {
+    opTab = await resolveTabId(args && args.tabId).catch(() => null);
+    if (opTab != null) {
+      note = tabops.begin(opTab, callId, agent, tool);
+      updateTabBadge(opTab);
+      // One heads-up per agent+tab: mutating an installed-app / popup window.
+      if (
+        !READ_ONLY_TOOLS.has(tool) &&
+        !appWarned.has(`${agent}|${opTab}`) &&
+        (await windowTypeFor(opTab)) !== 'normal'
+      ) {
+        appWarned.add(`${agent}|${opTab}`);
+        const wt = tabWinType.get(opTab);
+        const appNote =
+          `tab ${opTab} lives in a "${wt}" window (installed web app or site ` +
+          `popup) — a user-managed surface; confirm before navigating or ` +
+          `restructuring it`;
+        note = note ? `${note} Also: ${appNote}` : appNote;
+      }
+    }
+  }
+  try {
+    const result = await fn();
+    return note ? withNote(result, note) : result;
+  } finally {
+    if (opTab != null) {
+      tabops.end(opTab, callId);
+      updateTabBadge(opTab);
+    }
+  }
+}
+
+async function handleToolCall({ id, tool, args, permissions, agent }) {
   let reply;
   try {
     await gateToolCall(tool, args, permissions);
-    const result = await executeTool(tool, args || {}, permissions);
+    const result = await trackOp(tool, args || {}, agent, id, () =>
+      executeTool(tool, args || {}, permissions)
+    );
     reply = { type: 'tool_result', id, ok: true, result };
   } catch (err) {
     console.warn('[agentbrowser] tool call failed:', tool, err);
@@ -1710,12 +1831,20 @@ function waitForLoad(tabId, timeoutMs) {
 const TOOLS = {
   async tabs_list() {
     const tabs = await chrome.tabs.query({});
+    const busy = tabops.snapshot();
+    const winTypes = new Map();
+    for (const w of await chrome.windows.getAll()) winTypes.set(w.id, w.type || 'normal');
     return {
       tabs: tabs.map((t) => ({
         tabId: t.id,
         url: t.url,
         title: t.title,
         active: t.active,
+        // 'popup' = installed web app or site popup — a user-managed surface.
+        windowType: winTypes.get(t.windowId) || 'normal',
+        // ops: [{agent, tool, since}] — which agents have calls in flight on
+        // this tab, so a caller can steer clear of an occupied one.
+        ...(busy[t.id] ? { ops: busy[t.id] } : {}),
       })),
     };
   },
@@ -1751,6 +1880,8 @@ const TOOLS = {
     // overlay has to be fired by hand. showOverlay never rejects and is bounded
     // at 250ms, so it is safe to leave unawaited here.
     cdp.showOverlay(tabId, 'navigate');
+    // A person landing on a page looks before acting — log-normal wait.
+    if (args.humanize !== false) await humanize.pause('afterNavigate');
     const tab = await chrome.tabs.get(tabId);
     const out = { url: tab.url, title: tab.title };
     if (settle) out.settled = settle.settled;
@@ -1775,13 +1906,16 @@ const TOOLS = {
 
   async click_element(args) {
     const tabId = await resolveTabId(args.tabId);
-    // nodeId comes from page_snapshot's data-ab-node stamp; keep it to a safe
-    // charset since it lands inside a selector.
+    // nodeId resolves through the snapshot map minted by inspect.pageSnapshot
+    // (v2.29 — in-memory, no DOM stamps).
     let selector = args.selector;
     if (args.nodeId != null) {
-      const n = String(args.nodeId);
-      if (!/^[0-9A-Za-z_-]+$/.test(n)) throw new Error('invalid nodeId');
-      selector = `[data-ab-node="${n}"]`;
+      const entry = inspect.nodePath(tabId, args.nodeId);
+      if (!entry) {
+        throw new Error(`unknown nodeId "${args.nodeId}" — re-run page_snapshot to refresh the element map`);
+      }
+      selector = entry.path;
+      if (entry.frame && !args.frame) args = { ...args, frame: entry.frame };
     }
     if (args.frame) {
       return inspect.frameClickElement(tabId, { ...args, selector });
@@ -1799,7 +1933,9 @@ const TOOLS = {
 
   async page_snapshot(args) {
     const tabId = await resolveTabId(args.tabId);
-    return inspect.pageSnapshot(tabId, args);
+    const snap = await inspect.pageSnapshot(tabId, args);
+    if (snap && typeof snap === 'object') snap.windowType = await windowTypeFor(tabId);
+    return snap;
   },
 
 
@@ -1811,7 +1947,7 @@ const TOOLS = {
       return res;
     }
     mark(tabId, Number(args.x), Number(args.y), 'hover', args.label);
-    return cdp.hover(tabId, Number(args.x), Number(args.y));
+    return cdp.hover(tabId, Number(args.x), Number(args.y), args);
   },
 
   async scroll(args) {
@@ -1854,9 +1990,7 @@ const TOOLS = {
       // Focus via a frame-aware click first (selector required), then the
       // root session's insertText lands in whichever frame holds focus.
       await inspect.frameClickElement(tabId, args);
-      const text = String(args.text ?? '');
-      await cdp.sendCommand(tabId, 'Input.insertText', { text });
-      return { typed: text.length };
+      return cdp.typeText(tabId, String(args.text ?? ''), undefined, args);
     }
     const res = await cdp.typeText(tabId, args.text, args.selector, args);
     // kind 'type': a selector focus is a real click AND drives the key HUD.
@@ -1874,7 +2008,7 @@ const TOOLS = {
   async press_key(args) {
     const tabId = await resolveTabId(args.tabId);
     markCenter(tabId, 'key', args.label, { key: args.key });
-    return cdp.pressKey(tabId, args.key);
+    return cdp.pressKey(tabId, args.key, args);
   },
 
   async eval_js(args) {
@@ -2114,15 +2248,21 @@ const TOOLS = {
         console.warn('[agentbrowser] record_start metrics fallback failed', err);
       }
     }
-    recordings.set(tabId, { startedAt: 0, markers: [], viewport, pausedAt: 0, pauses: [] });
+    recordings.set(tabId, { startedAt: 0, markers: [], viewport, pausedAt: 0, pauses: [], mutedOverlay: false });
     // Hide the overlay chrome (border/pill/ripples) for the capture — it is
     // page content and would otherwise be recorded. The rec cursor stays.
-    cdp.sendCommand(tabId, 'Runtime.evaluate', {
-      expression: 'window.__agentchatRecQuiet = true; var n = document.getElementById("agentchat-overlay-root"); if (n && n.parentNode) n.parentNode.removeChild(n); true;',
-      returnByValue: true,
-      awaitPromise: false,
-      userGesture: false,
-    }).catch((err) => console.warn('[agentbrowser] record overlay-mute failed', err));
+    // New flashes are muted SW-side so no page-visible global is needed; the
+    // eval only removes an already-injected node and leaves nothing behind.
+    if (await cdp.overlayOn()) {
+      recordings.get(tabId).mutedOverlay = true;
+      cdp.muteOverlay(tabId);
+      cdp.sendCommand(tabId, 'Runtime.evaluate', {
+        expression: 'var n = document.getElementById("agentchat-overlay-root"); if (n && n.parentNode) n.parentNode.removeChild(n); true;',
+        returnByValue: true,
+        awaitPromise: false,
+        userGesture: false,
+      }).catch((err) => console.warn('[agentbrowser] record overlay-mute failed', err));
+    }
     const ack = awaitRecorderAck('started');
     await sendToOffscreen({ target: 'offscreen', cmd: 'record_start', streamId, audio, bitrate });
     let res;
@@ -2161,12 +2301,7 @@ const TOOLS = {
       conflictAction: 'uniquify',
     });
     recordings.delete(tabId);
-    cdp.sendCommand(tabId, 'Runtime.evaluate', {
-      expression: 'window.__agentchatRecQuiet = false; true;',
-      returnByValue: true,
-      awaitPromise: false,
-      userGesture: false,
-    }).catch((err) => console.warn('[agentbrowser] record overlay-unmute failed', err));
+    if (rec.mutedOverlay) cdp.unmuteOverlay(tabId);
     return { file: filename, bytes: res.bytes, durationMs: res.durationMs, markers: rec.markers.length };
   },
 
@@ -2251,11 +2386,11 @@ const TOOLS = {
 
   async fill(args) {
     const tabId = await resolveTabId(args.tabId);
-    await cdp.clickElement(tabId, String(args.selector || ''));
-    const res = await cdp.typeText(tabId, String(args.text || ''));
+    await cdp.clickElement(tabId, String(args.selector || ''), 0, 0, args);
+    const res = await cdp.typeText(tabId, String(args.text || ''), undefined, args);
     let submitted = false;
     if (args.submit) {
-      await cdp.pressKey(tabId, 'Enter');
+      await cdp.pressKey(tabId, 'Enter', args);
       submitted = true;
     }
     return { filled: true, typed: res && res.typed, submitted };
@@ -2490,10 +2625,17 @@ function dispatchChat(payload) {
         sendToOffscreen({ target: 'offscreen', cmd: 'send', payload });
         return;
       }
+      let directSeq = 0;
       direct
         .sendChat(payload, {
           emit: (event) => emitChatEvent(payload.chatId, event),
-          execTool: (name, args) => executeTool(name, args, null),
+          execTool: (name, args) =>
+            trackOp(
+              name, args,
+              `direct#${String(payload.chatId).slice(0, 8)}`,
+              `d-${++directSeq}`,
+              () => executeTool(name, args, null)
+            ),
           gate: (name, args) => gateToolCall(name, args, null),
         })
         .catch((err) => {

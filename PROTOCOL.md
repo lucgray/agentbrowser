@@ -1,4 +1,4 @@
-# AgentBrowser protocol v2.22
+# AgentBrowser protocol v2.32
 
 AgentBrowser is a Chrome MV3 extension with a side-panel chat UI, plus a local hub
 server. The chat is backed by a pluggable "harness" (Claude Agent SDK, Claude
@@ -654,7 +654,7 @@ executor, in the SDK adapter's MCP server, and in mcp-proxy.mjs.
 | `read_page` | `{tabId?, maxChars?}` | `{url, title, text}` — `document.body.innerText`, default cap 60000 chars |
 | `screenshot` | `{format?, quality?, clip?, tabId?}` | `{base64, mimeType}` — format png/jpeg/webp + quality (v2.10); clip crops `{x,y,width,height,scale?}` (v2.10) |
 | `click` | `{x, y, button?, clickCount?, tabId?}` | `{clicked:true, button, clickCount}` — CDP mousePressed+mouseReleased; button left/right/middle, clickCount 1-3 (v2.6) |
-| `click_element` | `{selector\|nodeId, index?, force?, timeoutMs?, dx?, dy?, button?, clickCount?, frame?, tabId?}` | `{clicked:true, selector, tag, path}` — v1.7; scrolls into view, clicks center (+offset); button/clickCount added v2.6; `nodeId` (a `data-ab-node` stamp from page_snapshot) and `frame` (OOPIF scope) added v2.7; v2.10 gates: multi-match errors until `index`, invisible/occluded errors until `force`, `timeoutMs` polls until the element appears |
+| `click_element` | `{selector\|nodeId, index?, force?, timeoutMs?, dx?, dy?, button?, clickCount?, frame?, tabId?}` | `{clicked:true, selector, tag, path}` — v1.7; scrolls into view, clicks center (+offset); button/clickCount added v2.6; `nodeId` (a `data-ab-node` stamp from page_snapshot until v2.29 — now an in-session id resolved to the snapshotted CSS path) and `frame` (OOPIF scope) added v2.7; v2.10 gates: multi-match errors until `index`, invisible/occluded errors until `force`, `timeoutMs` polls until the element appears |
 | `type_text` | `{text, selector?, index?, force?, timeoutMs?, frame?, tabId?}` | `{typed:<charcount>, focus?}` — CDP `Input.insertText`; optional `selector` click-focuses the target first (v1.7) with the v2.10 element gates; `frame` focuses via a frame-aware click then types into the OOPIF (v2.7); no-selector results report the focused element as `focus:{tag,name,type}` (v2.10) |
 | `press_key` | `{key, tabId?}` | `{pressed:key}` — e.g. "Enter", "Tab", "Escape", "Backspace", "ArrowDown", "Meta+A", "Meta+C", "Meta+V" |
 | `eval_js` | `{expression, frame?, tabId?}` | `{value}` — `Runtime.evaluate` returnByValue+awaitPromise; errors -> ok:false; `frame` evaluates inside an OOPIF session (v2.7) |
@@ -689,7 +689,7 @@ executor, in the SDK adapter's MCP server, and in mcp-proxy.mjs.
 | `frame_dom_inspect` | `{frame, selector, all?, styles?, max?, tabId?}` | dom_inspect shape — v2.6 |
 | `frame_click_element` | `{frame, selector, dx?, dy?, button?, clickCount?, tabId?}` | `{clicked:true, x, y}` — v2.6; frame-local rect + host iframe offset; consent-gated |
 | `viewport_emulate` | `{width?, height?, mobile?, deviceScaleFactor?, clear?, tabId?}` | `{emulated:true, width, height, mobile}` or `{cleared:true}` — v2.7; Emulation.setDeviceMetricsOverride (+ touch on mobile), clear restores the window viewport |
-| `page_snapshot` | `{max?, maxChars?, full?, frame?, tabId?}` | `{url, count, nodes:[{node,tag,role,name,text,path,href,value,x,y,w,h}]}` — v2.7; visible interactive-element map; `node` stamps `data-ab-node` for click_element; `path`/`href`/`value` fields and `full` (whole-document scan) added v2.10 |
+| `page_snapshot` | `{max?, maxChars?, full?, frame?, tabId?}` | `{url, count, nodes:[{node,tag,role,name,text,path,href,value,x,y,w,h}]}` — v2.7; visible interactive-element map; `node` stamps `data-ab-node` for click_element until v2.29 — now minted in-session (no DOM writes); `path`/`href`/`value` fields and `full` (whole-document scan) added v2.10 |
 | `batch` | `{steps:[{tool, args}], stopOnError?, tabId?}` | `{results:[{step, ok, result|error}], completed, total}` — v2.2; sequential, stops at first failure unless `stopOnError:false`, `tabId` on the call defaults into steps; nesting rejected |
 | `breakpoint_set` | `{url\|urlRegex, lineNumber, columnNumber?, condition?, autoResumeMs?, tabId?}` | `{breakpoint:{id,url,lineNumber,locations:[...]}}` — v2.6; consent-gated |
 | `breakpoint_list` | `{tabId?}` | `{breakpoints, paused}` — v2.6 |
@@ -1656,3 +1656,127 @@ manifest and user-overridable — override, not migration.
 - `plugin_state` response gains `ui`: content asks
   `{cmd:'plugin_state', id}` → `{enabled, ui}` and applies the palette it
   finds — shipped literals stay only as the no-hub fallback.
+
+## protocol v2.28
+
+Humanized input by default — ported from xiaohongshu-mcp's `humanize/`
+package (log-normal action delays + curved pointer paths) so dispatched
+input stops reading as a metronome.
+
+- `extension/background/humanize.js` (new, pure/node-testable): the timing
+  profile (`afterClick`/`afterType`/`afterNavigate`/`betweenScroll`/
+  `beforeClick`/`keystroke`/`clickHold`/`pointerSettle`/…), Box-Muller
+  log-normal sampler clamped to per-action [min,max] ms, cubic-Bézier
+  `curvePath` with perpendicular-offset control points and ease-in-out
+  timing (steps ≈ dist/10 clamped [10,40], 5-9ms/step), aim jitter (±15% of
+  element size, cap 8px), and per-tab pointer tracking.
+- **Off switch**: `chrome.storage.local.humanize === false` disables
+  globally (default ON); any input tool's `humanize:false` arg bypasses per
+  call. Tools gaining the arg: `navigate`, `click`, `click_element`,
+  `hover`, `scroll`, `drag`, `select_text`, `type_text`, `press_key`,
+  `fill`, `frame_click_element`.
+- Click sequence when humanized: `beforeClick` pause → curved `mouseMoved`
+  approach → `pointerSettle` pause → (element clicks only) re-probe the
+  target rect and error `'element moved between aim and press'` if it
+  shifted — → `mousePressed` → `clickHold` → `mouseReleased` → `afterClick`
+  pause. Element aim points jitter inside the element; coordinate clicks
+  land where asked.
+- `type_text` humanized: per-code-point `Input.insertText` with `keystroke`
+  pauses for ≤120 chars; longer text emits random 20-60 char bursts, then an
+  `afterType` pause. `press_key` gains a `clickHold` down→up delay. `drag`/
+  `select_text` coords mode pull along curved paths instead of staircases.
+  `scroll` walks the pointer to the anchor first, jitters speed ±20%, and
+  adds a `betweenScroll` pause. `navigate` adds an `afterNavigate` pause
+  after load/settle.
+
+## protocol v2.29
+
+Page-visible automation artifacts removed — toward "every behavior reads as
+human to the site":
+
+- **Overlay defaults OFF.** `#agentchat-overlay-root` and the
+  `window.__agentchatOverlay*` globals were observable by any
+  MutationObserver or `Object.keys(window)` scan. `overlayEnabled` is now
+  opt-in: only `chrome.storage.local.overlayEnabled === true` shows the
+  pill. Recording mute moved SW-side — `cdp.muteOverlay(tabId)` blocks
+  injectOverlay during `record_start` (tracked via
+  `recordings[].mutedOverlay`), so the `__agentchatRecQuiet` window global
+  is gone entirely; the start eval now only removes an already-injected
+  node.
+- **No more `data-ab-node` DOM stamps.** `page_snapshot` no longer writes
+  `data-ab-node`/`data-ab-seq` attributes; node ids are minted SW-side and
+  `click_element {nodeId}` resolves through inspect.js's per-tab
+  `nodes: Map<nodeId, {path, frame}>` (cleared on navigation, lost on SW
+  restart — a stale id errors with "unknown nodeId — re-run
+  page_snapshot"). Frame snapshots store the resolved sessionId so a bare
+  nodeId click scopes back into the right OOPIF automatically.
+- Remaining page-visible surfaces are feature DOM by design: translate
+  (`data-ab-tid`), subtitles (`data-ab-sub-ui`), annotation marks and the
+  selection Ask button — they exist only while their feature is in use.
+
+## protocol v2.30
+
+Page translation feels more like Immersive Translate: faster drain, and
+rendering that respects the page's own layout.
+
+- **Throughput.** The engine's `flush()` now drains the whole pending queue
+  into provider-sized batches per tick instead of one batch per
+  `batchFlushMs` (250→100ms default); a lone oversized paragraph ships solo
+  instead of wedging the queue forever (pre-existing bug: it could never fit
+  `maxCharsPerBatch` and stalled every tick). `viewportMargin` 600→1200px
+  prefetches further ahead of scroll. Hub-side `CONCURRENCY` 3→6 and the
+  rate bucket defaults to 12 rps / 12 burst.
+- **Inline units.** Elements that render inline (`A`, `SPAN`, `EM`, `STRONG`,
+  … — `INLINE_TAGS` in translate-core.js) label as units whose translation
+  appends *inside* the element (`<span class="ab-t-inline">`) — "Home 首页",
+  no line break — instead of the old `display:block` host that split nav
+  bars and menus into stacked blocks. dim/replace modes don't apply to
+  inline units.
+- **Mixed containers no longer blob.** An element with both direct prose
+  text and block-level children wraps each stray text/inline run in
+  `<ab-wrap>` (its own inline unit) instead of flattening the whole subtree
+  — nested `<li>intro<ul>…` keeps "intro" translated *and* each inner item
+  separate. `stop()` unwraps them.
+- **Typography inherits.** The translated block copies the source element's
+  computed fontSize/fontWeight/fontFamily/lineHeight/letterSpacing so a
+  heading's translation still looks like a heading.
+
+## protocol v2.31
+
+Concurrent agents can see who is operating a tab — advisory marking, no
+locking; the caller decides whether to proceed.
+
+- **`tool_call.agent`** (hub → extension, optional). Names the operator:
+  chat-scoped calls send `"<adapter>#<chatId8>"` (e.g. `claude#9f3a2c1d`),
+  harness calls send `"<name>#<connId6>"` (unique per connection so two
+  CLI processes sharing a name stay distinct), internal hub calls send
+  `"hub"`. Unknown/absent means `agent` in the ledger.
+- **Ops ledger.** The worker keeps `tabId -> [{agent, tool, since}]` for the
+  duration of each call (cleared in `finally`, dropped on tab close).
+  `tabs_list` rows gain `ops` when non-empty so an agent can check a tab's
+  occupancy before driving it. `tabs_list`/`tab_new`/`tab_close`/
+  `browsers_list` are not themselves tab-scoped and never mark.
+- **Overlap advisory.** When a call lands on a tab with another agent's op
+  in flight, the tool still runs; its result gains `note` — e.g.
+  `"tab 42 is also being operated by codex#… (click, 3s ago) — concurrent
+  agents on one tab interleave input and page state; coordinate or pick
+  another tab"`. Same-agent overlap is silent.
+- **Badge.** While a tab has ops the toolbar action shows an `AI` badge on
+  that tab (title lists the agents). Browser chrome only — no page DOM, no
+  `window` globals, invisible to site JS.
+
+## protocol v2.32
+
+Installed web apps and popups are marked so agents don't clobber
+user-managed surfaces.
+
+- **`tabs_list` rows gain `windowType`** (`normal`/`popup`/`app`/`devtools`/
+  `panel`). Installed PWAs and `window.open` popups both report `popup` —
+  anything non-normal is a user-managed surface.
+- **`page_snapshot` results gain `windowType`** for the same reason — the
+  first look at a tab carries the signal.
+- **App-window advisory.** The first *mutating* call an agent makes on a
+  non-`normal` window appends a one-time `note` (same `note` field as the
+  v2.31 overlap advisory): `"tab N lives in a \"popup\" window … — a
+  user-managed surface; confirm before navigating or restructuring it"`.
+  Read-only tools never trigger it; it fires once per agent+tab.

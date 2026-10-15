@@ -175,6 +175,7 @@ test('two extensions coexist; capabilities lists both; harness routes to primary
   assert.equal(r1.ok, true);
   assert.equal(ext1.calls.length, 1);
   assert.equal(ext2.calls.length, 0);
+  assert.match(ext1.calls[0].agent || '', /^test-cli#[0-9a-f]{6}$/, 'harness calls carry a unique operator tag');
 
   // browsers_list is answered by the hub itself — never dispatched.
   const r2 = await cli.call('browsers_list');

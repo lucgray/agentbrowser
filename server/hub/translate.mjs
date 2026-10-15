@@ -29,7 +29,7 @@ const FILE_CACHE_CAP = 4000;
 const MAX_ITEMS_PER_BATCH = 4;
 const MAX_CHARS_PER_BATCH = 1200;
 const PROVIDER_TIMEOUT_MS = 60000;
-const CONCURRENCY = 3;
+const CONCURRENCY = 6;
 
 const DEFAULT_MODELS = { openai: 'gpt-5.6-mini', anthropic: 'claude-haiku-4-5' };
 const OPENAI_BASE_URL = 'https://api.openai.com/v1';
@@ -343,8 +343,8 @@ export function createTranslator({ config, fetchImpl, cacheDir, getKey: getKeyOv
   // Token-bucket pacing on top of the concurrency cap: provider calls first
   // wait for a token, then for a slot. A 429 from the provider pauses all new
   // calls for an exponentially growing cooldown.
-  const RATE_RPS = Math.max(0, Number(cfg.ratePerSec == null ? 8 : cfg.ratePerSec));
-  const RATE_BURST = Math.max(1, Number(cfg.rateBurst == null ? 8 : cfg.rateBurst));
+  const RATE_RPS = Math.max(0, Number(cfg.ratePerSec == null ? 12 : cfg.ratePerSec));
+  const RATE_BURST = Math.max(1, Number(cfg.rateBurst == null ? 12 : cfg.rateBurst));
   let tokens = RATE_BURST;
   let lastRefill = Date.now();
   let cooldownUntil = 0;
